@@ -8,6 +8,7 @@ from liftassess import (
     EvidenceObservation,
     EvidenceReference,
     GenomicInterval,
+    MappingOrientation,
     NormalizedCandidate,
     ProvenanceIdentifier,
     ProvenanceIdentifierKind,
@@ -96,6 +97,7 @@ def test_candidate_can_carry_multiple_distinct_observations_from_one_source(
     candidate = NormalizedCandidate(
         candidate_id="candidate-a",
         target_interval=GenomicInterval(target_assembly, "chr16", 100, 150),
+        orientation=MappingOrientation.SAME,
         mapping_provenance=chain_file,
         evidence=(chain_score, duplicated_bases),
     )
@@ -125,6 +127,7 @@ def test_assessment_references_candidate_supporting_and_contradicting_evidence(
     candidate = NormalizedCandidate(
         "candidate-a",
         GenomicInterval(target_assembly, "chr16", 100, 150),
+        MappingOrientation.SAME,
         source,
         (support, contradiction),
     )
@@ -168,6 +171,7 @@ def test_well_supported_assessment_is_representable(
     candidate = NormalizedCandidate(
         "candidate-a",
         GenomicInterval(target_assembly, "chr16", 100, 150),
+        MappingOrientation.SAME,
         source,
         (observation,),
     )
@@ -216,6 +220,7 @@ def test_distinct_sources_can_be_related_through_shared_upstream_provenance(
     candidate = NormalizedCandidate(
         "candidate-a",
         GenomicInterval(target_assembly, "chr16", 100, 200),
+        MappingOrientation.SAME,
         chain_source,
         (chain_observation, net_observation),
     )
@@ -244,6 +249,7 @@ def test_dependent_evidence_can_remain_indeterminate(
     candidate = NormalizedCandidate(
         candidate_id="candidate-a",
         target_interval=GenomicInterval(target_assembly, "chr16", 100, 150),
+        orientation=MappingOrientation.SAME,
         mapping_provenance=chain_source,
         evidence=(
             EvidenceObservation(

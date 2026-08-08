@@ -131,6 +131,12 @@ Not addressed in earlier drafts of this design and worth getting right before an
 
 - **Canonical internal representation: 0-based, half-open intervals** — matches both the BED
   convention and the chain file convention, which is what the tool primarily consumes.
+- A genomic interval is an **unstranded span in forward-reference coordinates**. Mapping
+  orientation is a separate relation on a candidate mapping: `SAME` when source and target are
+  aligned in the same orientation, `REVERSE` when they are aligned in opposite orientations.
+  Do not attach alignment orientation to the interval itself. For a reverse-strand UCSC chain
+  query, normalize the query coordinates back to forward-reference coordinates before creating
+  the target interval.
 - Every input parser converts explicitly into this representation at the boundary. Nothing
   internal ever guesses a convention.
 - CLI-typed locus strings (e.g. `chr16:12345-12400`) follow the common UCSC-style display

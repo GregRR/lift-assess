@@ -25,6 +25,13 @@ class EvidenceAvailabilityTier(str, Enum):
     LIFTOVER_ONLY = "LIFTOVER_ONLY"
 
 
+class MappingOrientation(str, Enum):
+    """Relative alignment orientation between source and target spans."""
+
+    SAME = "SAME"
+    REVERSE = "REVERSE"
+
+
 class ProvenanceIdentifierKind(str, Enum):
     """Identifier schemes established by the v1 provenance design."""
 
@@ -153,6 +160,7 @@ class NormalizedCandidate:
 
     candidate_id: str
     target_interval: GenomicInterval
+    orientation: MappingOrientation
     mapping_provenance: ProvenanceSource
     evidence: tuple[EvidenceObservation, ...] = ()
 
