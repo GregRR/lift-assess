@@ -1,0 +1,161 @@
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+.DocumentRevisions-V100
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+### Python ###
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.conda/
+conda-meta/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Type checkers / linters
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pyre/
+.pytype/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDEs / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+### Bioinformatics data & large files ###
+# Raw sequencing reads
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+
+# Alignments
+*.sam
+*.bam
+*.bai
+*.cram
+*.crai
+
+# Reference genomes / indices
+*.fa
+*.fasta
+*.fa.gz
+*.fasta.gz
+*.fai
+*.dict
+*.bt2
+*.bwt
+*.amb
+*.ann
+*.pac
+*.sa
+*.idx
+
+# Variant calls
+*.vcf
+*.vcf.gz
+*.vcf.gz.tbi
+*.bcf
+
+# Annotation / feature files
+*.gff
+*.gff3
+*.gtf
+*.bed
+*.bedgraph
+*.narrowPeak
+*.broadPeak
+
+# Alignment/analysis intermediates
+*.pileup
+*.wig
+*.bigwig
+*.bw
+*.h5
+*.hdf5
+
+# Common project directories for data/results (uncomment if desired)
+# data/
+# raw_data/
+# results/
+# output/
+# logs/
+
+### Snakemake / Nextflow (if used) ###
+.snakemake/
+work/
+.nextflow/
+.nextflow.log*
+
+### R (in case of mixed-language pipelines) ###
+.Rhistory
+.RData
+.Ruserdata
+
+### Misc ###
+*.log
+*.tmp
+*.bak
+*.orig
+.cache/
+
+### Project Specific ###
+my-notes/
