@@ -48,6 +48,15 @@ class ChainBlock:
 
         return self.target_gap is None
 
+    def gaps_after(self) -> tuple[int, int]:
+        """Return the target/query gaps after a non-terminal block."""
+
+        target_gap = self.target_gap
+        query_gap = self.query_gap
+        if target_gap is None or query_gap is None:
+            raise ValueError("terminal chain block has no following gaps")
+        return target_gap, query_gap
+
 
 @dataclass(frozen=True)
 class ChainRecord:
@@ -100,21 +109,34 @@ class ChainRecord:
             return MappingOrientation.SAME
         return MappingOrientation.REVERSE
 
+    def query_interval_to_forward(
+        self, native_start: int, native_end: int
+    ) -> tuple[int, int]:
+        """Convert native chain-query coordinates to forward-reference coordinates."""
+
+        if (
+            native_start < 0
+            or native_end < native_start
+            or native_end > self.query_size
+        ):
+            raise ValueError("query interval is outside sequence bounds")
+        if self.query_strand is ChainStrand.PLUS:
+            return native_start, native_end
+        return self.query_size - native_end, self.query_size - native_start
+
     @property
     def query_forward_start(self) -> int:
         """Return query start in forward-reference coordinates."""
 
-        if self.query_strand is ChainStrand.PLUS:
-            return self.query_start
-        return self.query_size - self.query_end
+        start, _ = self.query_interval_to_forward(self.query_start, self.query_end)
+        return start
 
     @property
     def query_forward_end(self) -> int:
         """Return query end in forward-reference coordinates."""
 
-        if self.query_strand is ChainStrand.PLUS:
-            return self.query_end
-        return self.query_size - self.query_start
+        _, end = self.query_interval_to_forward(self.query_start, self.query_end)
+        return end
 
 
 @dataclass(frozen=True)

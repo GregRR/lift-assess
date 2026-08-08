@@ -9,7 +9,7 @@ candidate without assigning a verdict or interpreting biological meaning.
 
 from dataclasses import replace
 
-from .chain import ChainRecord, ChainStrand
+from .chain import ChainRecord
 from .models import (
     ChainGap,
     ChainGapSummary,
@@ -22,7 +22,7 @@ from .models import (
 )
 
 
-def annotate_chain_mapping_structure(
+def _annotate_chain_mapping_structure(
     source_interval: GenomicInterval,
     chain: ChainRecord,
     candidate: NormalizedCandidate,
@@ -39,12 +39,12 @@ def annotate_chain_mapping_structure(
     _validate_inputs(source_interval, chain, candidate)
 
     uncovered = _uncovered_source_intervals(source_interval, candidate)
-    aligned_bases = sum(
+    covered_source_bases = sum(
         segment.source_interval.length for segment in candidate.segments
     )
     coverage_status = (
         MappingCoverageStatus.FULL
-        if aligned_bases == source_interval.length
+        if covered_source_bases == source_interval.length
         else MappingCoverageStatus.PARTIAL
     )
     coverage = EvidenceObservation(
@@ -52,7 +52,7 @@ def annotate_chain_mapping_structure(
         kind=EvidenceKind.MAPPING_COVERAGE,
         value=MappingCoverageSummary(
             status=coverage_status,
-            aligned_bases=aligned_bases,
+            covered_source_bases=covered_source_bases,
             source_bases=source_interval.length,
             uncovered_source_intervals=uncovered,
         ),
@@ -83,6 +83,12 @@ def _validate_inputs(
         raise ValueError("candidate target sequence does not match chain query sequence")
     if candidate.orientation is not chain.orientation:
         raise ValueError("candidate orientation does not match chain orientation")
+
+    expected_candidate_id = (
+        f"{candidate.mapping_provenance.source_id}:chain:{chain.chain_id}"
+    )
+    if candidate.candidate_id != expected_candidate_id:
+        raise ValueError("candidate identity does not match chain provenance and ID")
 
     first_source = candidate.segments[0].source_interval
     if (
@@ -146,8 +152,7 @@ def _chain_gaps_through_locus(
         if block.is_terminal:
             break
 
-        source_gap_bases = _required_gap(block.target_gap)
-        target_gap_bases = _required_gap(block.query_gap)
+        source_gap_bases, target_gap_bases = block.gaps_after()
         source_gap_start = block_source_end
         source_gap_end = source_gap_start + source_gap_bases
 
@@ -212,12 +217,9 @@ def _target_gap_interval(
         return None
 
     query_gap_end = query_gap_start + query_gap_bases
-    if chain.query_strand is ChainStrand.PLUS:
-        target_start = query_gap_start
-        target_end = query_gap_end
-    else:
-        target_start = chain.query_size - query_gap_end
-        target_end = chain.query_size - query_gap_start
+    target_start, target_end = chain.query_interval_to_forward(
+        query_gap_start, query_gap_end
+    )
 
     return GenomicInterval(
         assembly=candidate.target_interval.assembly,
@@ -225,9 +227,3 @@ def _target_gap_interval(
         start=target_start,
         end=target_end,
     )
-
-
-def _required_gap(value: int | None) -> int:
-    if value is None:
-        raise ValueError("non-terminal chain block is missing a gap value")
-    return value

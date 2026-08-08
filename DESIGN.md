@@ -123,7 +123,12 @@ These are qualitative and deterministic in intent, not numeric thresholds: the s
 applied against this text should reliably produce the same label. They do not eliminate all
 judgment — "material" and "meaningful" still require interpretation when implemented — but they
 give every future decision a fixed text to be tested against, rather than leaving the boundary to
-be reinvented case by case.
+be reinvented case by case. `CONTESTED` does not require multiple candidates: the second clause
+above explicitly allows a single candidate to be contested when informative evidence sources
+materially disagree. The raw `Assessment` data container therefore does not enforce candidate-count
+or preferred-candidate rules by verdict; those semantic construction rules belong to the assessor
+core when verdict assignment is implemented. Container permissiveness is not a claim that every
+representable verdict/candidate combination is semantically valid.
 
 ## 5. Coordinate semantics
 
@@ -168,7 +173,8 @@ Not addressed in earlier drafts of this design and worth getting right before an
   is tracked separately because UCSC chain gaps can occur on the source side, destination side,
   or both; a destination-only gap does not by itself make source-locus coverage partial. Preserve
   the exact uncovered source intervals and the chain-gap geometry rather than reducing either to
-  a confidence-like number.
+  a confidence-like number. Call the locus-scoped covered-base count `covered_source_bases`; reserve
+  "aligned bases" / `ali` for the distinct chain/net statistic listed below.
 - Chain/net evidence: chain score, aligned bases (`ali`), duplicated query bases (`qDup`), net
   classification (`top`/`syn`/`nonSyn`/etc.), net hierarchy, reciprocal-best membership.
 - Optional genomic-context evidence: flanking-gene orthology/synteny, when available, with its

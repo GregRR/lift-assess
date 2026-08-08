@@ -1,11 +1,12 @@
 import pytest
 
 from liftassess.chain import ChainBlock, ChainRecord, ChainStrand
-from liftassess.evidence import annotate_chain_mapping_structure
+from liftassess.evidence import _annotate_chain_mapping_structure
 from liftassess.models import (
     AssemblyIdentifier,
     ChainGapSummary,
     EvidenceKind,
+    EvidenceObservation,
     GenomicInterval,
     MappingCoverageStatus,
     MappingCoverageSummary,
@@ -75,7 +76,9 @@ def _project(
     return candidate
 
 
-def _observation(candidate: NormalizedCandidate, kind: EvidenceKind):
+def _observation(
+    candidate: NormalizedCandidate, kind: EvidenceKind
+) -> EvidenceObservation:
     return next(item for item in candidate.evidence if item.kind is kind)
 
 
@@ -92,7 +95,7 @@ def test_full_contiguous_mapping_records_full_coverage_and_no_gaps(
 
     assert coverage.value == MappingCoverageSummary(
         status=MappingCoverageStatus.FULL,
-        aligned_bases=10,
+        covered_source_bases=10,
         source_bases=10,
     )
     assert gaps.value == ChainGapSummary()
@@ -120,7 +123,7 @@ def test_source_side_gap_makes_coverage_partial_and_records_exact_overlap(
 
     assert isinstance(coverage, MappingCoverageSummary)
     assert coverage.status is MappingCoverageStatus.PARTIAL
-    assert coverage.aligned_bases == 10
+    assert coverage.covered_source_bases == 10
     assert coverage.source_bases == 20
     assert coverage.uncovered_source_intervals == (
         GenomicInterval(source_assembly, "chr1", 110, 120),
@@ -155,7 +158,7 @@ def test_destination_only_gap_does_not_make_source_coverage_partial(
 
     assert isinstance(coverage, MappingCoverageSummary)
     assert coverage.status is MappingCoverageStatus.FULL
-    assert coverage.aligned_bases == coverage.source_bases == 10
+    assert coverage.covered_source_bases == coverage.source_bases == 10
 
     assert isinstance(gap_summary, ChainGapSummary)
     assert len(gap_summary.gaps) == 1
@@ -283,4 +286,25 @@ def test_annotation_rejects_candidate_with_wrong_chain_orientation(
     )
 
     with pytest.raises(ValueError, match="orientation"):
-        annotate_chain_mapping_structure(source, chain, candidate)
+        _annotate_chain_mapping_structure(source, chain, candidate)
+
+
+def test_annotation_rejects_candidate_from_different_chain(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+) -> None:
+    source = GenomicInterval(source_assembly, "chr1", 105, 115)
+    candidate = _project(
+        source,
+        _chain(chain_id=1),
+        target_assembly,
+        chain_provenance,
+    )
+
+    with pytest.raises(ValueError, match="identity"):
+        _annotate_chain_mapping_structure(
+            source,
+            _chain(chain_id=2),
+            candidate,
+        )

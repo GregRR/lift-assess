@@ -115,34 +115,34 @@ class MappingCoverageSummary:
     """Mechanical source-locus coverage for one candidate mapping."""
 
     status: MappingCoverageStatus
-    aligned_bases: int
+    covered_source_bases: int
     source_bases: int
     uncovered_source_intervals: tuple[GenomicInterval, ...] = ()
 
     def __post_init__(self) -> None:
         if self.source_bases <= 0:
             raise ValueError("mapping coverage source_bases must be positive")
-        if not 0 < self.aligned_bases <= self.source_bases:
+        if not 0 < self.covered_source_bases <= self.source_bases:
             raise ValueError(
-                "mapping coverage aligned_bases must be positive and no greater "
+                "mapping coverage covered_source_bases must be positive and no greater "
                 "than source_bases"
             )
 
         uncovered_bases = sum(
             interval.length for interval in self.uncovered_source_intervals
         )
-        if uncovered_bases != self.source_bases - self.aligned_bases:
+        if uncovered_bases != self.source_bases - self.covered_source_bases:
             raise ValueError(
                 "mapping coverage uncovered intervals must account for every "
                 "unaligned source base"
             )
 
         if self.status is MappingCoverageStatus.FULL:
-            if self.aligned_bases != self.source_bases:
+            if self.covered_source_bases != self.source_bases:
                 raise ValueError("full mapping coverage must align every source base")
             if self.uncovered_source_intervals:
                 raise ValueError("full mapping coverage cannot contain uncovered intervals")
-        elif self.aligned_bases == self.source_bases:
+        elif self.covered_source_bases == self.source_bases:
             raise ValueError("partial mapping coverage must leave source bases uncovered")
 
 
@@ -351,7 +351,8 @@ class Assessment:
 
     The model stores the verdict and references to the evidence used in the
     assessment. It does not compute a verdict, confidence score, or biological
-    truth claim.
+    truth claim. Verdict-specific semantic constraints belong to the assessor
+    logic; this container enforces only referential integrity.
     """
 
     source_interval: GenomicInterval

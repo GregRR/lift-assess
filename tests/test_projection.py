@@ -6,6 +6,7 @@ from liftassess.models import (
     EvidenceKind,
     GenomicInterval,
     MappingOrientation,
+    NormalizedCandidate,
     ProvenanceSource,
 )
 from liftassess.projection import (
@@ -64,7 +65,7 @@ def _project(
     chain: ChainRecord,
     target_assembly: AssemblyIdentifier,
     chain_provenance: ProvenanceSource,
-):
+) -> NormalizedCandidate | None:
     return project_interval_through_chain(
         source_interval,
         chain,

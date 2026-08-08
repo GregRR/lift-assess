@@ -9,8 +9,8 @@ fields).
 
 from collections.abc import Iterable, Iterator
 
-from .chain import ChainRecord, ChainStrand
-from .evidence import annotate_chain_mapping_structure
+from .chain import ChainRecord
+from .evidence import _annotate_chain_mapping_structure
 from .models import (
     AssemblyIdentifier,
     EvidenceKind,
@@ -72,12 +72,9 @@ def project_interval_through_chain(
             query_native_start = block_query_start + offset_start
             query_native_end = block_query_start + offset_end
 
-            if chain.query_strand is ChainStrand.PLUS:
-                target_start = query_native_start
-                target_end = query_native_end
-            else:
-                target_start = chain.query_size - query_native_end
-                target_end = chain.query_size - query_native_start
+            target_start, target_end = chain.query_interval_to_forward(
+                query_native_start, query_native_end
+            )
 
             segments.append(
                 MappingSegment(
@@ -98,8 +95,9 @@ def project_interval_through_chain(
 
         if block.is_terminal:
             break
-        target_cursor = block_target_end + _required_gap(block.target_gap)
-        query_cursor = block_query_end + _required_gap(block.query_gap)
+        target_gap, query_gap = block.gaps_after()
+        target_cursor = block_target_end + target_gap
+        query_cursor = block_query_end + query_gap
 
     if not segments:
         return None
@@ -126,7 +124,7 @@ def project_interval_through_chain(
         segments=tuple(segments),
         evidence=(chain_score,),
     )
-    return annotate_chain_mapping_structure(source_interval, chain, candidate)
+    return _annotate_chain_mapping_structure(source_interval, chain, candidate)
 
 
 def iter_candidates_from_chains(
@@ -152,9 +150,3 @@ def iter_candidates_from_chains(
         )
         if candidate is not None:
             yield candidate
-
-
-def _required_gap(value: int | None) -> int:
-    if value is None:
-        raise ValueError("non-terminal chain block is missing a gap value")
-    return value
