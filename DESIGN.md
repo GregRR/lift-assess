@@ -223,6 +223,11 @@ Assessment report (summary + detailed dossier)
   able to generate and report candidates from chain data alone. v1 may implement both in one
   reader package, but the two responsibilities stay conceptually — and ideally structurally —
   separate, so net availability is never accidentally required for candidate generation itself.
+- **Net fills are not one-to-one with chains.** UCSC net `fill` records may carry the associated
+  chain ID, but the same chain ID can occur on more than one fill in one net (including at
+  different hierarchy positions). Candidate annotation must therefore use the chain association
+  together with target-locus overlap and hierarchy context; it must not treat `chain_id` as a
+  unique net-record key. This is directly visible in UCSC's published net-format example.
 - Reconstruct candidates independently from chain/net resources rather than only grading a
   converter's already-filtered output (a converter may have discarded a relevant alternative
   before the assessor ever sees the locus). A converter's flag ("this looks suspicious") is a
