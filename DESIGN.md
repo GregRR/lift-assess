@@ -1,8 +1,8 @@
 # LiftOver Ambiguity Assessor — liftAssess - Design Baseline (v1)
 
-Status: v1 design baseline, not yet built. This document is a starting point for
-implementation, not a constraint against revising it -
-building will expose mistakes here, and it should change when it does.
+Status: v1 design baseline; implementation in progress. This document is a starting point for
+implementation, not a constraint against revising it - building will expose mistakes here, and
+it should change when it does.
 
 ## 1. Problem
 
@@ -137,6 +137,15 @@ Not addressed in earlier drafts of this design and worth getting right before an
   Do not attach alignment orientation to the interval itself. For a reverse-strand UCSC chain
   query, normalize the query coordinates back to forward-reference coordinates before creating
   the target interval.
+- A split mapping produced by one chain remains **one candidate**, not several independent
+  candidates. Preserve its exact aligned structure as ordered source/target mapping segments.
+  `NormalizedCandidate.target_interval` is the smallest forward-reference span containing all
+  mapped target segments; it is a summary/bounding span only and must never imply that bases
+  between separated segments are aligned.
+- The core interval type can represent an empty half-open span, but v1 chain candidate generation
+  does not assign semantics to zero-length source intervals. Reject them rather than implicitly
+  borrowing UCSC liftOver's special zero-width handling; add such support only after the desired
+  point/insertion semantics are specified explicitly.
 - Every input parser converts explicitly into this representation at the boundary. Nothing
   internal ever guesses a convention.
 - CLI-typed locus strings (e.g. `chr16:12345-12400`) follow the common UCSC-style display
@@ -190,7 +199,10 @@ Assessment report (summary + detailed dossier)
   documented UCSC chain/net format. Not pyliftover (point-converter only, no block/gap detail) —
   and not the UCSC liftOver binary (see §8, licensing).
 - **Chains generate candidate mappings; nets annotate and evaluate those candidates.** These are
-  distinct responsibilities. The LIFTOVER-ONLY evidence tier has no net file and must still be
+  distinct responsibilities. For UCSC-generated liftOver map chains specifically, the old/source
+  assembly is the chain target (`t*`) side and the new/destination assembly is the query (`q*`)
+  side; candidate generation follows that documented direction explicitly rather than inferring it
+  from assembly names. The LIFTOVER-ONLY evidence tier has no net file and must still be
   able to generate and report candidates from chain data alone. v1 may implement both in one
   reader package, but the two responsibilities stay conceptually — and ideally structurally —
   separate, so net availability is never accidentally required for candidate generation itself.

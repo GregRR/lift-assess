@@ -155,18 +155,81 @@ class EvidenceObservation:
 
 
 @dataclass(frozen=True)
+class MappingSegment:
+    """One exact ungapped source-to-target portion of a candidate mapping."""
+
+    source_interval: GenomicInterval
+    target_interval: GenomicInterval
+
+    def __post_init__(self) -> None:
+        if self.source_interval.length <= 0 or self.target_interval.length <= 0:
+            raise ValueError("mapping segments must span at least one base")
+        if self.source_interval.length != self.target_interval.length:
+            raise ValueError("mapping segment source and target lengths must match")
+
+
+@dataclass(frozen=True)
 class NormalizedCandidate:
-    """A candidate mapping consumed by the assessor core."""
+    """A candidate mapping consumed by the assessor core.
+
+    ``target_interval`` is the smallest forward-reference bounding span that
+    contains every exact ``segment`` target interval. It is a summary span,
+    not a claim that bases between segments are aligned.
+    """
 
     candidate_id: str
     target_interval: GenomicInterval
     orientation: MappingOrientation
     mapping_provenance: ProvenanceSource
+    segments: tuple[MappingSegment, ...]
     evidence: tuple[EvidenceObservation, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.candidate_id:
             raise ValueError("candidate_id must not be empty")
+        if not self.segments:
+            raise ValueError("candidate must contain at least one mapping segment")
+
+        source_assembly = self.segments[0].source_interval.assembly
+        source_sequence = self.segments[0].source_interval.sequence_name
+        for segment in self.segments:
+            if (
+                segment.source_interval.assembly != source_assembly
+                or segment.source_interval.sequence_name != source_sequence
+            ):
+                raise ValueError(
+                    "candidate mapping segments must share one source sequence"
+                )
+            if (
+                segment.target_interval.assembly != self.target_interval.assembly
+                or segment.target_interval.sequence_name
+                != self.target_interval.sequence_name
+            ):
+                raise ValueError(
+                    "candidate mapping segments must share the candidate target sequence"
+                )
+
+        for previous, current in zip(self.segments, self.segments[1:]):
+            if current.source_interval.start < previous.source_interval.end:
+                raise ValueError(
+                    "candidate mapping segments must be ordered and non-overlapping "
+                    "on the source sequence"
+                )
+
+        expected_target_start = min(
+            segment.target_interval.start for segment in self.segments
+        )
+        expected_target_end = max(
+            segment.target_interval.end for segment in self.segments
+        )
+        if (
+            self.target_interval.start != expected_target_start
+            or self.target_interval.end != expected_target_end
+        ):
+            raise ValueError(
+                "candidate target_interval must exactly bound its mapping segments"
+            )
+
         observation_ids = [observation.observation_id for observation in self.evidence]
         if len(observation_ids) != len(set(observation_ids)):
             raise ValueError("evidence observation IDs must be unique within a candidate")

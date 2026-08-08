@@ -9,6 +9,7 @@ from liftassess import (
     EvidenceReference,
     GenomicInterval,
     MappingOrientation,
+    MappingSegment,
     NormalizedCandidate,
     ProvenanceIdentifier,
     ProvenanceIdentifierKind,
@@ -34,6 +35,24 @@ def target_assembly() -> AssemblyIdentifier:
         provider="test-provider",
         accession="TEST_TARGET_1",
         aliases=("target-assembly-alias",),
+    )
+
+
+def _segment(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    *,
+    source_start: int = 10,
+    target_start: int = 100,
+    length: int = 50,
+) -> MappingSegment:
+    return MappingSegment(
+        source_interval=GenomicInterval(
+            source_assembly, "chr16", source_start, source_start + length
+        ),
+        target_interval=GenomicInterval(
+            target_assembly, "chr16", target_start, target_start + length
+        ),
     )
 
 
@@ -64,6 +83,7 @@ def test_interval_rejects_negative_start_and_reversed_bounds(
 
 
 def test_candidate_can_carry_multiple_distinct_observations_from_one_source(
+    source_assembly: AssemblyIdentifier,
     target_assembly: AssemblyIdentifier,
 ) -> None:
     alignment = ProvenanceSource(
@@ -99,6 +119,7 @@ def test_candidate_can_carry_multiple_distinct_observations_from_one_source(
         target_interval=GenomicInterval(target_assembly, "chr16", 100, 150),
         orientation=MappingOrientation.SAME,
         mapping_provenance=chain_file,
+        segments=(_segment(source_assembly, target_assembly),),
         evidence=(chain_score, duplicated_bases),
     )
 
@@ -125,11 +146,12 @@ def test_assessment_references_candidate_supporting_and_contradicting_evidence(
         source,
     )
     candidate = NormalizedCandidate(
-        "candidate-a",
-        GenomicInterval(target_assembly, "chr16", 100, 150),
-        MappingOrientation.SAME,
-        source,
-        (support, contradiction),
+        candidate_id="candidate-a",
+        target_interval=GenomicInterval(target_assembly, "chr16", 100, 150),
+        orientation=MappingOrientation.SAME,
+        mapping_provenance=source,
+        segments=(_segment(source_assembly, target_assembly),),
+        evidence=(support, contradiction),
     )
 
     assessment = Assessment(
@@ -169,11 +191,12 @@ def test_well_supported_assessment_is_representable(
         source,
     )
     candidate = NormalizedCandidate(
-        "candidate-a",
-        GenomicInterval(target_assembly, "chr16", 100, 150),
-        MappingOrientation.SAME,
-        source,
-        (observation,),
+        candidate_id="candidate-a",
+        target_interval=GenomicInterval(target_assembly, "chr16", 100, 150),
+        orientation=MappingOrientation.SAME,
+        mapping_provenance=source,
+        segments=(_segment(source_assembly, target_assembly),),
+        evidence=(observation,),
     )
 
     assessment = Assessment(
@@ -189,6 +212,7 @@ def test_well_supported_assessment_is_representable(
 
 
 def test_distinct_sources_can_be_related_through_shared_upstream_provenance(
+    source_assembly: AssemblyIdentifier,
     target_assembly: AssemblyIdentifier,
 ) -> None:
     alignment = ProvenanceSource(
@@ -218,11 +242,20 @@ def test_distinct_sources_can_be_related_through_shared_upstream_provenance(
         net_source,
     )
     candidate = NormalizedCandidate(
-        "candidate-a",
-        GenomicInterval(target_assembly, "chr16", 100, 200),
-        MappingOrientation.SAME,
-        chain_source,
-        (chain_observation, net_observation),
+        candidate_id="candidate-a",
+        target_interval=GenomicInterval(target_assembly, "chr16", 100, 200),
+        orientation=MappingOrientation.SAME,
+        mapping_provenance=chain_source,
+        segments=(
+            _segment(
+                source_assembly,
+                target_assembly,
+                source_start=10,
+                target_start=100,
+                length=100,
+            ),
+        ),
+        evidence=(chain_observation, net_observation),
     )
 
     assert chain_observation.provenance is not net_observation.provenance
@@ -251,6 +284,7 @@ def test_dependent_evidence_can_remain_indeterminate(
         target_interval=GenomicInterval(target_assembly, "chr16", 100, 150),
         orientation=MappingOrientation.SAME,
         mapping_provenance=chain_source,
+        segments=(_segment(source_assembly, target_assembly),),
         evidence=(
             EvidenceObservation(
                 "chain-score",
@@ -285,3 +319,97 @@ def test_dependent_evidence_can_remain_indeterminate(
         for observation in candidate.evidence
     }
     assert upstream_sources == {"alignment"}
+
+
+def test_mapping_segment_requires_equal_nonzero_lengths(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    with pytest.raises(ValueError, match="at least one base"):
+        MappingSegment(
+            GenomicInterval(source_assembly, "chr16", 10, 10),
+            GenomicInterval(target_assembly, "chr16", 100, 100),
+        )
+
+    with pytest.raises(ValueError, match="lengths must match"):
+        MappingSegment(
+            GenomicInterval(source_assembly, "chr16", 10, 20),
+            GenomicInterval(target_assembly, "chr16", 100, 111),
+        )
+
+
+def test_candidate_target_interval_is_exact_segment_bounding_span(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    provenance = ProvenanceSource("chain", "chain resource")
+    segments = (
+        _segment(
+            source_assembly,
+            target_assembly,
+            source_start=10,
+            target_start=100,
+            length=5,
+        ),
+        _segment(
+            source_assembly,
+            target_assembly,
+            source_start=20,
+            target_start=120,
+            length=5,
+        ),
+    )
+
+    candidate = NormalizedCandidate(
+        candidate_id="candidate-a",
+        target_interval=GenomicInterval(target_assembly, "chr16", 100, 125),
+        orientation=MappingOrientation.SAME,
+        mapping_provenance=provenance,
+        segments=segments,
+    )
+
+    assert candidate.target_interval == GenomicInterval(
+        target_assembly, "chr16", 100, 125
+    )
+    assert candidate.segments == segments
+
+    with pytest.raises(ValueError, match="exactly bound"):
+        NormalizedCandidate(
+            candidate_id="candidate-b",
+            target_interval=GenomicInterval(target_assembly, "chr16", 100, 130),
+            orientation=MappingOrientation.SAME,
+            mapping_provenance=provenance,
+            segments=segments,
+        )
+
+
+def test_candidate_segments_must_be_source_ordered_and_nonoverlapping(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    provenance = ProvenanceSource("chain", "chain resource")
+    segments = (
+        _segment(
+            source_assembly,
+            target_assembly,
+            source_start=20,
+            target_start=120,
+            length=5,
+        ),
+        _segment(
+            source_assembly,
+            target_assembly,
+            source_start=10,
+            target_start=100,
+            length=5,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="ordered and non-overlapping"):
+        NormalizedCandidate(
+            candidate_id="candidate-a",
+            target_interval=GenomicInterval(target_assembly, "chr16", 100, 125),
+            orientation=MappingOrientation.SAME,
+            mapping_provenance=provenance,
+            segments=segments,
+        )
