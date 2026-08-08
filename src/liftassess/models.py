@@ -56,9 +56,6 @@ class EvidenceKind(str, Enum):
     FLANKING_GENE_SYNTENY = "FLANKING_GENE_SYNTENY"
 
 
-EvidenceValue: TypeAlias = str | int | float | bool
-
-
 @dataclass(frozen=True)
 class AssemblyIdentifier:
     """A structured assembly identity without attempting alias resolution."""
@@ -104,6 +101,93 @@ class GenomicInterval:
         """Return whether a 0-based position lies inside this half-open interval."""
 
         return self.start <= position < self.end
+
+
+class MappingCoverageStatus(str, Enum):
+    """Whether all bases in the requested source locus are aligned."""
+
+    FULL = "FULL"
+    PARTIAL = "PARTIAL"
+
+
+@dataclass(frozen=True)
+class MappingCoverageSummary:
+    """Mechanical source-locus coverage for one candidate mapping."""
+
+    status: MappingCoverageStatus
+    aligned_bases: int
+    source_bases: int
+    uncovered_source_intervals: tuple[GenomicInterval, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.source_bases <= 0:
+            raise ValueError("mapping coverage source_bases must be positive")
+        if not 0 < self.aligned_bases <= self.source_bases:
+            raise ValueError(
+                "mapping coverage aligned_bases must be positive and no greater "
+                "than source_bases"
+            )
+
+        uncovered_bases = sum(
+            interval.length for interval in self.uncovered_source_intervals
+        )
+        if uncovered_bases != self.source_bases - self.aligned_bases:
+            raise ValueError(
+                "mapping coverage uncovered intervals must account for every "
+                "unaligned source base"
+            )
+
+        if self.status is MappingCoverageStatus.FULL:
+            if self.aligned_bases != self.source_bases:
+                raise ValueError("full mapping coverage must align every source base")
+            if self.uncovered_source_intervals:
+                raise ValueError("full mapping coverage cannot contain uncovered intervals")
+        elif self.aligned_bases == self.source_bases:
+            raise ValueError("partial mapping coverage must leave source bases uncovered")
+
+
+@dataclass(frozen=True)
+class ChainGap:
+    """One chain block gap that intersects or lies within the requested locus.
+
+    ``source_gap_overlap`` is the portion of the source-side chain gap that
+    overlaps the requested source locus. It is ``None`` for a destination-only
+    gap (UCSC ``dt == 0``). ``target_gap_interval`` is the corresponding full
+    destination-side gap in forward-reference coordinates and is ``None`` when
+    UCSC ``dq == 0``.
+    """
+
+    source_boundary: int
+    source_gap_overlap: GenomicInterval | None = None
+    target_gap_interval: GenomicInterval | None = None
+
+    def __post_init__(self) -> None:
+        if self.source_boundary < 0:
+            raise ValueError("chain gap source boundary must be non-negative")
+        if self.source_gap_overlap is None and self.target_gap_interval is None:
+            raise ValueError("chain gap must contain a source or target gap")
+        if (
+            self.source_gap_overlap is not None
+            and self.source_gap_overlap.length <= 0
+        ):
+            raise ValueError("chain source gap overlap must span at least one base")
+        if (
+            self.target_gap_interval is not None
+            and self.target_gap_interval.length <= 0
+        ):
+            raise ValueError("chain target gap interval must span at least one base")
+
+
+@dataclass(frozen=True)
+class ChainGapSummary:
+    """Exact chain block gaps observed through one requested source locus."""
+
+    gaps: tuple[ChainGap, ...] = ()
+
+
+EvidenceValue: TypeAlias = (
+    str | int | float | bool | MappingCoverageSummary | ChainGapSummary
+)
 
 
 @dataclass(frozen=True)
@@ -214,6 +298,18 @@ class NormalizedCandidate:
                 raise ValueError(
                     "candidate mapping segments must be ordered and non-overlapping "
                     "on the source sequence"
+                )
+
+            if self.orientation is MappingOrientation.SAME:
+                if current.target_interval.start < previous.target_interval.end:
+                    raise ValueError(
+                        "same-orientation candidate segments must be ordered and "
+                        "non-overlapping on the target sequence"
+                    )
+            elif current.target_interval.end > previous.target_interval.start:
+                raise ValueError(
+                    "reverse-orientation candidate segments must be ordered and "
+                    "non-overlapping on the target sequence"
                 )
 
         expected_target_start = min(

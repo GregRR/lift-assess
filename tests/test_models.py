@@ -413,3 +413,58 @@ def test_candidate_segments_must_be_source_ordered_and_nonoverlapping(
             mapping_provenance=provenance,
             segments=segments,
         )
+
+
+def test_candidate_rejects_target_segments_inconsistent_with_orientation(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    provenance = ProvenanceSource("chain", "chain source")
+
+    with pytest.raises(ValueError, match="same-orientation"):
+        NormalizedCandidate(
+            candidate_id="bad-same",
+            target_interval=GenomicInterval(target_assembly, "chr16", 100, 145),
+            orientation=MappingOrientation.SAME,
+            mapping_provenance=provenance,
+            segments=(
+                _segment(
+                    source_assembly,
+                    target_assembly,
+                    source_start=10,
+                    target_start=120,
+                    length=10,
+                ),
+                _segment(
+                    source_assembly,
+                    target_assembly,
+                    source_start=30,
+                    target_start=100,
+                    length=10,
+                ),
+            ),
+        )
+
+    with pytest.raises(ValueError, match="reverse-orientation"):
+        NormalizedCandidate(
+            candidate_id="bad-reverse",
+            target_interval=GenomicInterval(target_assembly, "chr16", 100, 140),
+            orientation=MappingOrientation.REVERSE,
+            mapping_provenance=provenance,
+            segments=(
+                _segment(
+                    source_assembly,
+                    target_assembly,
+                    source_start=10,
+                    target_start=100,
+                    length=10,
+                ),
+                _segment(
+                    source_assembly,
+                    target_assembly,
+                    source_start=30,
+                    target_start=130,
+                    length=10,
+                ),
+            ),
+        )

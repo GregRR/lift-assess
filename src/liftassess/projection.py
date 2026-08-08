@@ -10,6 +10,7 @@ fields).
 from collections.abc import Iterable, Iterator
 
 from .chain import ChainRecord, ChainStrand
+from .evidence import annotate_chain_mapping_structure
 from .models import (
     AssemblyIdentifier,
     EvidenceKind,
@@ -117,7 +118,7 @@ def project_interval_through_chain(
         provenance=mapping_provenance,
     )
 
-    return NormalizedCandidate(
+    candidate = NormalizedCandidate(
         candidate_id=candidate_id,
         target_interval=target_interval,
         orientation=chain.orientation,
@@ -125,6 +126,7 @@ def project_interval_through_chain(
         segments=tuple(segments),
         evidence=(chain_score,),
     )
+    return annotate_chain_mapping_structure(source_interval, chain, candidate)
 
 
 def iter_candidates_from_chains(

@@ -162,7 +162,13 @@ Not addressed in earlier drafts of this design and worth getting right before an
 
 **In scope — evidence types:**
 - Mapping structure: coverage (full/partial locus), chain gaps through the locus, candidate
-  rank, target chromosome/scaffold placement.
+  rank, target chromosome/scaffold placement. Coverage is specifically coverage of the requested
+  **source locus**: `FULL` means every source base is represented by an aligned mapping segment;
+  `PARTIAL` means one or more source bases are not aligned in that candidate. Chain-gap evidence
+  is tracked separately because UCSC chain gaps can occur on the source side, destination side,
+  or both; a destination-only gap does not by itself make source-locus coverage partial. Preserve
+  the exact uncovered source intervals and the chain-gap geometry rather than reducing either to
+  a confidence-like number.
 - Chain/net evidence: chain score, aligned bases (`ali`), duplicated query bases (`qDup`), net
   classification (`top`/`syn`/`nonSyn`/etc.), net hierarchy, reciprocal-best membership.
 - Optional genomic-context evidence: flanking-gene orthology/synteny, when available, with its
@@ -194,7 +200,12 @@ Assessment report (summary + detailed dossier)
 ```
 
 - The assessor core knows nothing about how candidates were produced. It consumes only the
-  normalized candidate representation and provenance.
+  normalized candidate representation and provenance. Source-specific mechanical observations
+  that cannot be reconstructed losslessly after normalization must therefore be extracted while
+  the source record is still available and carried on the normalized candidate with provenance.
+  Chain-gap evidence is one such case: a requested locus can begin or end inside a chain gap,
+  which cannot always be distinguished from a chain boundary using aligned mapping segments alone.
+  This is evidence capture at the engine boundary, not engine-specific logic in the assessor core.
 - **v1 implements exactly one engine**: an internal, minimal chain/net reader against the
   documented UCSC chain/net format. Not pyliftover (point-converter only, no block/gap detail) —
   and not the UCSC liftOver binary (see §8, licensing).

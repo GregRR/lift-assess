@@ -96,10 +96,16 @@ def test_projects_single_same_orientation_block(
         source_assembly, "chr1", 120, 150
     )
     assert candidate.segments[0].target_interval == candidate.target_interval
-    assert len(candidate.evidence) == 1
-    assert candidate.evidence[0].kind is EvidenceKind.CHAIN_SCORE
+    assert [observation.kind for observation in candidate.evidence] == [
+        EvidenceKind.CHAIN_SCORE,
+        EvidenceKind.MAPPING_COVERAGE,
+        EvidenceKind.CHAIN_GAPS,
+    ]
     assert candidate.evidence[0].value == 1000
-    assert candidate.evidence[0].provenance is chain_provenance
+    assert all(
+        observation.provenance is chain_provenance
+        for observation in candidate.evidence
+    )
 
 
 def test_projects_reverse_query_coordinates_to_forward_reference(
