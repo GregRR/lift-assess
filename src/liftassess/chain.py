@@ -69,6 +69,53 @@ class ChainBlock:
 
 
 @dataclass(frozen=True)
+class ChainAlignedBlock:
+    """One ungapped chain block in forward-reference coordinates.
+
+    The chain file stores negative-strand query coordinates in reverse-complement
+    space. Exposing each aligned block through this type keeps that conversion in
+    one place so projection and evidence code cannot drift into different
+    off-by-one conventions.
+    """
+
+    target_start: int
+    target_end: int
+    query_forward_start: int
+    query_forward_end: int
+    orientation: MappingOrientation
+
+    def __post_init__(self) -> None:
+        target_length = self.target_end - self.target_start
+        query_length = self.query_forward_end - self.query_forward_start
+        if target_length <= 0 or query_length <= 0:
+            raise ValueError("aligned chain block must span at least one base")
+        if target_length != query_length:
+            raise ValueError("aligned chain block target/query lengths must match")
+
+    def query_interval_for_target_interval(
+        self, target_start: int, target_end: int
+    ) -> tuple[int, int]:
+        """Map a contained target-side subinterval onto forward query coordinates."""
+
+        if target_start < self.target_start or target_end > self.target_end:
+            raise ValueError("target subinterval lies outside aligned chain block")
+        if target_end <= target_start:
+            raise ValueError("target subinterval must span at least one base")
+
+        offset_start = target_start - self.target_start
+        offset_end = target_end - self.target_start
+        if self.orientation is MappingOrientation.SAME:
+            return (
+                self.query_forward_start + offset_start,
+                self.query_forward_start + offset_end,
+            )
+        return (
+            self.query_forward_end - offset_end,
+            self.query_forward_end - offset_start,
+        )
+
+
+@dataclass(frozen=True)
 class ChainRecord:
     """One UCSC chain record in native chain coordinates."""
 
@@ -147,6 +194,38 @@ class ChainRecord:
 
         _, end = self.query_interval_to_forward(self.query_start, self.query_end)
         return end
+
+    def iter_aligned_blocks(self) -> Iterator[ChainAlignedBlock]:
+        """Yield exact ungapped blocks with query coordinates normalized forward.
+
+        This iterator is the canonical block-coordinate traversal for consumers
+        that need aligned geometry. Gap evidence still uses the raw block gaps,
+        but projection and reciprocal-best matching should use these normalized
+        blocks instead of reimplementing chain cursor arithmetic.
+        """
+
+        target_cursor = self.target_start
+        query_cursor = self.query_start
+
+        for block in self.blocks:
+            target_end = target_cursor + block.size
+            query_native_end = query_cursor + block.size
+            query_forward_start, query_forward_end = self.query_interval_to_forward(
+                query_cursor, query_native_end
+            )
+            yield ChainAlignedBlock(
+                target_start=target_cursor,
+                target_end=target_end,
+                query_forward_start=query_forward_start,
+                query_forward_end=query_forward_end,
+                orientation=self.orientation,
+            )
+
+            if block.is_terminal:
+                return
+            target_gap, query_gap = block.gaps_after()
+            target_cursor = target_end + target_gap
+            query_cursor = query_native_end + query_gap
 
 
 @dataclass(frozen=True)

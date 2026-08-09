@@ -177,6 +177,24 @@ Not addressed in earlier drafts of this design and worth getting right before an
   "aligned bases" / `ali` for the distinct chain/net statistic listed below.
 - Chain/net evidence: chain score, aligned bases (`ali`), duplicated query bases (`qDup`), net
   classification (`top`/`syn`/`nonSyn`/etc.), net hierarchy, reciprocal-best membership.
+  Reciprocal-best membership is locus-specific to the candidate's **aligned source bases**, not a
+  whole-chain boolean. UCSC's `doRecipBest` pipeline swaps the original target-best chains, nets
+  them in the reverse direction, extracts chain portions retained by that reciprocal-best net,
+  stitches them, and swaps them back. A candidate can therefore be `FULL`, `PARTIAL`, or `NONE`
+  with respect to the reciprocal-best resource. Preserve the exact covered source intervals.
+  Match reciprocal-best membership by exact source→target mapping geometry (sequence,
+  orientation, and aligned coordinates), not by requiring reciprocal-best chain IDs to equal the
+  original candidate chain ID; ID preservation is not part of liftAssess's membership semantics.
+  `PARTIAL` and `NONE` are meaningful only after a complete reciprocal-best resource (or a
+  complete candidate-relevant subset of it) has actually been checked; an arbitrary partial scan
+  must not be reported as exhaustive membership evidence. The engine boundary therefore accepts
+  only a reusable materialized chain collection, requires the caller to state whether completeness
+  means the full resource or a complete candidate-relevant subset, and records that claim plus the
+  number of chains examined in the evidence. This prevents accidental iterator exhaustion from
+  silently creating false non-membership while keeping external resource completeness auditable
+  rather than pretending the library can prove it. This remains a self-consistency observation
+  derived from the same upstream alignment unless provenance demonstrates otherwise; it is not independent
+  confirmation.
 - Optional genomic-context evidence: flanking-gene orthology/synteny, when available, with its
   provenance and evidence dependence evaluated explicitly rather than assumed independent — an
   orthology call may itself incorporate alignment/synteny evidence from a related pipeline.

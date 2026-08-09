@@ -110,6 +110,25 @@ class MappingCoverageStatus(str, Enum):
     PARTIAL = "PARTIAL"
 
 
+class ReciprocalBestMembershipStatus(str, Enum):
+    """Evidence-detail coverage state, not an assessment verdict."""
+
+    FULL = "FULL"
+    PARTIAL = "PARTIAL"
+    NONE = "NONE"
+
+
+class ReciprocalBestResourceCompleteness(str, Enum):
+    """Explicit basis for treating a reciprocal-best scan as exhaustive.
+
+    There is deliberately no incomplete value: an incomplete scan must not produce
+    exhaustive reciprocal-best membership evidence.
+    """
+
+    COMPLETE_RESOURCE = "COMPLETE_RESOURCE"
+    COMPLETE_CANDIDATE_SUBSET = "COMPLETE_CANDIDATE_SUBSET"
+
+
 @dataclass(frozen=True)
 class MappingCoverageSummary:
     """Mechanical source-locus coverage for one candidate mapping."""
@@ -144,6 +163,78 @@ class MappingCoverageSummary:
                 raise ValueError("full mapping coverage cannot contain uncovered intervals")
         elif self.covered_source_bases == self.source_bases:
             raise ValueError("partial mapping coverage must leave source bases uncovered")
+
+
+@dataclass(frozen=True)
+class ReciprocalBestMembershipSummary:
+    """Exact reciprocal-best coverage of one candidate's aligned source bases.
+
+    The denominator is the candidate's aligned source mapping, not the full
+    requested source locus. A candidate may already be partial because of chain
+    gaps; reciprocal-best evidence answers a different question: how much of the
+    mapping that *does* exist survives UCSC's reciprocal-best netting pipeline.
+
+    ``resource_completeness`` is the caller's explicit completeness claim.
+    ``chains_examined`` is audit context only; a chain count cannot itself prove that
+    the external resource was complete.
+    """
+
+    status: ReciprocalBestMembershipStatus
+    resource_completeness: ReciprocalBestResourceCompleteness
+    chains_examined: int
+    covered_source_bases: int
+    candidate_source_bases: int
+    covered_source_intervals: tuple[GenomicInterval, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.chains_examined < 0:
+            raise ValueError("reciprocal-best chains_examined must be non-negative")
+        if self.candidate_source_bases <= 0:
+            raise ValueError("reciprocal-best candidate_source_bases must be positive")
+        if not 0 <= self.covered_source_bases <= self.candidate_source_bases:
+            raise ValueError(
+                "reciprocal-best covered_source_bases must be between zero and "
+                "candidate_source_bases"
+            )
+
+        covered_from_intervals = sum(
+            interval.length for interval in self.covered_source_intervals
+        )
+        if covered_from_intervals != self.covered_source_bases:
+            raise ValueError(
+                "reciprocal-best covered intervals must account for every covered "
+                "source base"
+            )
+
+        for previous, current in zip(
+            self.covered_source_intervals, self.covered_source_intervals[1:]
+        ):
+            if current.assembly != previous.assembly or (
+                current.sequence_name != previous.sequence_name
+            ):
+                raise ValueError(
+                    "reciprocal-best covered intervals must share one source sequence"
+                )
+            if current.start < previous.end:
+                raise ValueError(
+                    "reciprocal-best covered intervals must be ordered and non-overlapping"
+                )
+
+        if self.status is ReciprocalBestMembershipStatus.FULL:
+            if self.covered_source_bases != self.candidate_source_bases:
+                raise ValueError(
+                    "full reciprocal-best membership must cover every candidate source base"
+                )
+        elif self.status is ReciprocalBestMembershipStatus.NONE:
+            if self.covered_source_bases != 0 or self.covered_source_intervals:
+                raise ValueError(
+                    "no reciprocal-best membership cannot contain covered source bases"
+                )
+        elif not 0 < self.covered_source_bases < self.candidate_source_bases:
+            raise ValueError(
+                "partial reciprocal-best membership must cover some but not all "
+                "candidate source bases"
+            )
 
 
 @dataclass(frozen=True)
@@ -211,6 +302,7 @@ EvidenceValue: TypeAlias = (
     | float
     | bool
     | MappingCoverageSummary
+    | ReciprocalBestMembershipSummary
     | ChainGapSummary
     | NetHierarchySummary
 )

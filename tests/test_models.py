@@ -14,6 +14,9 @@ from liftassess import (
     ProvenanceIdentifier,
     ProvenanceIdentifierKind,
     ProvenanceSource,
+    ReciprocalBestMembershipStatus,
+    ReciprocalBestMembershipSummary,
+    ReciprocalBestResourceCompleteness,
     Verdict,
 )
 
@@ -467,4 +470,78 @@ def test_candidate_rejects_target_segments_inconsistent_with_orientation(
                     length=10,
                 ),
             ),
+        )
+
+
+def test_reciprocal_best_membership_summary_enforces_status_counts(
+    source_assembly: AssemblyIdentifier,
+) -> None:
+    covered = (GenomicInterval(source_assembly, "chr16", 10, 20),)
+
+    full = ReciprocalBestMembershipSummary(
+        status=ReciprocalBestMembershipStatus.FULL,
+        resource_completeness=ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE,
+        chains_examined=1,
+        covered_source_bases=10,
+        candidate_source_bases=10,
+        covered_source_intervals=covered,
+    )
+    assert full.status is ReciprocalBestMembershipStatus.FULL
+
+    with pytest.raises(ValueError, match="full reciprocal-best"):
+        ReciprocalBestMembershipSummary(
+            status=ReciprocalBestMembershipStatus.FULL,
+            resource_completeness=ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE,
+            chains_examined=1,
+            covered_source_bases=10,
+            candidate_source_bases=20,
+            covered_source_intervals=covered,
+        )
+
+    with pytest.raises(ValueError, match="no reciprocal-best"):
+        ReciprocalBestMembershipSummary(
+            status=ReciprocalBestMembershipStatus.NONE,
+            resource_completeness=ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE,
+            chains_examined=1,
+            covered_source_bases=10,
+            candidate_source_bases=20,
+            covered_source_intervals=covered,
+        )
+
+    with pytest.raises(ValueError, match="partial reciprocal-best"):
+        ReciprocalBestMembershipSummary(
+            status=ReciprocalBestMembershipStatus.PARTIAL,
+            resource_completeness=ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE,
+            chains_examined=1,
+            covered_source_bases=0,
+            candidate_source_bases=20,
+        )
+
+
+def test_reciprocal_best_membership_intervals_must_match_covered_bases(
+    source_assembly: AssemblyIdentifier,
+) -> None:
+    with pytest.raises(ValueError, match="account for every covered"):
+        ReciprocalBestMembershipSummary(
+            status=ReciprocalBestMembershipStatus.PARTIAL,
+            resource_completeness=ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE,
+            chains_examined=1,
+            covered_source_bases=5,
+            candidate_source_bases=20,
+            covered_source_intervals=(
+                GenomicInterval(source_assembly, "chr16", 10, 20),
+            ),
+        )
+
+
+def test_reciprocal_best_membership_rejects_negative_scan_count(
+    source_assembly: AssemblyIdentifier,
+) -> None:
+    with pytest.raises(ValueError, match="chains_examined"):
+        ReciprocalBestMembershipSummary(
+            status=ReciprocalBestMembershipStatus.NONE,
+            resource_completeness=ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE,
+            chains_examined=-1,
+            covered_source_bases=0,
+            candidate_source_bases=20,
         )

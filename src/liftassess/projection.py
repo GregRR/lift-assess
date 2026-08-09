@@ -55,49 +55,32 @@ def project_interval_through_chain(
         return None
 
     segments: list[MappingSegment] = []
-    target_cursor = chain.target_start
-    query_cursor = chain.query_start
 
-    for block in chain.blocks:
-        block_target_start = target_cursor
-        block_target_end = block_target_start + block.size
-        block_query_start = query_cursor
-        block_query_end = block_query_start + block.size
+    for block in chain.iter_aligned_blocks():
+        overlap_start = max(source_interval.start, block.target_start)
+        overlap_end = min(source_interval.end, block.target_end)
+        if overlap_start >= overlap_end:
+            continue
 
-        overlap_start = max(source_interval.start, block_target_start)
-        overlap_end = min(source_interval.end, block_target_end)
-        if overlap_start < overlap_end:
-            offset_start = overlap_start - block_target_start
-            offset_end = overlap_end - block_target_start
-            query_native_start = block_query_start + offset_start
-            query_native_end = block_query_start + offset_end
-
-            target_start, target_end = chain.query_interval_to_forward(
-                query_native_start, query_native_end
+        target_start, target_end = block.query_interval_for_target_interval(
+            overlap_start, overlap_end
+        )
+        segments.append(
+            MappingSegment(
+                source_interval=GenomicInterval(
+                    assembly=source_interval.assembly,
+                    sequence_name=source_interval.sequence_name,
+                    start=overlap_start,
+                    end=overlap_end,
+                ),
+                target_interval=GenomicInterval(
+                    assembly=target_assembly,
+                    sequence_name=chain.query_name,
+                    start=target_start,
+                    end=target_end,
+                ),
             )
-
-            segments.append(
-                MappingSegment(
-                    source_interval=GenomicInterval(
-                        assembly=source_interval.assembly,
-                        sequence_name=source_interval.sequence_name,
-                        start=overlap_start,
-                        end=overlap_end,
-                    ),
-                    target_interval=GenomicInterval(
-                        assembly=target_assembly,
-                        sequence_name=chain.query_name,
-                        start=target_start,
-                        end=target_end,
-                    ),
-                )
-            )
-
-        if block.is_terminal:
-            break
-        target_gap, query_gap = block.gaps_after()
-        target_cursor = block_target_end + target_gap
-        query_cursor = block_query_end + query_gap
+        )
 
     if not segments:
         return None

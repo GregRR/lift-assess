@@ -19,6 +19,7 @@ from .models import (
     ProvenanceSource,
 )
 from .net import NetRecord, NetRecordKind
+from .provenance import shares_upstream_source
 
 
 def _annotate_candidate_with_net_records(
@@ -52,7 +53,7 @@ def _annotate_candidate_with_net_records(
             "candidate identity does not match mapping provenance and chain ID"
         )
 
-    if not _shares_upstream_source(candidate.mapping_provenance, net_provenance):
+    if not shares_upstream_source(candidate.mapping_provenance, net_provenance):
         raise ValueError(
             "net provenance must share an upstream source with candidate mapping provenance"
         )
@@ -171,24 +172,3 @@ def _fill_provenance(
         ),
         derived_from=(net_provenance,),
     )
-
-
-def _shares_upstream_source(
-    first: ProvenanceSource,
-    second: ProvenanceSource,
-) -> bool:
-    return bool(_provenance_source_ids(first) & _provenance_source_ids(second))
-
-
-def _provenance_source_ids(source: ProvenanceSource) -> set[str]:
-    source_ids: set[str] = set()
-    pending = [source]
-
-    while pending:
-        current = pending.pop()
-        if current.source_id in source_ids:
-            continue
-        source_ids.add(current.source_id)
-        pending.extend(current.derived_from)
-
-    return source_ids

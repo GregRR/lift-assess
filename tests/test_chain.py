@@ -158,3 +158,24 @@ def test_parser_accepts_terminal_block_at_eof_without_blank_line() -> None:
     assert len(record.blocks) == 1
     assert record.blocks[0].size == 20
     assert record.blocks[0].is_terminal
+
+
+def test_aligned_block_iterator_normalizes_reverse_query_geometry_once() -> None:
+    text = """\
+chain 50 chrSource 1000 + 100 125 chrTarget 2000 - 300 328 8
+10 5 8
+10
+
+"""
+
+    (record,) = tuple(iter_chain_records(StringIO(text)))
+    blocks = tuple(record.iter_aligned_blocks())
+
+    assert [(block.target_start, block.target_end) for block in blocks] == [
+        (100, 110),
+        (115, 125),
+    ]
+    assert [
+        (block.query_forward_start, block.query_forward_end) for block in blocks
+    ] == [(1690, 1700), (1672, 1682)]
+    assert blocks[1].query_interval_for_target_interval(117, 121) == (1676, 1680)

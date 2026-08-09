@@ -19,6 +19,9 @@ from .models import (
     ProvenanceIdentifier,
     ProvenanceIdentifierKind,
     ProvenanceSource,
+    ReciprocalBestMembershipStatus,
+    ReciprocalBestMembershipSummary,
+    ReciprocalBestResourceCompleteness,
     Verdict,
 )
 
@@ -41,5 +44,8 @@ __all__ = [
     "ProvenanceIdentifier",
     "ProvenanceIdentifierKind",
     "ProvenanceSource",
+    "ReciprocalBestMembershipStatus",
+    "ReciprocalBestMembershipSummary",
+    "ReciprocalBestResourceCompleteness",
     "Verdict",
 ]
