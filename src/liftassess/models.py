@@ -185,8 +185,34 @@ class ChainGapSummary:
     gaps: tuple[ChainGap, ...] = ()
 
 
+@dataclass(frozen=True)
+class NetHierarchySummary:
+    """Mechanical hierarchy context for one matched UCSC net fill.
+
+    ``depth`` is the fill's indentation-derived hierarchy level in the net.
+    ``source_fill_interval`` identifies the exact target-side fill span that
+    contributed the observation. Depth is context only; it is not a support
+    score or confidence measure.
+    """
+
+    depth: int
+    source_fill_interval: GenomicInterval
+
+    def __post_init__(self) -> None:
+        if self.depth < 1:
+            raise ValueError("net hierarchy depth must be at least 1")
+        if self.source_fill_interval.length <= 0:
+            raise ValueError("net fill interval must span at least one base")
+
+
 EvidenceValue: TypeAlias = (
-    str | int | float | bool | MappingCoverageSummary | ChainGapSummary
+    str
+    | int
+    | float
+    | bool
+    | MappingCoverageSummary
+    | ChainGapSummary
+    | NetHierarchySummary
 )
 
 

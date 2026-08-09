@@ -24,6 +24,16 @@ class ChainStrand(str, Enum):
     MINUS = "-"
 
 
+def chain_candidate_id(mapping_source_id: str, chain_id: int) -> str:
+    """Return the canonical identity for a candidate generated from one chain."""
+
+    if not mapping_source_id:
+        raise ValueError("mapping source ID must not be empty")
+    if chain_id < 0:
+        raise ValueError("chain ID must be non-negative")
+    return f"{mapping_source_id}:chain:{chain_id}"
+
+
 @dataclass(frozen=True)
 class ChainBlock:
     """One ungapped chain block and the gaps that follow it, if any."""

@@ -9,7 +9,7 @@ fields).
 
 from collections.abc import Iterable, Iterator
 
-from .chain import ChainRecord
+from .chain import ChainRecord, chain_candidate_id
 from .evidence import _annotate_chain_mapping_structure
 from .models import (
     AssemblyIdentifier,
@@ -102,7 +102,7 @@ def project_interval_through_chain(
     if not segments:
         return None
 
-    candidate_id = f"{mapping_provenance.source_id}:chain:{chain.chain_id}"
+    candidate_id = chain_candidate_id(mapping_provenance.source_id, chain.chain_id)
     target_interval = GenomicInterval(
         assembly=target_assembly,
         sequence_name=chain.query_name,

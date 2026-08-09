@@ -9,7 +9,7 @@ candidate without assigning a verdict or interpreting biological meaning.
 
 from dataclasses import replace
 
-from .chain import ChainRecord
+from .chain import ChainRecord, chain_candidate_id
 from .models import (
     ChainGap,
     ChainGapSummary,
@@ -84,8 +84,8 @@ def _validate_inputs(
     if candidate.orientation is not chain.orientation:
         raise ValueError("candidate orientation does not match chain orientation")
 
-    expected_candidate_id = (
-        f"{candidate.mapping_provenance.source_id}:chain:{chain.chain_id}"
+    expected_candidate_id = chain_candidate_id(
+        candidate.mapping_provenance.source_id, chain.chain_id
     )
     if candidate.candidate_id != expected_candidate_id:
         raise ValueError("candidate identity does not match chain provenance and ID")

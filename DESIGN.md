@@ -226,8 +226,23 @@ Assessment report (summary + detailed dossier)
 - **Net fills are not one-to-one with chains.** UCSC net `fill` records may carry the associated
   chain ID, but the same chain ID can occur on more than one fill in one net (including at
   different hierarchy positions). Candidate annotation must therefore use the chain association
-  together with target-locus overlap and hierarchy context; it must not treat `chain_id` as a
-  unique net-record key. This is directly visible in UCSC's published net-format example.
+  together with target-side overlap against the candidate's actual aligned source segments and
+  preserve the hierarchy context of every matching fill; it must not treat `chain_id` as a unique
+  net-record key or choose a single "best" fill. UCSC defines a fill as a portion of a chain, and
+  its own `netToAxt` implementation subsets that chain using the fill's target start/end. This is
+  also directly visible in UCSC's published net-format example.
+- **Net metrics stay fill-scoped.** `ali`, `qDup`, net classification, and hierarchy depth are
+  preserved exactly for each relevant fill rather than aggregated across repeated fills or
+  reinterpreted as locus-specific quantities. Hierarchy depth is context, not confidence.
+  Observations from one fill share a fill-level provenance node derived from the net resource;
+  the net resource must share upstream provenance with the chain/alignment source so these
+  observations cannot be presented as independent confirmation.
+- **Net query coordinates are preserved but not yet used for genomic comparisons.** The current
+  parser stores each net record's reported query start/span and relative orientation, but v1
+  candidate matching intentionally uses only the target-side fill span plus the candidate's exact
+  aligned source segments. Do not treat the stored net query coordinates as forward-reference
+  genomic coordinates until their strand/origin semantics have been verified against the kent
+  chainNet implementation. This is a deferred verification item, not an inferred convention.
 - Reconstruct candidates independently from chain/net resources rather than only grading a
   converter's already-filtered output (a converter may have discarded a relevant alternative
   before the assessor ever sees the locus). A converter's flag ("this looks suspicious") is a
