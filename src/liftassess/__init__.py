@@ -24,6 +24,11 @@ from .models import (
     ReciprocalBestResourceCompleteness,
     Verdict,
 )
+from .resources import (
+    UCSCResourceBundle,
+    UCSCResourceDiscoveryError,
+    discover_ucsc_resources,
+)
 
 __all__ = [
     "AssemblyIdentifier",
@@ -47,5 +52,8 @@ __all__ = [
     "ReciprocalBestMembershipStatus",
     "ReciprocalBestMembershipSummary",
     "ReciprocalBestResourceCompleteness",
+    "UCSCResourceBundle",
+    "UCSCResourceDiscoveryError",
     "Verdict",
+    "discover_ucsc_resources",
 ]

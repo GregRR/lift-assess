@@ -174,7 +174,11 @@ Not addressed in earlier drafts of this design and worth getting right before an
   or both; a destination-only gap does not by itself make source-locus coverage partial. Preserve
   the exact uncovered source intervals and the chain-gap geometry rather than reducing either to
   a confidence-like number. Call the locus-scoped covered-base count `covered_source_bases`; reserve
-  "aligned bases" / `ali` for the distinct chain/net statistic listed below.
+  "aligned bases" / `ali` for the distinct chain/net statistic listed below. Candidate rank remains
+  in scope, but v1 must not silently define it as raw chain-score order or UCSC liftOver output
+  order: UCSC documents raw chain score as length-dependent, while liftOver orders multiple
+  returned regions by target position. A future `CANDIDATE_RANK` observation therefore needs an
+  explicit locus-scoped semantics before implementation rather than borrowing either ordering.
 - Chain/net evidence: chain score, aligned bases (`ali`), duplicated query bases (`qDup`), net
   classification (`top`/`syn`/`nonSyn`/etc.), net hierarchy, reciprocal-best membership.
   Reciprocal-best membership is locus-specific to the candidate's **aligned source bases**, not a
@@ -395,6 +399,6 @@ anything now.
 - Decide the exact `--details` / JSON schema.
 - Decide the source for optional flanking-gene synteny context (e.g. Ensembl Compara) and its
   fallback behavior when no ortholog table exists for a species pair.
-- Write the resource resolver against UCSC's Golden Path layout, with real existence checks
-  rather than constructed-path assumptions; confirm behavior when neither tier is available and
-  only user-supplied resources are given.
+- Connect the UCSC resource resolver to a downloader/cache and user-supplied resource path.
+  Discovery now verifies exact Golden Path directory entries and distinguishes `COMPARATIVE`,
+  `LIFTOVER_ONLY`, and unavailable automatic discovery without downloading large resources.
