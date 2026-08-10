@@ -245,6 +245,14 @@ Assessment report (summary + detailed dossier)
   able to generate and report candidates from chain data alone. v1 may implement both in one
   reader package, but the two responsibilities stay conceptually — and ideally structurally —
   separate, so net availability is never accidentally required for candidate generation itself.
+- **UCSC engine orchestration consumes each external record stream once.** Candidate generation
+  streams chains once; net records are filtered during one pass to fills associated with generated
+  candidate chain IDs; reciprocal-best chains are filtered during one exhaustive pass to the
+  source/target sequence and orientation combinations relevant to those candidates. This avoids
+  rescanning large comparative resources once per candidate or materializing whole-genome files
+  merely to make iterators reusable. Per-candidate matching still applies the stricter geometry and
+  provenance rules defined above; the orchestration layer does not rank candidates or assign a
+  verdict.
 - **Net fills are not one-to-one with chains.** UCSC net `fill` records may carry the associated
   chain ID, but the same chain ID can occur on more than one fill in one net (including at
   different hierarchy positions). Candidate annotation must therefore use the chain association
@@ -301,16 +309,46 @@ Assessment report (summary + detailed dossier)
 
 ## 8. Licensing constraints
 
-- UCSC chain files are free to use/download/link/redistribute for **non-commercial use only**
-  (per UCSC's own licensing page); redistribution must retain the original README/license terms.
-- UCSC's liftOver **program itself** (not just the chain data) is separately listed among the
-  restricted-license kent source directories — not covered by the general MIT license that
-  covers most kent utilities. Commercial use requires a separate license from UCSC.
-- Design response: do not bundle or mirror UCSC chain/net files; fetch live from UCSC into a
-  local cache with the user accepting UCSC's terms directly (not laundered through this tool's
-  license); do not depend on UCSC's liftOver binary/source for core logic — use the internal
-  chain reader instead; keep this tool's own code fully open source and independent of UCSC's
-  restricted components; treat UCSC as one external, terms-bound evidence provider.
+- **Do not treat every UCSC file in chain format as having the same license.** UCSC's general
+  Genome Browser licensing page identifies the dedicated liftOver chain files as the data-file
+  exception to its otherwise broadly reusable Genome Browser data. The README in a UCSC
+  `liftOver/` directory states that its `*.over.chain.gz` files are available free for
+  non-commercial use by independent researchers and nonprofit organizations; other use requires
+  a commercial license. Downloading or using those files constitutes acceptance of UCSC's EULA,
+  and redistribution must include the applicable UCSC README/license terms.
+- Comparative resources under `source/vsTarget/` are a distinct publication class and must follow
+  the terms published for that resource directory rather than automatically inheriting the
+  `liftOver/*.over.chain.gz` restriction merely because some files use chain format. For the
+  planned `canFam3` ↔ `canFam4` mechanical fixture, UCSC's `canFam3/vsCanFam4/` README explicitly
+  states that all files in that directory are freely available for public use. Future comparative
+  assembly pairs must still retain and respect their own provider README/terms rather than
+  generalizing from this one directory.
+- UCSC's liftOver **program/source** is separately licensed from most kent command-line utilities;
+  UCSC lists the `src/hg/liftOver` source directory under its non-commercial UC license and offers
+  commercial licensing for liftOver. liftAssess therefore does not depend on or redistribute the
+  UCSC liftOver implementation for its core logic.
+- **Discovery is not permission to download.** The resource resolver may identify either a
+  comparative URL or a restricted `liftOver/*.over.chain.gz` URL, but a future downloader/cache
+  layer must apply the terms for the actual resource before transfer. In particular, automatic
+  retrieval of a restricted liftOver chain must surface the UCSC terms and require explicit user
+  acknowledgement that the intended use is permitted (for example, qualifying non-commercial use
+  or an applicable commercial license). URL discovery alone must never be treated as acceptance.
+- Do not bundle or mirror UCSC chain/net resources in the liftAssess source tree, package,
+  release artifacts, or fixtures. Keep downloaded provider data in a separate local cache,
+  preserve source URL, applicable terms/README provenance, retrieval metadata, and content
+  checksum, and keep liftAssess's own GPL-licensed code independent of those external files.
+  For large or multiple transfers, the downloader should follow UCSC's published bulk-download
+  guidance (for example, rsync where supported) instead of repeatedly fetching large files through
+  ordinary web-page requests.
+- Treat UCSC as one external, terms-bound evidence provider. Always accept user-supplied resources;
+  their licensing remains the user's/provider's responsibility and must not be represented as
+  covered by liftAssess's GPL license.
+
+Primary UCSC terms checked 2026-08-10:
+- Genome Browser licensing: https://genome.ucsc.edu/license/
+- canFam3 liftOver README/terms: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/
+- canFam3/vsCanFam4 comparative README: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/
+- kent source license: https://github.com/ucscGenomeBrowser/kent/blob/master/LICENSE
 
 ## 9. Output format
 
@@ -389,8 +427,9 @@ anything now.
 
 ## 13. Open items for whenever this is picked back up
 
-- Implement the internal chain/net reader against the documented format, with candidate
-  generation and net annotation kept as separate responsibilities (§7).
+- Connect the implemented single-pass UCSC candidate/evidence orchestration to local or cached
+  resource files so a real assembly+locus fixture can run without loading whole comparative files
+  into memory.
 - Build the `canFam3`/`vsCanFam4` mechanical fixture end to end.
 - Identify and document at least one concrete CanFam3.1 locus whose later placement in canFam6
   is independently established (e.g. traceable via the Dog10K assembly paper's gap-closure or

@@ -50,6 +50,8 @@ The current development code includes:
 - reciprocal-best membership evidence with `FULL`, `PARTIAL`, and `NONE` states;
 - explicit completeness requirements for reciprocal-best absence/partial evidence;
 - UCSC resource discovery and evidence-availability tier detection;
+- single-pass UCSC engine orchestration that generates candidates and attaches available net and
+  reciprocal-best evidence without rescanning whole comparative resources per candidate;
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
 
 ## Not implemented yet
@@ -57,7 +59,9 @@ The current development code includes:
 The project is not yet an end-to-end user tool. Major v1 work still includes:
 
 - the assessor logic that deterministically converts evidence into `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE`;
-- orchestration from assembly pair + locus through candidate generation, evidence extraction, and assessment;
+- file/resource loading that connects discovered or user-supplied UCSC resources to the implemented
+  candidate/evidence orchestration;
+- orchestration from the resulting candidate evidence into an assessment verdict and report;
 - a practical strategy for obtaining and caching external resources without silently downloading very large comparative datasets;
 - the command-line interface;
 - human-readable summary and detailed/JSON reports;
@@ -161,9 +165,13 @@ The goal is for researchers to be able to inspect not only **what** liftAssess c
 
 ## External resources
 
-liftAssess does not bundle UCSC chain/net resources or depend on the UCSC liftOver executable for its core logic. UCSC and other external resources remain subject to their providers' own licensing and usage terms.
+liftAssess does not bundle UCSC chain/net resources or depend on the UCSC liftOver executable for its core logic. UCSC and other external resources remain subject to their providers' own licensing and usage terms; liftAssess's GPL-3.0 license does not relicense those external files.
 
-Automatic UCSC discovery is intended as a convenience, not a permanent hard dependency. User-supplied resources are part of the v1 design.
+UCSC resource terms are not uniform simply because multiple resources use chain format. In particular, UCSC's dedicated `liftOver/*.over.chain.gz` files are subject to UCSC's liftOver chain-file terms, including non-commercial-use restrictions unless an applicable commercial license has been obtained. Comparative `vsTarget/` chain/net resources follow the terms published for their own download directory. The planned `canFam3/vsCanFam4/` mechanical-fixture directory currently states that its files are freely available for public use.
+
+The current resolver **discovers URLs only; it does not download these resources**. A future downloader/cache layer must keep discovery separate from licensing acceptance, surface the applicable provider terms before retrieving a restricted UCSC liftOver chain, and require explicit acknowledgement that the intended use is permitted. Downloaded provider resources should remain outside the source tree and release artifacts, with provenance and checksums retained. Large transfers should use UCSC's recommended bulk-download mechanisms where available rather than repeatedly fetching large files through ordinary web-page requests.
+
+Automatic UCSC discovery is intended as a convenience, not a permanent hard dependency. User-supplied resources are part of the v1 design and remain subject to their own provider terms.
 
 ## License
 
