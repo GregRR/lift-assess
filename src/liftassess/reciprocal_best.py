@@ -9,6 +9,13 @@ Implementation basis: UCSC kent ``src/hg/utils/automation/doRecipBest.pl``
 (verified 2026-08-09). The reciprocal-best chain file can retain only part of an
 original chain. This module therefore measures exact candidate-aligned source
 coverage as FULL, PARTIAL, or NONE instead of reducing membership to a boolean.
+
+Matching only accumulates confirming geometry, so an incomplete resource can
+under-report membership (FULL -> PARTIAL/NONE or PARTIAL -> NONE) but cannot
+create a false FULL. v1 nevertheless requires a complete resource or complete
+candidate-relevant subset for every emitted membership state. Keeping one
+conservative contract prevents callers from treating results from arbitrary
+partial scans as comparable to exhaustive evidence.
 """
 
 from collections.abc import Collection, Iterable
@@ -73,6 +80,7 @@ def _annotate_candidate_with_reciprocal_best_chains(
     covered_ranges: list[tuple[int, int]] = []
     source_sequence = candidate.segments[0].source_interval.sequence_name
     target_sequence = candidate.target_interval.sequence_name
+    candidate_pair_chains_examined = 0
 
     for chain in reciprocal_best_chains:
         if chain.target_name != source_sequence:
@@ -81,6 +89,13 @@ def _annotate_candidate_with_reciprocal_best_chains(
             continue
         if chain.orientation is not candidate.orientation:
             continue
+
+        # This is the audit count stored as ``chains_examined`` below. Count only
+        # chains for the candidate's source/target sequence pair and orientation;
+        # whole-genome chains for unrelated chromosomes would otherwise inflate the
+        # number without saying anything about this candidate. It still does not
+        # prove resource completeness or imply evidence strength.
+        candidate_pair_chains_examined += 1
 
         for block in chain.iter_aligned_blocks():
             for segment in candidate.segments:
@@ -130,7 +145,7 @@ def _annotate_candidate_with_reciprocal_best_chains(
         value=ReciprocalBestMembershipSummary(
             status=status,
             resource_completeness=resource_completeness,
-            chains_examined=len(reciprocal_best_chains),
+            chains_examined=candidate_pair_chains_examined,
             covered_source_bases=covered_source_bases,
             candidate_source_bases=candidate_source_bases,
             covered_source_intervals=covered_intervals,

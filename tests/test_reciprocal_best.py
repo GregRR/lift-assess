@@ -256,6 +256,43 @@ def test_split_candidate_can_have_partial_membership_on_one_aligned_segment() ->
     assert membership.candidate_source_bases == 20
 
 
+def test_reciprocal_best_internal_gap_is_not_bridged_in_membership_coverage() -> None:
+    candidate, _, rbest_provenance = _candidate()
+    reciprocal_chain = ChainRecord(
+        score=100,
+        target_name="chr1",
+        target_size=1000,
+        target_strand=ChainStrand.PLUS,
+        target_start=100,
+        target_end=120,
+        query_name="chrA",
+        query_size=2000,
+        query_strand=ChainStrand.PLUS,
+        query_start=500,
+        query_end=520,
+        chain_id=91,
+        blocks=(
+            ChainBlock(size=10, target_gap=3, query_gap=3),
+            ChainBlock(size=7),
+        ),
+    )
+
+    annotated = _annotate_candidate_with_reciprocal_best_chains(
+        candidate,
+        reciprocal_best_chains=(reciprocal_chain,),
+        resource_completeness=ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE,
+        reciprocal_best_provenance=rbest_provenance,
+    )
+
+    membership = _membership(annotated)
+    assert membership.status is ReciprocalBestMembershipStatus.PARTIAL
+    assert membership.covered_source_bases == 17
+    assert [
+        (interval.start, interval.end)
+        for interval in membership.covered_source_intervals
+    ] == [(100, 110), (113, 120)]
+
+
 def test_wrong_sequence_or_orientation_does_not_count_as_membership() -> None:
     candidate, _, rbest_provenance = _candidate()
     reciprocal_chains = (
@@ -277,6 +314,32 @@ def test_wrong_sequence_or_orientation_does_not_count_as_membership() -> None:
     )
 
     assert _membership(annotated).status is ReciprocalBestMembershipStatus.NONE
+
+
+def test_chains_examined_counts_only_candidate_sequence_pair_and_orientation() -> None:
+    candidate, _, rbest_provenance = _candidate()
+    reciprocal_chains = (
+        _chain(chain_id=80, source_name="chr2"),
+        _chain(chain_id=81, query_name="chrB"),
+        _chain(
+            chain_id=82,
+            query_strand=ChainStrand.MINUS,
+            query_size=2000,
+            query_start=1480,
+        ),
+        _chain(chain_id=83),
+    )
+
+    annotated = _annotate_candidate_with_reciprocal_best_chains(
+        candidate,
+        reciprocal_best_chains=reciprocal_chains,
+        resource_completeness=ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE,
+        reciprocal_best_provenance=rbest_provenance,
+    )
+
+    membership = _membership(annotated)
+    assert membership.status is ReciprocalBestMembershipStatus.FULL
+    assert membership.chains_examined == 1
 
 
 def test_unrelated_reciprocal_best_provenance_is_rejected() -> None:
