@@ -52,6 +52,8 @@ The current development code includes:
 - UCSC resource discovery and evidence-availability tier detection;
 - single-pass UCSC engine orchestration that generates candidates and attaches available net and
   reciprocal-best evidence without rescanning whole comparative resources per candidate;
+- streaming local-file adapters for plain-text or gzip-compressed chain/net resources, including
+  direct parser-to-engine orchestration for user-supplied or cached files;
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
 
 ## Not implemented yet
@@ -59,8 +61,8 @@ The current development code includes:
 The project is not yet an end-to-end user tool. Major v1 work still includes:
 
 - the assessor logic that deterministically converts evidence into `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE`;
-- file/resource loading that connects discovered or user-supplied UCSC resources to the implemented
-  candidate/evidence orchestration;
+- remote-resource acquisition/cache logic that connects discovered UCSC URLs to local files while
+  keeping licensing acceptance, checksums, and retrieval provenance explicit;
 - orchestration from the resulting candidate evidence into an assessment verdict and report;
 - a practical strategy for obtaining and caching external resources without silently downloading very large comparative datasets;
 - the command-line interface;

@@ -25,6 +25,11 @@ from .models import (
     ReciprocalBestResourceCompleteness,
     Verdict,
 )
+from .resource_files import (
+    build_ucsc_candidates_from_files,
+    iter_chain_file,
+    iter_net_file,
+)
 from .resources import (
     UCSCResourceBundle,
     UCSCResourceDiscoveryError,
@@ -57,5 +62,8 @@ __all__ = [
     "UCSCResourceDiscoveryError",
     "Verdict",
     "build_ucsc_candidates",
+    "build_ucsc_candidates_from_files",
     "discover_ucsc_resources",
+    "iter_chain_file",
+    "iter_net_file",
 ]

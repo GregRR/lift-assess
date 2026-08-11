@@ -253,6 +253,12 @@ Assessment report (summary + detailed dossier)
   merely to make iterators reusable. Per-candidate matching still applies the stricter geometry and
   provenance rules defined above; the orchestration layer does not rank candidates or assign a
   verdict.
+- **Local resource-file integration stays a thin streaming boundary.** Plain-text and gzip-compressed
+  chain/net files are opened locally and fed directly through the existing parsers into the UCSC
+  engine; they are not materialized as whole-file objects in memory or rescanned once per candidate.
+  This layer does not download files, infer provider permissions, or invent provenance. Callers supply
+  provenance for the files they selected; a downloader/cache layer can later construct that provenance
+  from recorded URLs, checksums, retrieval metadata, and applicable provider terms.
 - **Reciprocal-best completeness metadata survives orchestration filtering unchanged.** The
   engine's source-sequence, target-sequence, and orientation filter is lossless for candidate
   membership: it removes only reciprocal-best chains that the downstream geometry matcher would
@@ -435,9 +441,6 @@ anything now.
 
 ## 13. Open items for whenever this is picked back up
 
-- Connect the implemented single-pass UCSC candidate/evidence orchestration to local or cached
-  resource files so a real assembly+locus fixture can run without loading whole comparative files
-  into memory.
 - Build the `canFam3`/`vsCanFam4` mechanical fixture end to end.
 - Identify and document at least one concrete CanFam3.1 locus whose later placement in canFam6
   is independently established (e.g. traceable via the Dog10K assembly paper's gap-closure or
@@ -446,6 +449,7 @@ anything now.
 - Decide the exact `--details` / JSON schema.
 - Decide the source for optional flanking-gene synteny context (e.g. Ensembl Compara) and its
   fallback behavior when no ortholog table exists for a species pair.
-- Connect the UCSC resource resolver to a downloader/cache and user-supplied resource path.
-  Discovery now verifies exact Golden Path directory entries and distinguishes `COMPARATIVE`,
-  `LIFTOVER_ONLY`, and unavailable automatic discovery without downloading large resources.
+- Connect the UCSC resource resolver to a downloader/cache. User-supplied and cached local paths can
+  now stream through the implemented file adapter; automatic discovery still verifies exact Golden
+  Path directory entries and distinguishes `COMPARATIVE`, `LIFTOVER_ONLY`, and unavailable without
+  downloading large resources.
