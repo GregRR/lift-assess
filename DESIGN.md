@@ -253,6 +253,14 @@ Assessment report (summary + detailed dossier)
   merely to make iterators reusable. Per-candidate matching still applies the stricter geometry and
   provenance rules defined above; the orchestration layer does not rank candidates or assign a
   verdict.
+- **Reciprocal-best completeness metadata survives orchestration filtering unchanged.** The
+  engine's source-sequence, target-sequence, and orientation filter is lossless for candidate
+  membership: it removes only reciprocal-best chains that the downstream geometry matcher would
+  reject for that candidate anyway. Therefore a caller's `COMPLETE_RESOURCE` or
+  `COMPLETE_CANDIDATE_SUBSET` claim continues to describe the scope that was exhaustively checked
+  and is not rewritten merely because the engine materializes a candidate-relevant subset
+  internally. `chains_examined` is relevance-filtered audit context, not evidence strength or
+  proof that the caller's completeness claim is true.
 - **Net fills are not one-to-one with chains.** UCSC net `fill` records may carry the associated
   chain ID, but the same chain ID can occur on more than one fill in one net (including at
   different hierarchy positions). Candidate annotation must therefore use the chain association

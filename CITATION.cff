@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use liftAssess in research, please cite the software using these metadata."
+title: "liftAssess"
+type: software
+authors:
+  - family-names: "Roe"
+    given-names: "Greg"
+license: "GPL-3.0"
+keywords:
+  - liftover
+  - bioinformatics
+  - genomics
+  - genomic-coordinates
+  - genome-assembly
+  - comparative-genomics
+  - sequence-alignment
+  - provenance
+  - scientific-software
+  - reproducible-research

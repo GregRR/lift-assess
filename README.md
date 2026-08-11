@@ -173,6 +173,10 @@ The current resolver **discovers URLs only; it does not download these resources
 
 Automatic UCSC discovery is intended as a convenience, not a permanent hard dependency. User-supplied resources are part of the v1 design and remain subject to their own provider terms.
 
+## Citation
+
+If you use liftAssess in research, please cite the software using the metadata in [`CITATION.cff`](CITATION.cff). Version-specific citation metadata will be added with the first formal release.
+
 ## License
 
 liftAssess is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
