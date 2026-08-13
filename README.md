@@ -54,6 +54,8 @@ The current development code includes:
   reciprocal-best evidence without rescanning whole comparative resources per candidate;
 - streaming local-file adapters for plain-text or gzip-compressed chain/net resources, including
   direct parser-to-engine orchestration for user-supplied or cached files;
+- content-addressed SHA-256 provenance for exact local resource-file bytes, with separate optional
+  verification of provider-published MD5 or SHA-256 checksums;
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
 
 ## Not implemented yet
@@ -61,8 +63,8 @@ The current development code includes:
 The project is not yet an end-to-end user tool. Major v1 work still includes:
 
 - the assessor logic that deterministically converts evidence into `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE`;
-- remote-resource acquisition/cache logic that connects discovered UCSC URLs to local files while
-  keeping licensing acceptance, checksums, and retrieval provenance explicit;
+- remote-resource acquisition/cache logic that connects discovered UCSC URLs to checksum-identified
+  local files while keeping licensing acceptance and retrieval provenance explicit;
 - orchestration from the resulting candidate evidence into an assessment verdict and report;
 - a practical strategy for obtaining and caching external resources without silently downloading very large comparative datasets;
 - the command-line interface;
@@ -174,6 +176,11 @@ UCSC resource terms are not uniform simply because multiple resources use chain 
 The current resolver **discovers URLs only; it does not download these resources**. A future downloader/cache layer must keep discovery separate from licensing acceptance, surface the applicable provider terms before retrieving a restricted UCSC liftOver chain, and require explicit acknowledgement that the intended use is permitted. Downloaded provider resources should remain outside the source tree and release artifacts, with provenance and checksums retained. Large transfers should use UCSC's recommended bulk-download mechanisms where available rather than repeatedly fetching large files through ordinary web-page requests.
 
 Automatic UCSC discovery is intended as a convenience, not a permanent hard dependency. User-supplied resources are part of the v1 design and remain subject to their own provider terms.
+
+## Project documentation
+
+- [`DESIGN.md`](DESIGN.md) — authoritative scientific and architectural specification.
+- [`ROADMAP.md`](ROADMAP.md) — implementation history, current review state, and planned milestones.
 
 ## Citation
 

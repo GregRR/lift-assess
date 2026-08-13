@@ -11,13 +11,16 @@ from liftassess import (
     GenomicInterval,
     MappingOrientation,
     NormalizedCandidate,
+    ProvenanceIdentifierKind,
     ProvenanceSource,
     ReciprocalBestMembershipStatus,
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
+    ResourceIdentityMismatchError,
     build_ucsc_candidates_from_files,
     iter_chain_file,
     iter_net_file,
+    provenance_source_for_file,
 )
 from liftassess.models import EvidenceValue
 from liftassess.net import NetClassification
@@ -132,15 +135,27 @@ def test_file_adapter_runs_parsers_and_engine_end_to_end(
     tmp_path: Path,
     source_assembly: AssemblyIdentifier,
     target_assembly: AssemblyIdentifier,
-    provenance: tuple[ProvenanceSource, ProvenanceSource, ProvenanceSource],
 ) -> None:
-    chain_provenance, net_provenance, rbest_provenance = provenance
     chain_path = tmp_path / "canFam3.canFam4.all.chain.gz"
     net_path = tmp_path / "canFam3.canFam4.net.gz"
     rbest_path = tmp_path / "canFam3.canFam4.rbest.chain.gz"
     _write_gzip(chain_path, _chain_text(chain_id=1))
     _write_gzip(net_path, _net_text())
     _write_gzip(rbest_path, _chain_text(chain_id=101))
+
+    alignment = ProvenanceSource(
+        source_id="ucsc-canFam3-canFam4-alignment",
+        label="UCSC canFam3 to canFam4 comparative alignment",
+    )
+    chain_provenance = provenance_source_for_file(
+        chain_path, label="test chain resource", derived_from=(alignment,)
+    )
+    net_provenance = provenance_source_for_file(
+        net_path, label="test net resource", derived_from=(alignment,)
+    )
+    rbest_provenance = provenance_source_for_file(
+        rbest_path, label="test reciprocal-best resource", derived_from=(alignment,)
+    )
 
     (candidate,) = build_ucsc_candidates_from_files(
         GenomicInterval(source_assembly, "chr1", 105, 115),
@@ -171,6 +186,108 @@ def test_file_adapter_runs_parsers_and_engine_end_to_end(
     assert reciprocal.status is ReciprocalBestMembershipStatus.FULL
     assert reciprocal.covered_source_bases == 10
     assert reciprocal.chains_examined == 1
+
+
+def test_file_adapter_preserves_content_addressed_file_provenance(
+    tmp_path: Path,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    chain_path = tmp_path / "example.chain"
+    _write_text(chain_path, _chain_text(chain_id=17))
+    alignment = ProvenanceSource("alignment", "upstream alignment")
+    chain_provenance = provenance_source_for_file(
+        chain_path,
+        label="local chain resource",
+        derived_from=(alignment,),
+    )
+
+    (candidate,) = build_ucsc_candidates_from_files(
+        GenomicInterval(source_assembly, "chr1", 105, 115),
+        chain_path,
+        target_assembly=target_assembly,
+        chain_provenance=chain_provenance,
+    )
+
+    assert candidate.mapping_provenance == chain_provenance
+    assert candidate.candidate_id == f"{chain_provenance.source_id}:chain:17"
+    assert chain_provenance.identifiers[0].kind is ProvenanceIdentifierKind.SHA256
+
+
+def test_file_adapter_requires_sha256_file_provenance(
+    tmp_path: Path,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    chain_path = tmp_path / "example.chain"
+    _write_text(chain_path, _chain_text())
+    chain_provenance = ProvenanceSource("chain-file", "unhashed chain file")
+
+    with pytest.raises(ValueError, match="exactly one canonical SHA256 identifier"):
+        build_ucsc_candidates_from_files(
+            GenomicInterval(source_assembly, "chr1", 105, 115),
+            chain_path,
+            target_assembly=target_assembly,
+            chain_provenance=chain_provenance,
+        )
+
+
+def test_file_adapter_rejects_bytes_changed_after_provenance_was_created(
+    tmp_path: Path,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    chain_path = tmp_path / "example.chain"
+    _write_text(chain_path, _chain_text(chain_id=17))
+    chain_provenance = provenance_source_for_file(
+        chain_path, label="local chain resource", derived_from=()
+    )
+
+    _write_text(chain_path, _chain_text(chain_id=18))
+
+    with pytest.raises(ResourceIdentityMismatchError, match="provenance mismatch"):
+        build_ucsc_candidates_from_files(
+            GenomicInterval(source_assembly, "chr1", 105, 115),
+            chain_path,
+            target_assembly=target_assembly,
+            chain_provenance=chain_provenance,
+        )
+
+
+def test_file_backed_chain_and_net_provenance_preserve_shared_upstream_source(
+    tmp_path: Path,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    chain_path = tmp_path / "example.chain"
+    net_path = tmp_path / "example.net"
+    _write_text(chain_path, _chain_text())
+    _write_text(net_path, _net_text())
+    alignment = ProvenanceSource("alignment", "shared alignment")
+    chain_provenance = provenance_source_for_file(
+        chain_path, label="chain resource", derived_from=(alignment,)
+    )
+    net_provenance = provenance_source_for_file(
+        net_path, label="net resource", derived_from=(alignment,)
+    )
+
+    (candidate,) = build_ucsc_candidates_from_files(
+        GenomicInterval(source_assembly, "chr1", 105, 115),
+        chain_path,
+        target_assembly=target_assembly,
+        chain_provenance=chain_provenance,
+        net_path=net_path,
+        net_provenance=net_provenance,
+    )
+
+    net_evidence = next(
+        observation
+        for observation in candidate.evidence
+        if observation.kind is EvidenceKind.NET_CLASSIFICATION
+    )
+    assert candidate.mapping_provenance.derived_from == (alignment,)
+    assert net_evidence.provenance.derived_from == (net_provenance,)
+    assert net_evidence.provenance.derived_from[0].derived_from == (alignment,)
 
 
 def test_file_adapter_uses_engine_validation_for_optional_groups(

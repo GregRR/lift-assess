@@ -318,6 +318,18 @@ class ProvenanceIdentifier:
     def __post_init__(self) -> None:
         if not self.value:
             raise ValueError("provenance identifier value must not be empty")
+        if self.kind is ProvenanceIdentifierKind.SHA256:
+            prefix = "sha256:"
+            digest = self.value.removeprefix(prefix)
+            if (
+                not self.value.startswith(prefix)
+                or len(digest) != 64
+                or any(character not in "0123456789abcdef" for character in digest)
+            ):
+                raise ValueError(
+                    "SHA256 provenance identifier must use canonical "
+                    "sha256:<64 lowercase hexadecimal characters> form"
+                )
 
 
 @dataclass(frozen=True)

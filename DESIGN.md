@@ -1,8 +1,9 @@
 # LiftOver Ambiguity Assessor — liftAssess - Design Baseline (v1)
 
-Status: v1 design baseline; implementation in progress. This document is a starting point for
-implementation, not a constraint against revising it - building will expose mistakes here, and
-it should change when it does.
+Status: v1 design baseline; implementation in progress. This document remains the authoritative
+scientific and architectural specification, not a development-status log. See `ROADMAP.md` for
+implementation history, current review state, and planned milestones. Building will continue to
+expose mistakes here, and this design should change when it does.
 
 ## 1. Problem
 
@@ -256,9 +257,15 @@ Assessment report (summary + detailed dossier)
 - **Local resource-file integration stays a thin streaming boundary.** Plain-text and gzip-compressed
   chain/net files are opened locally and fed directly through the existing parsers into the UCSC
   engine; they are not materialized as whole-file objects in memory or rescanned once per candidate.
-  This layer does not download files, infer provider permissions, or invent provenance. Callers supply
-  provenance for the files they selected; a downloader/cache layer can later construct that provenance
-  from recorded URLs, checksums, retrieval metadata, and applicable provider terms.
+  This layer does not download files or infer provider permissions. Exact local file artifacts are
+  identified by SHA-256 over their raw on-disk bytes and represented through the existing
+  `ProvenanceIdentifierKind.SHA256` model; the content-addressed file provenance node derives its
+  structural source ID from that same digest rather than from a filename or path. Provider-published
+  checksums (including MD5 where that is what the provider publishes) are separate transfer-integrity
+  checks and are not promoted into liftAssess provenance identity. Upstream alignment/process
+  provenance remains caller-supplied because file bytes cannot reveal how the artifact was produced.
+  A downloader/cache layer can later compute the SHA-256 during transfer while recording source URL,
+  retrieval metadata, applicable provider terms, and any provider checksum verification.
 - **Reciprocal-best completeness metadata survives orchestration filtering unchanged.** The
   engine's source-sequence, target-sequence, and orientation filter is lossless for candidate
   membership: it removes only reciprocal-best chains that the downstream geometry matcher would
@@ -401,6 +408,15 @@ a second engine exists — v1 has exactly one (§7).
   `minScore=3000`; processed through chainNet/netSyntenic/netClass). Tasha (canFam3) and Mischka
   (canFam4, German Shepherd) are different individuals, so no ground-truth claim is needed or
   made — this fixture is purely about extraction correctness.
+  - **Real-file smoke check completed 2026-08-12 (not the full comparative fixture).** The
+    restricted `canFam3ToCanFam4.over.chain.gz` liftOver resource matched UCSC's published MD5
+    `15123263dbe4f2c1eb670a98c9b0acf2`; the exact downloaded bytes had SHA-256
+    `c79c9e7c2a3d546f7a9d7efe27cc8815da611d79adb0da4e4ff1556810f28f48`. The implemented
+    file → parser → engine path mapped the 0-based half-open source interval
+    `chr1:12514-12534` to one candidate at `chr1:660-680` with full 20/20 source-base coverage
+    and no chain gaps. No assessment verdict was computed. This establishes real-file mechanical
+    plumbing under the sparse LIFTOVER-ONLY path; it does not validate comparative evidence or
+    biological support.
 - **Historical-resolution fixture pedigree (not yet a concrete fixture)** — identifies the right
   assembly pair for proving the report behaves sensibly against a known resolution; the specific
   truth-bearing locus within that pair has not yet been identified. `canFam3.1` → `canFam6`
@@ -450,6 +466,8 @@ anything now.
 - Decide the source for optional flanking-gene synteny context (e.g. Ensembl Compara) and its
   fallback behavior when no ortholog table exists for a species pair.
 - Connect the UCSC resource resolver to a downloader/cache. User-supplied and cached local paths can
-  now stream through the implemented file adapter; automatic discovery still verifies exact Golden
-  Path directory entries and distinguishes `COMPARATIVE`, `LIFTOVER_ONLY`, and unavailable without
-  downloading large resources.
+  now stream through the implemented file adapter and receive content-addressed SHA-256 provenance;
+  automatic discovery still verifies exact Golden Path directory entries and distinguishes
+  `COMPARATIVE`, `LIFTOVER_ONLY`, and unavailable without downloading large resources. The downloader
+  must compute/retain that SHA-256 identity, verify provider checksums when published, and keep
+  licensing acknowledgement and retrieval metadata explicit.

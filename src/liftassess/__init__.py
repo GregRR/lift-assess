@@ -30,6 +30,15 @@ from .resource_files import (
     iter_chain_file,
     iter_net_file,
 )
+from .resource_identity import (
+    ResourceChecksumAlgorithm,
+    ResourceChecksumMismatchError,
+    ResourceIdentityMismatchError,
+    compute_resource_checksum,
+    provenance_source_for_file,
+    sha256_identifier_for_file,
+    verify_resource_checksum,
+)
 from .resources import (
     UCSCResourceBundle,
     UCSCResourceDiscoveryError,
@@ -58,12 +67,19 @@ __all__ = [
     "ReciprocalBestMembershipStatus",
     "ReciprocalBestMembershipSummary",
     "ReciprocalBestResourceCompleteness",
+    "ResourceChecksumAlgorithm",
+    "ResourceChecksumMismatchError",
+    "ResourceIdentityMismatchError",
     "UCSCResourceBundle",
     "UCSCResourceDiscoveryError",
     "Verdict",
     "build_ucsc_candidates",
     "build_ucsc_candidates_from_files",
+    "compute_resource_checksum",
     "discover_ucsc_resources",
     "iter_chain_file",
     "iter_net_file",
+    "provenance_source_for_file",
+    "sha256_identifier_for_file",
+    "verify_resource_checksum",
 ]
