@@ -171,22 +171,33 @@ Implemented in the resolver:
 
 Live verification completed on 2026-08-13: `discover_ucsc_resources("canFam3", "canFam4")` returned `COMPARATIVE`, with chain/net/syn-net URLs under `canFam3/vsCanFam4/` and the exact directional reciprocal-best URLs under `canFam4/vsCanFam3/reciprocalBest/`. The unit suite also includes an orchestration-level regression confirming that a transport failure during the sibling lookup propagates as `UCSCResourceDiscoveryError` rather than being misread as absence and silently downgrading the evidence tier.
 
-### 11. Resource acquisition and cache
+### 11. Resource acquisition and cache — in progress
 
-Goal: connect already-implemented UCSC resource discovery to exact local files without mixing network behavior, licensing acceptance, and scientific interpretation.
+Goal: connect already-implemented UCSC resource discovery to exact local files without mixing network behavior, licensing acknowledgement, and scientific interpretation.
 
-Planned responsibilities:
+Implemented in the first acquisition slice:
 
-- retrieve discovered resources only after any required provider/licensing acknowledgement;
-- retain source URL and retrieval metadata;
-- verify provider checksums when available;
-- compute liftAssess's canonical SHA-256 file identity;
-- store downloads outside the source tree/release artifacts;
-- avoid redundant transfers when the correct content-addressed artifact is already cached;
-- support user-supplied local resources as an equal path, not a second-class fallback;
-- use a practical bulk-transfer strategy for very large UCSC comparative resources.
+- acquires one explicitly requested resolver-produced UCSC URL at a time;
+- requires a caller-selected cache root outside the source tree rather than inventing a repository-local cache location;
+- surfaces UCSC's general licensing page plus the relevant comparison/liftOver directory terms reference and requires explicit acknowledgement **before any network access**;
+- distinguishes dedicated `liftOver/*.over.chain.gz` resources from comparative `vsTarget/` resources so the restricted liftOver-chain case is not generalized to every chain-format file;
+- reads the resource directory's `md5sum.txt` and verifies MD5 when an exact filename entry is published; an existing `md5sum.txt` without that filename is treated as checksum unavailable, not as corruption;
+- streams downloads into a temporary file while computing liftAssess's canonical SHA-256 and any provider MD5, validates HTTP `Content-Length` when supplied, then publishes the artifact atomically under a content-addressed `artifacts/sha256/...` path;
+- writes an atomic URL index retaining source URL, retrieval timestamp, SHA-256, provider checksum metadata when available, and applicable terms references;
+- reuses a cached artifact only after re-verifying its local SHA-256; retains the provider checksum recorded at acquisition time without requiring a network freshness check;
+- supports `refresh=True` for a fresh transfer, which is especially relevant when the provider publishes no checksum for that exact file;
+- cleans partial downloads on checksum and transport failure; identical bytes acquired from different URLs converge on one artifact.
 
-**Repository note:** when the project introduces its first runtime/cache directory, `.gitignore` must be updated in the same batch.
+Measured provider detail checked 2026-08-13: UCSC's `canFam3/vsCanFam4/md5sum.txt` publishes an MD5 for `canFam3.canFam4.all.chain.gz` and `canFam3.canFam4.syn.net.gz` but not `canFam3.canFam4.net.gz`; `canFam4/vsCanFam3/reciprocalBest/md5sum.txt` publishes MD5 values for both directional reciprocal-best chain/net files. Therefore the exact-filename checksum-optional behavior is required by the real fixture resources rather than being hypothetical.
+
+Still pending within this milestone:
+
+- acquire a whole `UCSCResourceBundle` with an explicit pre-transfer plan rather than silently starting a multi-gigabyte comparative download;
+- add size awareness and a practical resumable/bulk-transfer strategy for very large UCSC resources;
+- decide the future CLI's default OS/user cache location and refresh controls;
+- bridge acquired cache records into the final assessment/retrieval-provenance report without making user-supplied local resources second-class.
+
+**Repository note:** this implementation deliberately does **not** create a runtime/cache directory in the repository, so no `.gitignore` change is required. If a future development workflow introduces any repo-local runtime/cache path, `.gitignore` must change in the same batch.
 
 ### 12. Full `canFam3` ↔ `canFam4` comparative mechanical fixture
 

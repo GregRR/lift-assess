@@ -56,6 +56,9 @@ The current development code includes:
   direct parser-to-engine orchestration for user-supplied or cached files;
 - content-addressed SHA-256 provenance for exact local resource-file bytes, with separate optional
   verification of provider-published MD5 or SHA-256 checksums;
+- single-resource UCSC acquisition into a caller-selected external cache, with explicit provider-terms
+  acknowledgement before network access, exact-filename MD5 and HTTP-length verification when
+  available, atomic content-addressed storage, retrieval metadata, offline cache reuse, and refresh;
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
 
 ## Not implemented yet
@@ -63,10 +66,10 @@ The current development code includes:
 The project is not yet an end-to-end user tool. Major v1 work still includes:
 
 - the assessor logic that deterministically converts evidence into `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE`;
-- remote-resource acquisition/cache logic that connects discovered UCSC URLs to checksum-identified
-  local files while keeping licensing acceptance and retrieval provenance explicit;
+- bundle-level acquisition that connects a discovered `UCSCResourceBundle` to all required local files
+  without accidentally initiating multi-gigabyte transfers;
 - orchestration from the resulting candidate evidence into an assessment verdict and report;
-- a practical strategy for obtaining and caching external resources without silently downloading very large comparative datasets;
+- a practical resumable/bulk-transfer strategy for very large comparative resources and a future CLI/user-cache default;
 - the command-line interface;
 - human-readable summary and detailed/JSON reports;
 - end-to-end validation against real assembly/locus fixtures;
@@ -173,7 +176,9 @@ liftAssess does not bundle UCSC chain/net resources or depend on the UCSC liftOv
 
 UCSC resource terms are not uniform simply because multiple resources use chain format. In particular, UCSC's dedicated `liftOver/*.over.chain.gz` files are subject to UCSC's liftOver chain-file terms, including non-commercial-use restrictions unless an applicable commercial license has been obtained. Comparative `vsTarget/` chain/net resources follow the terms published for their own download directory. The planned `canFam3/vsCanFam4/` mechanical-fixture directory currently states that its files are freely available for public use.
 
-The current resolver **discovers URLs only; it does not download these resources**. A future downloader/cache layer must keep discovery separate from licensing acceptance, surface the applicable provider terms before retrieving a restricted UCSC liftOver chain, and require explicit acknowledgement that the intended use is permitted. Downloaded provider resources should remain outside the source tree and release artifacts, with provenance and checksums retained. Large transfers should use UCSC's recommended bulk-download mechanisms where available rather than repeatedly fetching large files through ordinary web-page requests.
+The resolver and acquisition layers remain separate. The current acquisition API retrieves **one explicitly requested UCSC resource at a time** into a caller-selected cache outside the source tree. It refuses network access until the caller explicitly acknowledges review of the applicable UCSC/general and directory-specific terms; dedicated `liftOver/*.over.chain.gz` files are identified separately because UCSC applies additional liftOver-chain restrictions. Provider `md5sum.txt` entries are verified when an exact filename entry exists, while liftAssess SHA-256 remains the canonical artifact identity. Verified cached URL→artifact reuse is intentionally available offline and does not claim remote freshness; callers request an explicit refresh to contact UCSC and reacquire current bytes. Bundle acquisition and large/resumable transfer strategy are still pending.
+
+Large transfers should eventually use UCSC's published bulk-download mechanisms where practical rather than repeatedly fetching multi-gigabyte files through ordinary web requests.
 
 Automatic UCSC discovery is intended as a convenience, not a permanent hard dependency. User-supplied resources are part of the v1 design and remain subject to their own provider terms.
 

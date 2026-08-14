@@ -25,6 +25,16 @@ from .models import (
     ReciprocalBestResourceCompleteness,
     Verdict,
 )
+from .resource_cache import (
+    CachedResource,
+    ProviderChecksum,
+    UCSCResourceAcquisitionError,
+    UCSCResourceClass,
+    UCSCResourceTerms,
+    UCSCResourceTermsAcknowledgementRequired,
+    acquire_ucsc_resource,
+    ucsc_resource_terms,
+)
 from .resource_files import (
     build_ucsc_candidates_from_files,
     iter_chain_file,
@@ -48,6 +58,7 @@ from .resources import (
 __all__ = [
     "AssemblyIdentifier",
     "Assessment",
+    "CachedResource",
     "ChainGap",
     "ChainGapSummary",
     "EvidenceAvailabilityTier",
@@ -64,15 +75,21 @@ __all__ = [
     "ProvenanceIdentifier",
     "ProvenanceIdentifierKind",
     "ProvenanceSource",
+    "ProviderChecksum",
     "ReciprocalBestMembershipStatus",
     "ReciprocalBestMembershipSummary",
     "ReciprocalBestResourceCompleteness",
     "ResourceChecksumAlgorithm",
     "ResourceChecksumMismatchError",
     "ResourceIdentityMismatchError",
+    "UCSCResourceAcquisitionError",
     "UCSCResourceBundle",
+    "UCSCResourceClass",
     "UCSCResourceDiscoveryError",
+    "UCSCResourceTerms",
+    "UCSCResourceTermsAcknowledgementRequired",
     "Verdict",
+    "acquire_ucsc_resource",
     "build_ucsc_candidates",
     "build_ucsc_candidates_from_files",
     "compute_resource_checksum",
@@ -81,5 +98,6 @@ __all__ = [
     "iter_net_file",
     "provenance_source_for_file",
     "sha256_identifier_for_file",
+    "ucsc_resource_terms",
     "verify_resource_checksum",
 ]

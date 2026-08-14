@@ -328,6 +328,15 @@ Assessment report (summary + detailed dossier)
   4. Always tell the user which tier is in play, in plain language, before showing results.
   5. Always accept user-supplied chain/net resources directly — UCSC is a convenient default
      provider, not a hard dependency.
+- **Resource acquisition/cache**: discovery and retrieval remain separate operations. v1 acquisition
+  must require explicit acknowledgement of the applicable UCSC/general and directory-specific terms
+  before network access, distinguish restricted `liftOver/*.over.chain.gz` resources from comparative
+  `vsTarget/` resources, verify provider checksum metadata when an exact filename entry is available,
+  validate transport length metadata when supplied, and store exact downloaded bytes outside the source
+  tree by liftAssess SHA-256. A provider checksum
+  is an integrity check, not provenance identity. Cache reuse is based on the retained URL index plus
+  re-verification of the local SHA-256 and must not be described as proof that the remote URL is
+  unchanged; an explicit refresh path is required.
 - **Call these "evidence-availability tiers," not "confidence tiers."** How much evidence exists
   and how strong the resulting verdict is are orthogonal (see invariant 3, §3).
 
@@ -352,26 +361,30 @@ Assessment report (summary + detailed dossier)
   commercial licensing for liftOver. liftAssess therefore does not depend on or redistribute the
   UCSC liftOver implementation for its core logic.
 - **Discovery is not permission to download.** The resource resolver may identify either a
-  comparative URL or a restricted `liftOver/*.over.chain.gz` URL, but a future downloader/cache
-  layer must apply the terms for the actual resource before transfer. In particular, automatic
-  retrieval of a restricted liftOver chain must surface the UCSC terms and require explicit user
-  acknowledgement that the intended use is permitted (for example, qualifying non-commercial use
-  or an applicable commercial license). URL discovery alone must never be treated as acceptance.
+  comparative URL or a restricted `liftOver/*.over.chain.gz` URL. The acquisition layer therefore
+  refuses network access until the caller explicitly acknowledges review of UCSC's general and
+  relevant directory-specific terms. Restricted liftOver chains are surfaced distinctly because
+  UCSC states that downloading or using them indicates EULA acceptance and limits free use to the
+  described non-commercial/nonprofit cases unless an applicable commercial license exists. URL
+  discovery alone is never treated as acceptance.
 - Do not bundle or mirror UCSC chain/net resources in the liftAssess source tree, package,
   release artifacts, or fixtures. Keep downloaded provider data in a separate local cache,
   preserve source URL, applicable terms/README provenance, retrieval metadata, and content
   checksum, and keep liftAssess's own GPL-licensed code independent of those external files.
-  For large or multiple transfers, the downloader should follow UCSC's published bulk-download
-  guidance (for example, rsync where supported) instead of repeatedly fetching large files through
-  ordinary web-page requests.
+  The first acquisition slice handles one explicitly requested resource at a time in a caller-selected
+  external cache. For large or multiple transfers, later bundle acquisition should follow UCSC's
+  published bulk-download guidance (for example, rsync where supported) instead of silently starting
+  multi-gigabyte ordinary web transfers.
 - Treat UCSC as one external, terms-bound evidence provider. Always accept user-supplied resources;
   their licensing remains the user's/provider's responsibility and must not be represented as
   covered by liftAssess's GPL license.
 
-Primary UCSC terms checked 2026-08-10:
+Primary UCSC terms/checksum behavior checked through 2026-08-13:
 - Genome Browser licensing: https://genome.ucsc.edu/license/
 - canFam3 liftOver README/terms: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/
 - canFam3/vsCanFam4 comparative README: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/
+- canFam3/vsCanFam4 provider MD5 metadata: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/md5sum.txt
+- canFam4/vsCanFam3 reciprocal-best MD5 metadata: https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/reciprocalBest/md5sum.txt
 - kent source license: https://github.com/ucscGenomeBrowser/kent/blob/master/LICENSE
 
 ## 9. Output format
