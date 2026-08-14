@@ -318,8 +318,11 @@ Assessment report (summary + detailed dossier)
   look first, but availability must be confirmed by checking, not inferred purely from
   constructing a plausible URL — the directory conventions are not a guaranteed, permanent
   contract:
-  1. Look for a full `source/vsTarget/` comparative directory (chain, net, synNet,
-     reciprocalBest) → **COMPARATIVE** evidence tier.
+  1. Look for `source/vsTarget/` comparative chain, net, and syntenic-net resources. For
+     reciprocal-best, check that directory's `reciprocalBest/` first; if the exact directional
+     `source.target.rbest.{chain,net}.gz` files are absent, also check the sibling/reverse
+     `target/vsSource/reciprocalBest/` publication location and accept it only when those exact
+     filenames are actually observed. A complete set → **COMPARATIVE** evidence tier.
   2. Else look for `source/liftOver/sourceToTarget.over.chain.gz` → **LIFTOVER-ONLY** tier.
   3. Else → unavailable; require user-supplied resources.
   4. Always tell the user which tier is in play, in plain language, before showing results.
@@ -405,9 +408,13 @@ a second engine exists — v1 has exactly one (§7).
 - **Mechanical evidence fixture** — proves correct extraction (score, coverage, `ali`, `qDup`,
   net type, hierarchy). Use `canFam3` ↔ `canFam4`: confirmed to have a full, published
   chain/net/reciprocalBest comparison at UCSC (documented lastz params: `M=254`; axtChain
-  `minScore=3000`; processed through chainNet/netSyntenic/netClass). Tasha (canFam3) and Mischka
-  (canFam4, German Shepherd) are different individuals, so no ground-truth claim is needed or
-  made — this fixture is purely about extraction correctness.
+  `minScore=3000`; processed through chainNet/netSyntenic/netClass). As measured from UCSC's
+  live listings on 2026-08-12, the canFam3-referenced chain/net/syn-net files are under
+  `canFam3/vsCanFam4/`, while the directional `canFam3.canFam4.rbest.{chain,net}.gz` files are
+  published under the sibling `canFam4/vsCanFam3/reciprocalBest/` directory alongside the reverse
+  direction. That hosting asymmetry is publication layout, not a coordinate-semantics change.
+  Tasha (canFam3) and Mischka (canFam4, German Shepherd) are different individuals, so no
+  ground-truth claim is needed or made — this fixture is purely about extraction correctness.
   - **Real-file smoke check completed 2026-08-12 (not the full comparative fixture).** The
     restricted `canFam3ToCanFam4.over.chain.gz` liftOver resource matched UCSC's published MD5
     `15123263dbe4f2c1eb670a98c9b0acf2`; the exact downloaded bytes had SHA-256

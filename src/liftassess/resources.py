@@ -7,10 +7,14 @@ corresponding to entries that were actually observed.  Directory links are
 resolved against the listing URL before comparison so discovery does not depend
 on whether UCSC renders an entry as a relative or absolute ``href``.
 
-Implementation references (checked 2026-08-10):
+Implementation references (checked through 2026-08-12):
 
 - UCSC Golden Path canFam3/canFam4 comparative directory and README:
   https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/
+- UCSC canFam4/canFam3 reciprocal-best directory.  The live publication layout
+  stores both directional reciprocal-best resources under this sibling/reverse
+  comparison directory, including ``canFam3.canFam4.rbest.*``:
+  https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/reciprocalBest/
 - UCSC liftOver download README, which defines
   ``<db1>To<Db2>.over.chain.gz`` naming:
   https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/
@@ -126,8 +130,8 @@ def discover_ucsc_resources(
 
     Return a ``COMPARATIVE`` bundle when the full v1 comparative set is
     published, otherwise fall back to the UCSC liftOver chain and return
-    ``LIFTOVER_ONLY``.  Return ``None`` when both checked listings are reachable
-    but contain no usable resource for this assembly pair.
+    ``LIFTOVER_ONLY``.  Return ``None`` when the checked candidate listings are
+    reachable but contain no usable resource for this assembly pair.
 
     Network/server failures raise ``UCSCResourceDiscoveryError`` instead of
     being interpreted as resource absence.
@@ -153,41 +157,36 @@ def _discover_ucsc_resources(
         chain_name = f"{source_db}.{target_db}.all.chain.gz"
         net_name = f"{source_db}.{target_db}.net.gz"
         syn_net_name = f"{source_db}.{target_db}.syn.net.gz"
-        reciprocal_dir = "reciprocalBest/"
 
-        required_parent_entries = (
-            chain_name,
-            net_name,
-            syn_net_name,
-            reciprocal_dir,
-        )
+        required_parent_entries = (chain_name, net_name, syn_net_name)
         if all(
             _listing_contains(comparative_base, comparative_links, entry)
             for entry in required_parent_entries
         ):
-            reciprocal_base = urljoin(comparative_base, reciprocal_dir)
-            reciprocal_links = read_listing(reciprocal_base)
-            if reciprocal_links is not None:
+            reciprocal_base = _discover_reciprocal_best_base(
+                source_db,
+                target_db,
+                comparative_base=comparative_base,
+                comparative_links=comparative_links,
+                read_listing=read_listing,
+            )
+            if reciprocal_base is not None:
                 rbest_chain_name = f"{source_db}.{target_db}.rbest.chain.gz"
                 rbest_net_name = f"{source_db}.{target_db}.rbest.net.gz"
-                if all(
-                    _listing_contains(reciprocal_base, reciprocal_links, entry)
-                    for entry in (rbest_chain_name, rbest_net_name)
-                ):
-                    return UCSCResourceBundle(
-                        source_db=source_db,
-                        target_db=target_db,
-                        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
-                        chain_url=urljoin(comparative_base, chain_name),
-                        net_url=urljoin(comparative_base, net_name),
-                        syntenic_net_url=urljoin(comparative_base, syn_net_name),
-                        reciprocal_best_chain_url=urljoin(
-                            reciprocal_base, rbest_chain_name
-                        ),
-                        reciprocal_best_net_url=urljoin(
-                            reciprocal_base, rbest_net_name
-                        ),
-                    )
+                return UCSCResourceBundle(
+                    source_db=source_db,
+                    target_db=target_db,
+                    evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+                    chain_url=urljoin(comparative_base, chain_name),
+                    net_url=urljoin(comparative_base, net_name),
+                    syntenic_net_url=urljoin(comparative_base, syn_net_name),
+                    reciprocal_best_chain_url=urljoin(
+                        reciprocal_base, rbest_chain_name
+                    ),
+                    reciprocal_best_net_url=urljoin(
+                        reciprocal_base, rbest_net_name
+                    ),
+                )
 
     # A partial comparative directory must not be mislabeled COMPARATIVE.  The
     # lightweight liftOver chain remains useful on its own, so check that
@@ -207,6 +206,83 @@ def _discover_ucsc_resources(
         )
 
     return None
+
+
+def _discover_reciprocal_best_base(
+    source_db: str,
+    target_db: str,
+    *,
+    comparative_base: str,
+    comparative_links: frozenset[str],
+    read_listing: ListingReader,
+) -> str | None:
+    """Return the verified directory containing directional rbest files.
+
+    UCSC sometimes publishes both directions of reciprocal-best output under one
+    member of an assembly pair rather than under both ``source/vsTarget/`` trees.
+    Check the forward comparison first, then the sibling/reverse comparison.  The
+    fallback is accepted only when the exact ``source.target.rbest`` chain *and* net
+    filenames are observed in the directory listing.  Which pair directory hosts a
+    file is publication layout only; chain/net coordinate semantics come from the
+    directional filename and file contents consumed by the parsers.
+
+    This two-location search is based on measured UCSC publication behavior, not a
+    provider guarantee.  Every candidate location is still verified by reading the
+    live directory listing rather than treating the constructed path as existence.
+    """
+
+    reciprocal_dir = "reciprocalBest/"
+    rbest_chain_name = f"{source_db}.{target_db}.rbest.chain.gz"
+    rbest_net_name = f"{source_db}.{target_db}.rbest.net.gz"
+
+    if _listing_contains(comparative_base, comparative_links, reciprocal_dir):
+        forward_reciprocal_base = urljoin(comparative_base, reciprocal_dir)
+        if _reciprocal_listing_has_directional_files(
+            forward_reciprocal_base,
+            read_listing(forward_reciprocal_base),
+            rbest_chain_name=rbest_chain_name,
+            rbest_net_name=rbest_net_name,
+        ):
+            return forward_reciprocal_base
+
+    source_title = _ucsc_title_db(source_db)
+    reverse_comparative_base = urljoin(
+        _UCSC_GOLDEN_PATH, f"{target_db}/vs{source_title}/"
+    )
+    if reverse_comparative_base == comparative_base:
+        return None
+
+    reverse_links = read_listing(reverse_comparative_base)
+    if reverse_links is None or not _listing_contains(
+        reverse_comparative_base, reverse_links, reciprocal_dir
+    ):
+        return None
+
+    reverse_reciprocal_base = urljoin(reverse_comparative_base, reciprocal_dir)
+    if _reciprocal_listing_has_directional_files(
+        reverse_reciprocal_base,
+        read_listing(reverse_reciprocal_base),
+        rbest_chain_name=rbest_chain_name,
+        rbest_net_name=rbest_net_name,
+    ):
+        return reverse_reciprocal_base
+
+    return None
+
+
+def _reciprocal_listing_has_directional_files(
+    reciprocal_base: str,
+    links: frozenset[str] | None,
+    *,
+    rbest_chain_name: str,
+    rbest_net_name: str,
+) -> bool:
+    if links is None:
+        return False
+    return all(
+        _listing_contains(reciprocal_base, links, entry)
+        for entry in (rbest_chain_name, rbest_net_name)
+    )
 
 
 def _read_directory_links(url: str) -> frozenset[str] | None:

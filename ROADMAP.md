@@ -19,7 +19,7 @@ The project has moved past isolated parsers and models into an integrated UCSC e
 - run a real UCSC liftOver chain through the local-file → parser → engine path;
 - and, in the current provenance batch, identify exact local resource bytes with content-addressed SHA-256 provenance, verify those bytes again as they are streamed into parsing, and optionally verify provider-published checksums.
 
-The resource-provenance review-fix tree has **127 passing tests**, with Ruff and strict mypy clean. Focused review reproduced the original hash-before-parse race against the pre-fix code, verified the corrected failure behavior, stress-tested gzip/raw-byte hashing, checked handle cleanup and streaming memory behavior, and found no remaining blocking provenance issues.
+The current reciprocal-best discovery tree has **132 tests** after adding an orchestration-level regression for sibling-directory transport failures. The preceding 131-test tree passed pytest, Ruff, and strict mypy locally and a direct live UCSC resolver check; the final added test is synthetic and exercises error propagation only. Resource-provenance review separately reproduced the original hash-before-parse race, verified the corrected failure behavior, stress-tested gzip/raw-byte hashing, checked handle cleanup and streaming memory behavior, and found no remaining blocking provenance issues.
 
 What liftAssess still cannot do is the most important user-facing part: it does **not yet assign `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE` verdicts**, and it does not yet provide the planned CLI/report workflow.
 
@@ -81,7 +81,7 @@ Implemented and reviewed:
 
 The engine's candidate-relevance filter is deliberately lossless with respect to the downstream reciprocal-best matcher, so the caller's declared completeness scope is preserved rather than rewritten by orchestration.
 
-### 5. UCSC resource discovery — implemented; one real-layout correction pending
+### 5. UCSC resource discovery — complete
 
 Implemented and reviewed:
 
@@ -91,7 +91,7 @@ Implemented and reviewed:
 - 404/resource absence distinguished from timeout, DNS, and server/transport failures;
 - relative and absolute directory links normalized before resource comparison.
 
-The resolver currently discovers and classifies resources only. It does **not** download them. A 2026-08-12 live-directory review exposed one real layout the current resolver does not yet handle: reciprocal-best files for a source→target pair may be published under the sibling/reverse `target/vsSource/reciprocalBest/` directory even when `source/vsTarget/` has the ordinary comparative chain/net resources. See milestone 10.
+The resolver discovers and classifies resources only; it does **not** download them. A 2026-08-12 live-directory review exposed an asymmetric UCSC publication layout in which reciprocal-best files for a source→target pair were hosted under the sibling/reverse `target/vsSource/reciprocalBest/` directory while `source/vsTarget/` held the ordinary comparative resources. Milestone 10 implemented and live-verified that fallback without changing coordinate semantics.
 
 ### 6. Single-pass UCSC engine orchestration — complete
 
@@ -157,21 +157,19 @@ The confirmed hash→parse mismatch was fixed by verifying the raw byte stream a
 
 ## Next milestones
 
-### 10. Correct reciprocal-best discovery across asymmetric UCSC pair directories
+### 10. Correct reciprocal-best discovery across asymmetric UCSC pair directories — complete
 
-**Next coding batch.**
+Measured against the live UCSC directories on 2026-08-12: `canFam3/vsCanFam4/` contains the ordinary comparative chain/net resources but no listed `reciprocalBest/` directory, while `canFam4/vsCanFam3/reciprocalBest/` contains both directional reciprocal-best chain/net files, including `canFam3.canFam4.rbest.chain.gz` and `canFam3.canFam4.rbest.net.gz`. A second checked pair (`rheMac10`/`hg38`) showed the same publication pattern. This is evidence for a real fallback location, not a claim that UCSC guarantees the layout universally.
 
-Measured against the live UCSC directories on 2026-08-12: `canFam3/vsCanFam4/` contains the ordinary comparative chain/net resources but no `reciprocalBest/` directory, while `canFam4/vsCanFam3/reciprocalBest/` contains both directional reciprocal-best chain/net files, including `canFam3.canFam4.rbest.chain.gz` and `canFam3.canFam4.rbest.net.gz`. A second checked pair (`rheMac10`/`hg38`) showed the same publication pattern. This is evidence for a real fallback location, not a claim that UCSC guarantees the layout universally.
+Implemented in the resolver:
 
-Planned correction:
+- checks the forward comparative directory's `reciprocalBest/` location first;
+- if the exact directional files are absent, checks the sibling/reverse comparative directory's `reciprocalBest/`;
+- accepts the fallback only when the exact `source.target.rbest.{chain,net}.gz` files are actually observed;
+- keeps unit regressions synthetic, including the measured asymmetric layout and an opposite-direction-only negative case;
+- leaves projection and reciprocal-best evidence geometry unchanged because the directional filename and file headers, not the hosting directory, define coordinate semantics.
 
-- check the forward comparative directory's `reciprocalBest/` location first;
-- if the exact directional files are absent, check the sibling/reverse comparative directory's `reciprocalBest/`;
-- accept the fallback only when the exact `source.target.rbest.{chain,net}.gz` files are actually observed;
-- keep the regression synthetic, using mocked listings shaped like the measured asymmetric layout;
-- perform a separate manual/live discovery check for `canFam3` → `canFam4` after the unit tests pass.
-
-This is a resolver/URL-discovery correction only. The reciprocal-best filename and the chain/net headers define target/query coordinate semantics; the directory that hosts the file does not require projection or evidence-geometry changes.
+Live verification completed on 2026-08-13: `discover_ucsc_resources("canFam3", "canFam4")` returned `COMPARATIVE`, with chain/net/syn-net URLs under `canFam3/vsCanFam4/` and the exact directional reciprocal-best URLs under `canFam4/vsCanFam3/reciprocalBest/`. The unit suite also includes an orchestration-level regression confirming that a transport failure during the sibling lookup propagates as `UCSCResourceDiscoveryError` rather than being misread as absence and silently downgrading the evidence tier.
 
 ### 11. Resource acquisition and cache
 

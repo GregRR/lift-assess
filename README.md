@@ -49,7 +49,7 @@ The current development code includes:
 - dependency-aware provenance linking chain- and net-derived observations;
 - reciprocal-best membership evidence with `FULL`, `PARTIAL`, and `NONE` states;
 - explicit completeness requirements for reciprocal-best absence/partial evidence;
-- UCSC resource discovery and evidence-availability tier detection;
+- UCSC resource discovery and evidence-availability tier detection, including verified reciprocal-best lookup across asymmetric pair-directory publication layouts;
 - single-pass UCSC engine orchestration that generates candidates and attaches available net and
   reciprocal-best evidence without rescanning whole comparative resources per candidate;
 - streaming local-file adapters for plain-text or gzip-compressed chain/net resources, including

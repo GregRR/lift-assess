@@ -7,6 +7,7 @@ import pytest
 from liftassess import EvidenceAvailabilityTier
 from liftassess.resources import (
     UCSCResourceBundle,
+    UCSCResourceDiscoveryError,
     _discover_ucsc_resources,
     _ucsc_title_db,
 )
@@ -59,6 +60,196 @@ def test_discovers_complete_comparative_resource_set() -> None:
             f"{reciprocal}canFam3.canFam4.rbest.chain.gz"
         ),
         reciprocal_best_net_url=f"{reciprocal}canFam3.canFam4.rbest.net.gz",
+    )
+
+
+def test_complete_forward_reciprocal_best_does_not_require_reverse_listing() -> None:
+    comparative = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+    reciprocal = f"{comparative}reciprocalBest/"
+    reverse_comparative = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/"
+    )
+
+    listings = {
+        comparative: frozenset(
+            {
+                "canFam3.canFam4.all.chain.gz",
+                "canFam3.canFam4.net.gz",
+                "canFam3.canFam4.syn.net.gz",
+                "reciprocalBest/",
+            }
+        ),
+        reciprocal: frozenset(
+            {
+                "canFam3.canFam4.rbest.chain.gz",
+                "canFam3.canFam4.rbest.net.gz",
+            }
+        ),
+    }
+
+    def read(url: str) -> frozenset[str] | None:
+        if url == reverse_comparative:
+            raise AssertionError("reverse listing should not be checked")
+        return listings.get(url)
+
+    result = _discover_ucsc_resources("canFam3", "canFam4", read)
+
+    assert result is not None
+    assert result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+    assert result.reciprocal_best_chain_url == (
+        f"{reciprocal}canFam3.canFam4.rbest.chain.gz"
+    )
+
+
+def test_discovers_reciprocal_best_from_reverse_pair_directory() -> None:
+    comparative = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+    reverse_comparative = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/"
+    )
+    reverse_reciprocal = f"{reverse_comparative}reciprocalBest/"
+
+    result = _discover_ucsc_resources(
+        "canFam3",
+        "canFam4",
+        _reader(
+            {
+                comparative: frozenset(
+                    {
+                        "canFam3.canFam4.all.chain.gz",
+                        "canFam3.canFam4.net.gz",
+                        "canFam3.canFam4.syn.net.gz",
+                    }
+                ),
+                reverse_comparative: frozenset({"reciprocalBest/"}),
+                reverse_reciprocal: frozenset(
+                    {
+                        "canFam3.canFam4.rbest.chain.gz",
+                        "canFam3.canFam4.rbest.net.gz",
+                        "canFam4.canFam3.rbest.chain.gz",
+                        "canFam4.canFam3.rbest.net.gz",
+                    }
+                ),
+            }
+        ),
+    )
+
+    assert result == UCSCResourceBundle(
+        source_db="canFam3",
+        target_db="canFam4",
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        chain_url=f"{comparative}canFam3.canFam4.all.chain.gz",
+        net_url=f"{comparative}canFam3.canFam4.net.gz",
+        syntenic_net_url=f"{comparative}canFam3.canFam4.syn.net.gz",
+        reciprocal_best_chain_url=(
+            f"{reverse_reciprocal}canFam3.canFam4.rbest.chain.gz"
+        ),
+        reciprocal_best_net_url=(
+            f"{reverse_reciprocal}canFam3.canFam4.rbest.net.gz"
+        ),
+    )
+
+
+def test_reverse_pair_lookup_transport_failure_propagates() -> None:
+    comparative = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+    reverse_comparative = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/"
+    )
+
+    listings = {
+        comparative: frozenset(
+            {
+                "canFam3.canFam4.all.chain.gz",
+                "canFam3.canFam4.net.gz",
+                "canFam3.canFam4.syn.net.gz",
+            }
+        ),
+    }
+
+    def read(url: str) -> frozenset[str] | None:
+        if url == reverse_comparative:
+            raise UCSCResourceDiscoveryError("simulated sibling transport failure")
+        return listings.get(url)
+
+    with pytest.raises(
+        UCSCResourceDiscoveryError, match="simulated sibling transport failure"
+    ):
+        _discover_ucsc_resources("canFam3", "canFam4", read)
+
+
+def test_reverse_pair_fallback_requires_exact_directional_rbest_files() -> None:
+    comparative = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+    reverse_comparative = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/"
+    )
+    reverse_reciprocal = f"{reverse_comparative}reciprocalBest/"
+    liftover = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/"
+
+    result = _discover_ucsc_resources(
+        "canFam3",
+        "canFam4",
+        _reader(
+            {
+                comparative: frozenset(
+                    {
+                        "canFam3.canFam4.all.chain.gz",
+                        "canFam3.canFam4.net.gz",
+                        "canFam3.canFam4.syn.net.gz",
+                    }
+                ),
+                reverse_comparative: frozenset({"reciprocalBest/"}),
+                # The sibling directory exists but has only the opposite direction.
+                reverse_reciprocal: frozenset(
+                    {
+                        "canFam4.canFam3.rbest.chain.gz",
+                        "canFam4.canFam3.rbest.net.gz",
+                    }
+                ),
+                liftover: frozenset({"canFam3ToCanFam4.over.chain.gz"}),
+            }
+        ),
+    )
+
+    assert result is not None
+    assert result.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY
+
+
+def test_missing_forward_directional_rbest_files_checks_reverse_pair() -> None:
+    comparative = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+    reciprocal = f"{comparative}reciprocalBest/"
+    reverse_comparative = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/"
+    )
+    reverse_reciprocal = f"{reverse_comparative}reciprocalBest/"
+
+    result = _discover_ucsc_resources(
+        "canFam3",
+        "canFam4",
+        _reader(
+            {
+                comparative: frozenset(
+                    {
+                        "canFam3.canFam4.all.chain.gz",
+                        "canFam3.canFam4.net.gz",
+                        "canFam3.canFam4.syn.net.gz",
+                        "reciprocalBest/",
+                    }
+                ),
+                reciprocal: frozenset({"README.txt"}),
+                reverse_comparative: frozenset({"reciprocalBest/"}),
+                reverse_reciprocal: frozenset(
+                    {
+                        "canFam3.canFam4.rbest.chain.gz",
+                        "canFam3.canFam4.rbest.net.gz",
+                    }
+                ),
+            }
+        ),
+    )
+
+    assert result is not None
+    assert result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+    assert result.reciprocal_best_chain_url == (
+        f"{reverse_reciprocal}canFam3.canFam4.rbest.chain.gz"
     )
 
 
