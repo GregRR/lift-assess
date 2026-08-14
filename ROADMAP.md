@@ -188,14 +188,24 @@ Implemented in the first acquisition slice:
 - supports `refresh=True` for a fresh transfer, which is especially relevant when the provider publishes no checksum for that exact file;
 - cleans partial downloads on checksum and transport failure; identical bytes acquired from different URLs converge on one artifact.
 
+Implemented in the second acquisition slice:
+
+- converts a verified `UCSCResourceBundle` into an inspectable, no-network transfer plan containing the exact resource roles/URLs required by its evidence tier and the terms classification for each URL;
+- requires a separate `transfer_plan_acknowledged=True` before bundle execution can call the single-resource acquisition layer, so discovery alone cannot silently trigger a five-resource comparative transfer;
+- acquires the plan sequentially through the already-reviewed single-resource cache path and returns a `CachedUCSCResourceBundle` only after every required item succeeds or is verified in cache;
+- preserves the no-partial-comparative invariant at the returned-object boundary while deliberately retaining any immutable content-addressed artifacts successfully published before a later item fails, so a retry can reuse them;
+- keeps `LIFTOVER_ONLY` as a one-chain local bundle and `COMPARATIVE` as the exact five-role set: chain, net, syntenic net, reciprocal-best chain, reciprocal-best net;
+- binds each plan item's surfaced terms metadata back to its exact URL classification so an inspectable plan cannot display one terms class while executing another URL.
+
 Measured provider detail checked 2026-08-13: UCSC's `canFam3/vsCanFam4/md5sum.txt` publishes an MD5 for `canFam3.canFam4.all.chain.gz` and `canFam3.canFam4.syn.net.gz` but not `canFam3.canFam4.net.gz`; `canFam4/vsCanFam3/reciprocalBest/md5sum.txt` publishes MD5 values for both directional reciprocal-best chain/net files. Therefore the exact-filename checksum-optional behavior is required by the real fixture resources rather than being hypothetical.
+
+Measured size context checked from the live UCSC directory listings on 2026-08-14: the planned canFam3→canFam4 comparative set includes a roughly 2.5 GB `all.chain.gz`, alongside a roughly 10 MB net, 9.1 MB syntenic net, 5.2 MB directional reciprocal-best chain, and 7.8 MB directional reciprocal-best net. This is why bundle planning and explicit acknowledgement were added before any user-facing automatic comparative transfer. These human-readable listing sizes are context, not yet machine-verified plan metadata.
 
 Still pending within this milestone:
 
-- acquire a whole `UCSCResourceBundle` with an explicit pre-transfer plan rather than silently starting a multi-gigabyte comparative download;
-- add size awareness and a practical resumable/bulk-transfer strategy for very large UCSC resources;
+- add measured remote-size awareness to the transfer plan and a practical resumable/bulk-transfer strategy for very large UCSC resources;
 - decide the future CLI's default OS/user cache location and refresh controls;
-- bridge acquired cache records into the final assessment/retrieval-provenance report without making user-supplied local resources second-class.
+- bridge acquired cache records into the existing file-backed candidate engine and final assessment/retrieval-provenance report without making user-supplied local resources second-class.
 
 **Repository note:** this implementation deliberately does **not** create a runtime/cache directory in the repository, so no `.gitignore` change is required. If a future development workflow introduces any repo-local runtime/cache path, `.gitignore` must change in the same batch.
 

@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from email.message import Message
 from io import BytesIO
+from os import PathLike
 from pathlib import Path
 from types import TracebackType
 from typing import Self
@@ -16,17 +17,30 @@ from urllib.request import Request
 import pytest
 
 from liftassess import (
+    CachedResource,
+    CachedUCSCResourceBundle,
+    EvidenceAvailabilityTier,
     ResourceChecksumAlgorithm,
     ResourceChecksumMismatchError,
+    UCSCBundleAcquisitionItem,
+    UCSCBundleAcquisitionPlan,
+    UCSCBundleAcquisitionPlanAcknowledgementRequired,
+    UCSCBundleResourceRole,
     UCSCResourceAcquisitionError,
+    UCSCResourceBundle,
     UCSCResourceClass,
     UCSCResourceTermsAcknowledgementRequired,
     acquire_ucsc_resource,
+    acquire_ucsc_resource_bundle,
     iter_chain_file,
+    plan_ucsc_bundle_acquisition,
     provenance_source_for_file,
     ucsc_resource_terms,
 )
-from liftassess.resource_cache import _acquire_ucsc_resource
+from liftassess.resource_cache import (
+    _acquire_ucsc_resource,
+    _acquire_ucsc_resource_bundle,
+)
 
 
 class _Response(BytesIO):
@@ -569,3 +583,411 @@ def test_public_acquisition_signature_requires_explicit_acknowledgement(
 
     with pytest.raises(UCSCResourceTermsAcknowledgementRequired):
         acquire_ucsc_resource(url, tmp_path, terms_acknowledged=False)
+
+
+
+def _comparative_bundle() -> UCSCResourceBundle:
+    return UCSCResourceBundle(
+        source_db="canFam3",
+        target_db="canFam4",
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        chain_url=(
+            "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+            "canFam3.canFam4.all.chain.gz"
+        ),
+        net_url=(
+            "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+            "canFam3.canFam4.net.gz"
+        ),
+        syntenic_net_url=(
+            "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+            "canFam3.canFam4.syn.net.gz"
+        ),
+        reciprocal_best_chain_url=(
+            "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/"
+            "reciprocalBest/canFam3.canFam4.rbest.chain.gz"
+        ),
+        reciprocal_best_net_url=(
+            "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/"
+            "reciprocalBest/canFam3.canFam4.rbest.net.gz"
+        ),
+    )
+
+
+def _liftover_bundle() -> UCSCResourceBundle:
+    return UCSCResourceBundle(
+        source_db="canFam3",
+        target_db="canFam4",
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        chain_url=(
+            "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/"
+            "canFam3ToCanFam4.over.chain.gz"
+        ),
+    )
+
+
+def _cached_for_url(url: str, cache_root: Path, *, cache_hit: bool) -> CachedResource:
+    terms = ucsc_resource_terms(url)
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    return CachedResource(
+        path=cache_root / "artifacts" / "sha256" / digest[:2] / digest,
+        source_url=url,
+        retrieved_at="2026-08-14T07:30:00Z",
+        sha256=f"sha256:{digest}",
+        size_bytes=len(url),
+        provider_checksum=None,
+        terms=terms,
+        cache_hit=cache_hit,
+    )
+
+
+def test_comparative_bundle_plan_is_complete_inspectable_and_no_network() -> None:
+    bundle = _comparative_bundle()
+    plan = plan_ucsc_bundle_acquisition(bundle)
+
+    assert plan.source_db == "canFam3"
+    assert plan.target_db == "canFam4"
+    assert plan.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+    assert tuple(item.role for item in plan.items) == (
+        UCSCBundleResourceRole.CHAIN,
+        UCSCBundleResourceRole.NET,
+        UCSCBundleResourceRole.SYNTENIC_NET,
+        UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN,
+        UCSCBundleResourceRole.RECIPROCAL_BEST_NET,
+    )
+    assert tuple(item.url for item in plan.items) == (
+        bundle.chain_url,
+        bundle.net_url,
+        bundle.syntenic_net_url,
+        bundle.reciprocal_best_chain_url,
+        bundle.reciprocal_best_net_url,
+    )
+    assert all(
+        item.terms.resource_class is UCSCResourceClass.COMPARATIVE
+        for item in plan.items
+    )
+    assert plan.items[-1].terms.directory_terms_url.endswith("/canFam4/vsCanFam3/")
+
+
+def test_liftover_bundle_plan_surfaces_restricted_chain_terms() -> None:
+    plan = plan_ucsc_bundle_acquisition(_liftover_bundle())
+
+    assert tuple(item.role for item in plan.items) == (UCSCBundleResourceRole.CHAIN,)
+    assert plan.items[0].terms.resource_class is UCSCResourceClass.LIFTOVER_CHAIN
+    assert plan.items[0].terms.restricted_liftover_chain is True
+
+
+def test_bundle_transfer_plan_acknowledgement_precedes_any_resource_acquisition(
+    tmp_path: Path,
+) -> None:
+    plan = plan_ucsc_bundle_acquisition(_comparative_bundle())
+
+    def forbidden(
+        url: str,
+        cache_root: str | PathLike[str],
+        *,
+        terms_acknowledged: bool,
+        refresh: bool = False,
+    ) -> CachedResource:
+        raise AssertionError(
+            f"resource acquisition must not start before plan acknowledgement: {url}"
+        )
+
+    with pytest.raises(UCSCBundleAcquisitionPlanAcknowledgementRequired):
+        _acquire_ucsc_resource_bundle(
+            plan,
+            tmp_path,
+            transfer_plan_acknowledged=False,
+            terms_acknowledged=True,
+            refresh=False,
+            acquire_resource=forbidden,
+        )
+
+    assert not list(tmp_path.iterdir())
+
+
+def test_comparative_bundle_acquisition_returns_only_after_all_roles_complete(
+    tmp_path: Path,
+) -> None:
+    plan = plan_ucsc_bundle_acquisition(_comparative_bundle())
+    calls: list[tuple[str, bool, bool]] = []
+
+    def acquire(
+        url: str,
+        cache_root: str | PathLike[str],
+        *,
+        terms_acknowledged: bool,
+        refresh: bool = False,
+    ) -> CachedResource:
+        calls.append((url, terms_acknowledged, refresh))
+        return _cached_for_url(url, Path(cache_root), cache_hit=False)
+
+    result = _acquire_ucsc_resource_bundle(
+        plan,
+        tmp_path,
+        transfer_plan_acknowledged=True,
+        terms_acknowledged=True,
+        refresh=True,
+        acquire_resource=acquire,
+    )
+
+    assert isinstance(result, CachedUCSCResourceBundle)
+    assert result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+    assert result.chain.source_url == plan.items[0].url
+    assert result.net is not None and result.net.source_url == plan.items[1].url
+    assert result.syntenic_net is not None
+    assert result.syntenic_net.source_url == plan.items[2].url
+    assert result.reciprocal_best_chain is not None
+    assert result.reciprocal_best_chain.source_url == plan.items[3].url
+    assert result.reciprocal_best_net is not None
+    assert result.reciprocal_best_net.source_url == plan.items[4].url
+    assert calls == [(item.url, True, True) for item in plan.items]
+
+
+def test_liftover_bundle_acquisition_returns_chain_only(tmp_path: Path) -> None:
+    plan = plan_ucsc_bundle_acquisition(_liftover_bundle())
+
+    def acquire(
+        url: str,
+        cache_root: str | PathLike[str],
+        *,
+        terms_acknowledged: bool,
+        refresh: bool = False,
+    ) -> CachedResource:
+        return _cached_for_url(url, Path(cache_root), cache_hit=True)
+
+    result = _acquire_ucsc_resource_bundle(
+        plan,
+        tmp_path,
+        transfer_plan_acknowledged=True,
+        terms_acknowledged=True,
+        refresh=False,
+        acquire_resource=acquire,
+    )
+
+    assert result.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY
+    assert result.chain.cache_hit is True
+    assert result.net is None
+    assert result.syntenic_net is None
+    assert result.reciprocal_best_chain is None
+    assert result.reciprocal_best_net is None
+
+
+def test_bundle_failure_propagates_without_returning_partial_bundle(tmp_path: Path) -> None:
+    plan = plan_ucsc_bundle_acquisition(_comparative_bundle())
+    acquired_urls: list[str] = []
+
+    def acquire(
+        url: str,
+        cache_root: str | PathLike[str],
+        *,
+        terms_acknowledged: bool,
+        refresh: bool = False,
+    ) -> CachedResource:
+        acquired_urls.append(url)
+        if len(acquired_urls) == 3:
+            raise UCSCResourceAcquisitionError("simulated third-resource failure")
+        return _cached_for_url(url, Path(cache_root), cache_hit=False)
+
+    with pytest.raises(UCSCResourceAcquisitionError, match="third-resource failure"):
+        _acquire_ucsc_resource_bundle(
+            plan,
+            tmp_path,
+            transfer_plan_acknowledged=True,
+            terms_acknowledged=True,
+            refresh=False,
+            acquire_resource=acquire,
+        )
+
+    assert acquired_urls == [item.url for item in plan.items[:3]]
+
+
+def test_public_bundle_acquisition_signature_requires_explicit_plan_acknowledgement(
+    tmp_path: Path,
+) -> None:
+    plan = plan_ucsc_bundle_acquisition(_liftover_bundle())
+
+    with pytest.raises(UCSCBundleAcquisitionPlanAcknowledgementRequired):
+        acquire_ucsc_resource_bundle(
+            plan,
+            tmp_path,
+            transfer_plan_acknowledged=False,
+            terms_acknowledged=True,
+        )
+
+
+
+def test_bundle_plan_item_rejects_terms_that_do_not_match_url() -> None:
+    comparative_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+        "canFam3.canFam4.net.gz"
+    )
+    restricted_terms = ucsc_resource_terms(
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/"
+        "canFam3ToCanFam4.over.chain.gz"
+    )
+
+    with pytest.raises(ValueError, match="terms must match"):
+        UCSCBundleAcquisitionItem(
+            role=UCSCBundleResourceRole.NET,
+            url=comparative_url,
+            terms=restricted_terms,
+        )
+
+
+def test_bundle_terms_acknowledgement_still_precedes_provider_network(
+    tmp_path: Path,
+) -> None:
+    plan = plan_ucsc_bundle_acquisition(_liftover_bundle())
+
+    with pytest.raises(UCSCResourceTermsAcknowledgementRequired):
+        acquire_ucsc_resource_bundle(
+            plan,
+            tmp_path,
+            transfer_plan_acknowledged=True,
+            terms_acknowledged=False,
+        )
+
+
+
+def test_comparative_bundle_plan_rejects_partial_role_set() -> None:
+    item = plan_ucsc_bundle_acquisition(_comparative_bundle()).items[0]
+
+    with pytest.raises(ValueError, match="exact ordered resource roles"):
+        UCSCBundleAcquisitionPlan(
+            source_db="canFam3",
+            target_db="canFam4",
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+            items=(item,),
+        )
+
+
+def test_cached_comparative_bundle_rejects_partial_resource_state(
+    tmp_path: Path,
+) -> None:
+    chain_url = _comparative_bundle().chain_url
+    chain = _cached_for_url(chain_url, tmp_path, cache_hit=True)
+
+    with pytest.raises(ValueError, match="COMPARATIVE cached bundle requires"):
+        CachedUCSCResourceBundle(
+            source_db="canFam3",
+            target_db="canFam4",
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+            chain=chain,
+        )
+
+
+def test_bundle_plan_item_rejects_role_filename_mismatch() -> None:
+    net_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+        "canFam3.canFam4.net.gz"
+    )
+
+    with pytest.raises(ValueError, match="role CHAIN does not match filename"):
+        UCSCBundleAcquisitionItem(
+            role=UCSCBundleResourceRole.CHAIN,
+            url=net_url,
+            terms=ucsc_resource_terms(net_url),
+        )
+
+
+def test_bundle_plan_rejects_right_role_from_wrong_directional_pair() -> None:
+    valid = plan_ucsc_bundle_acquisition(_comparative_bundle())
+    wrong_pair_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam5/"
+        "canFam3.canFam5.net.gz"
+    )
+    items = list(valid.items)
+    items[1] = UCSCBundleAcquisitionItem(
+        role=UCSCBundleResourceRole.NET,
+        url=wrong_pair_url,
+        terms=ucsc_resource_terms(wrong_pair_url),
+    )
+
+    with pytest.raises(ValueError, match="must use directional filename"):
+        UCSCBundleAcquisitionPlan(
+            source_db=valid.source_db,
+            target_db=valid.target_db,
+            evidence_tier=valid.evidence_tier,
+            items=tuple(items),
+        )
+
+
+def test_liftover_plan_rejects_chain_for_different_target() -> None:
+    wrong_target_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/"
+        "canFam3ToCanFam5.over.chain.gz"
+    )
+    item = UCSCBundleAcquisitionItem(
+        role=UCSCBundleResourceRole.CHAIN,
+        url=wrong_target_url,
+        terms=ucsc_resource_terms(wrong_target_url),
+    )
+
+    with pytest.raises(ValueError, match="must use directional filename"):
+        UCSCBundleAcquisitionPlan(
+            source_db="canFam3",
+            target_db="canFam4",
+            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+            items=(item,),
+        )
+
+
+def test_cached_bundle_rejects_swapped_chain_and_net_resources(
+    tmp_path: Path,
+) -> None:
+    bundle = _comparative_bundle()
+    assert bundle.net_url is not None
+    assert bundle.syntenic_net_url is not None
+    assert bundle.reciprocal_best_chain_url is not None
+    assert bundle.reciprocal_best_net_url is not None
+
+    with pytest.raises(ValueError, match="bundle resource role CHAIN"):
+        CachedUCSCResourceBundle(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=_cached_for_url(bundle.net_url, tmp_path, cache_hit=True),
+            net=_cached_for_url(bundle.chain_url, tmp_path, cache_hit=True),
+            syntenic_net=_cached_for_url(
+                bundle.syntenic_net_url, tmp_path, cache_hit=True
+            ),
+            reciprocal_best_chain=_cached_for_url(
+                bundle.reciprocal_best_chain_url, tmp_path, cache_hit=True
+            ),
+            reciprocal_best_net=_cached_for_url(
+                bundle.reciprocal_best_net_url, tmp_path, cache_hit=True
+            ),
+        )
+
+
+def test_cached_bundle_rejects_resource_from_wrong_directional_pair(
+    tmp_path: Path,
+) -> None:
+    bundle = _comparative_bundle()
+    assert bundle.net_url is not None
+    assert bundle.syntenic_net_url is not None
+    assert bundle.reciprocal_best_chain_url is not None
+    assert bundle.reciprocal_best_net_url is not None
+    wrong_pair_net_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam5/"
+        "canFam3.canFam5.net.gz"
+    )
+
+    with pytest.raises(ValueError, match="must use directional filename"):
+        CachedUCSCResourceBundle(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=_cached_for_url(bundle.chain_url, tmp_path, cache_hit=True),
+            net=_cached_for_url(wrong_pair_net_url, tmp_path, cache_hit=True),
+            syntenic_net=_cached_for_url(
+                bundle.syntenic_net_url, tmp_path, cache_hit=True
+            ),
+            reciprocal_best_chain=_cached_for_url(
+                bundle.reciprocal_best_chain_url, tmp_path, cache_hit=True
+            ),
+            reciprocal_best_net=_cached_for_url(
+                bundle.reciprocal_best_net_url, tmp_path, cache_hit=True
+            ),
+        )

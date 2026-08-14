@@ -329,14 +329,19 @@ Assessment report (summary + detailed dossier)
   5. Always accept user-supplied chain/net resources directly — UCSC is a convenient default
      provider, not a hard dependency.
 - **Resource acquisition/cache**: discovery and retrieval remain separate operations. v1 acquisition
-  must require explicit acknowledgement of the applicable UCSC/general and directory-specific terms
-  before network access, distinguish restricted `liftOver/*.over.chain.gz` resources from comparative
-  `vsTarget/` resources, verify provider checksum metadata when an exact filename entry is available,
-  validate transport length metadata when supplied, and store exact downloaded bytes outside the source
-  tree by liftAssess SHA-256. A provider checksum
-  is an integrity check, not provenance identity. Cache reuse is based on the retained URL index plus
-  re-verification of the local SHA-256 and must not be described as proof that the remote URL is
-  unchanged; an explicit refresh path is required.
+  requires explicit acknowledgement of the applicable UCSC/general and directory-specific terms before
+  network access, distinguishes restricted `liftOver/*.over.chain.gz` resources from comparative
+  `vsTarget/` resources, verifies provider checksum metadata when an exact filename entry is available,
+  validates transport length metadata when supplied, and stores exact downloaded bytes outside the source
+  tree by liftAssess SHA-256. A provider checksum is an integrity check, not provenance identity. Cache
+  reuse is based on the retained URL index plus re-verification of the local SHA-256 and must not be
+  described as proof that the remote URL is unchanged; an explicit refresh path is required. Whole-bundle
+  retrieval is a second explicit boundary: construct a no-network plan that enumerates every resource
+  required by the discovered evidence tier, surface each resource's terms classification, and require a
+  separate acknowledgement of that transfer plan before acquiring any item. A returned cached bundle is
+  complete for its evidence tier; if a later item fails, no partial bundle object is returned, while any
+  already-published content-addressed artifacts remain valid cache entries for retry. Remote-size metadata
+  and a resumable/bulk strategy for very large files remain separate pending work rather than being guessed.
 - **Call these "evidence-availability tiers," not "confidence tiers."** How much evidence exists
   and how strong the resulting verdict is are orthogonal (see invariant 3, §3).
 
@@ -371,10 +376,12 @@ Assessment report (summary + detailed dossier)
   release artifacts, or fixtures. Keep downloaded provider data in a separate local cache,
   preserve source URL, applicable terms/README provenance, retrieval metadata, and content
   checksum, and keep liftAssess's own GPL-licensed code independent of those external files.
-  The first acquisition slice handles one explicitly requested resource at a time in a caller-selected
-  external cache. For large or multiple transfers, later bundle acquisition should follow UCSC's
-  published bulk-download guidance (for example, rsync where supported) instead of silently starting
-  multi-gigabyte ordinary web transfers.
+  The acquisition layer now supports individual resources plus explicit complete-bundle transfer plans
+  in a caller-selected external cache. Planning itself performs no network access, and bundle execution
+  requires a separate transfer-plan acknowledgement before any resource acquisition starts. Remote-size
+  metadata and a practical large-file/resumable strategy are still pending; future bulk transfer should
+  follow the provider's current directory-specific guidance rather than silently starting multi-gigabyte
+  ordinary web transfers.
 - Treat UCSC as one external, terms-bound evidence provider. Always accept user-supplied resources;
   their licensing remains the user's/provider's responsibility and must not be represented as
   covered by liftAssess's GPL license.
@@ -485,9 +492,8 @@ anything now.
 - Decide the exact `--details` / JSON schema.
 - Decide the source for optional flanking-gene synteny context (e.g. Ensembl Compara) and its
   fallback behavior when no ortholog table exists for a species pair.
-- Connect the UCSC resource resolver to a downloader/cache. User-supplied and cached local paths can
-  now stream through the implemented file adapter and receive content-addressed SHA-256 provenance;
-  automatic discovery still verifies exact Golden Path directory entries and distinguishes
-  `COMPARATIVE`, `LIFTOVER_ONLY`, and unavailable without downloading large resources. The downloader
-  must compute/retain that SHA-256 identity, verify provider checksums when published, and keep
-  licensing acknowledgement and retrieval metadata explicit.
+- Add measured remote-size metadata and a practical resumable/bulk-transfer strategy for very large UCSC
+  resources before the future CLI makes full comparative acquisition routine. Discovery, single-resource
+  acquisition, and explicit complete-bundle planning/acquisition now exist; cached resources still need a
+  direct bridge into the final provenance/assessment orchestration without making user-supplied local
+  resources second-class.
