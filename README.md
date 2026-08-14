@@ -62,6 +62,9 @@ The current development code includes:
 - explicit bundle transfer planning and complete-or-error bundle acquisition for discovered
   `COMPARATIVE` and `LIFTOVER_ONLY` resource sets, with a separate transfer-plan acknowledgement before
   any planned resource acquisition begins;
+- terms-gated, body-free remote metadata inspection using HTTP HEAD with identity encoding requested,
+  preserving provider-advertised `Content-Length`, `Accept-Ranges`, `Last-Modified`, `ETag`, and
+  `Content-Encoding` without transferring resource bodies;
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
 
 ## Not implemented yet
@@ -69,8 +72,8 @@ The current development code includes:
 The project is not yet an end-to-end user tool. Major v1 work still includes:
 
 - the assessor logic that deterministically converts evidence into `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE`;
-- remote-size metadata plus a practical resumable/bulk-transfer strategy for very large comparative
-  resources and a future CLI/user-cache default;
+- restart-safe resumable HTTPS acquisition for multi-gigabyte comparative resources;
+- a future CLI/user-cache default (the library currently requires an explicit caller-supplied cache root);
 - a direct bridge from a fully cached resource bundle into the final provenance/assessment orchestration;
 - orchestration from the resulting candidate evidence into an assessment verdict and report;
 - the command-line interface;
@@ -179,9 +182,9 @@ liftAssess does not bundle UCSC chain/net resources or depend on the UCSC liftOv
 
 UCSC resource terms are not uniform simply because multiple resources use chain format. In particular, UCSC's dedicated `liftOver/*.over.chain.gz` files are subject to UCSC's liftOver chain-file terms, including non-commercial-use restrictions unless an applicable commercial license has been obtained. Comparative `vsTarget/` chain/net resources follow the terms published for their own download directory. The planned `canFam3/vsCanFam4/` mechanical-fixture directory currently states that its files are freely available for public use.
 
-The resolver and acquisition layers remain separate. The acquisition API can retrieve one explicitly requested UCSC resource or execute an explicit plan for a complete discovered resource bundle into a caller-selected cache outside the source tree. Planning is no-network and enumerates every required URL plus its provider-terms classification; bundle execution additionally requires explicit acknowledgement of that transfer plan before any resource acquisition begins. This is deliberately separate from terms acknowledgement. Dedicated `liftOver/*.over.chain.gz` files are identified separately because UCSC applies additional liftOver-chain restrictions. Provider `md5sum.txt` entries are verified when an exact filename entry exists, while liftAssess SHA-256 remains the canonical artifact identity. Verified cached URL→artifact reuse is intentionally available offline and does not claim remote freshness; callers request an explicit refresh to contact UCSC and reacquire current bytes. Remote-size metadata and a resumable/bulk strategy for very large comparative files remain pending.
+The resolver and acquisition layers remain separate. The acquisition API can retrieve one explicitly requested UCSC resource or execute an explicit plan for a complete discovered resource bundle into a caller-selected cache outside the source tree. Planning is no-network and enumerates every required URL plus its provider-terms classification; bundle execution additionally requires explicit acknowledgement of that transfer plan before any resource acquisition begins. This is deliberately separate from terms acknowledgement. Dedicated `liftOver/*.over.chain.gz` files are identified separately because UCSC applies additional liftOver-chain restrictions. Provider `md5sum.txt` entries are verified when an exact filename entry exists, while liftAssess SHA-256 remains the canonical artifact identity. Verified cached URL→artifact reuse is intentionally available offline and does not claim remote freshness; callers request an explicit refresh to contact UCSC and reacquire current bytes. A separate body-free metadata-inspection step can query provider HTTP headers after explicit terms acknowledgement and before transfer-plan acknowledgement. It does not create cache artifacts or transfer resource bodies. A live canFam3→canFam4 check on 2026-08-14 verified exact `Content-Length` values for all five comparative resources and `Accept-Ranges: bytes`; a separate small-range probe verified `206 Partial Content`, exact `Content-Range`, stable `ETag`, and `If-Range` behavior without downloading the full chain.
 
-Large transfers should eventually use UCSC's published bulk-download mechanisms where practical rather than repeatedly fetching multi-gigabyte files through ordinary web requests.
+Restart-safe resumable HTTPS acquisition remains pending implementation. The current inspection layer records provider metadata only; it does not yet retain partial downloads or resume them.
 
 Automatic UCSC discovery is intended as a convenience, not a permanent hard dependency. User-supplied resources are part of the v1 design and remain subject to their own provider terms.
 

@@ -26,12 +26,17 @@ from liftassess import (
     UCSCBundleAcquisitionPlan,
     UCSCBundleAcquisitionPlanAcknowledgementRequired,
     UCSCBundleResourceRole,
+    UCSCBundleTransferInspection,
+    UCSCBundleTransferInspectionItem,
+    UCSCRemoteResourceMetadata,
     UCSCResourceAcquisitionError,
     UCSCResourceBundle,
     UCSCResourceClass,
     UCSCResourceTermsAcknowledgementRequired,
     acquire_ucsc_resource,
     acquire_ucsc_resource_bundle,
+    inspect_ucsc_bundle_transfer_plan,
+    inspect_ucsc_resource,
     iter_chain_file,
     plan_ucsc_bundle_acquisition,
     provenance_source_for_file,
@@ -40,6 +45,8 @@ from liftassess import (
 from liftassess.resource_cache import (
     _acquire_ucsc_resource,
     _acquire_ucsc_resource_bundle,
+    _inspect_ucsc_bundle_transfer_plan,
+    _inspect_ucsc_resource,
 )
 
 
@@ -991,3 +998,250 @@ def test_cached_bundle_rejects_resource_from_wrong_directional_pair(
                 bundle.reciprocal_best_net_url, tmp_path, cache_hit=True
             ),
         )
+
+
+class _HeadResponse(_Response):
+    def __init__(self, headers: Mapping[str, str]) -> None:
+        super().__init__(b"", content_length=0)
+        self._headers = {key.casefold(): value for key, value in headers.items()}
+
+    def read(self, size: int | None = -1) -> bytes:
+        raise AssertionError("HEAD metadata inspection must not read a response body")
+
+    def getheader(self, name: str, default: str | None = None) -> str | None:
+        return self._headers.get(name.casefold(), default)
+
+
+def test_remote_metadata_inspection_uses_head_without_reading_body() -> None:
+    url = _comparative_bundle().chain_url
+    requests: list[Request] = []
+
+    def open_url(request: Request) -> _HeadResponse:
+        requests.append(request)
+        return _HeadResponse(
+            {
+                "Content-Length": "2684354560",
+                "Accept-Ranges": "bytes",
+                "Last-Modified": "Tue, 12 May 2020 22:56:00 GMT",
+                "ETag": '"example"',
+            }
+        )
+
+    metadata = _inspect_ucsc_resource(
+        url,
+        terms_acknowledged=True,
+        open_url=open_url,
+    )
+
+    assert len(requests) == 1
+    assert requests[0].get_method() == "HEAD"
+    assert requests[0].get_header("Accept-encoding") == "identity"
+    assert metadata.url == url
+    assert metadata.content_length_bytes == 2684354560
+    assert metadata.accept_ranges == "bytes"
+    assert metadata.last_modified == "Tue, 12 May 2020 22:56:00 GMT"
+    assert metadata.etag == '"example"'
+    assert metadata.content_encoding is None
+    assert metadata.terms == ucsc_resource_terms(url)
+
+
+def test_remote_metadata_inspection_requires_terms_before_network_access() -> None:
+    url = _comparative_bundle().chain_url
+    called = False
+
+    def open_url(_: Request) -> _HeadResponse:
+        nonlocal called
+        called = True
+        return _HeadResponse({})
+
+    with pytest.raises(UCSCResourceTermsAcknowledgementRequired):
+        _inspect_ucsc_resource(
+            url,
+            terms_acknowledged=False,
+            open_url=open_url,
+        )
+
+    assert called is False
+
+
+def test_remote_metadata_inspection_preserves_missing_optional_headers() -> None:
+    url = _comparative_bundle().net_url
+    assert url is not None
+
+    metadata = _inspect_ucsc_resource(
+        url,
+        terms_acknowledged=True,
+        open_url=lambda _: _HeadResponse({}),
+    )
+
+    assert metadata.content_length_bytes is None
+    assert metadata.accept_ranges is None
+    assert metadata.last_modified is None
+    assert metadata.etag is None
+    assert metadata.content_encoding is None
+
+
+def test_remote_metadata_inspection_rejects_malformed_content_length() -> None:
+    url = _comparative_bundle().chain_url
+
+    with pytest.raises(UCSCResourceAcquisitionError, match="Content-Length"):
+        _inspect_ucsc_resource(
+            url,
+            terms_acknowledged=True,
+            open_url=lambda _: _HeadResponse({"Content-Length": "not-a-number"}),
+        )
+
+
+def test_remote_metadata_inspection_propagates_transport_failure() -> None:
+    url = _comparative_bundle().chain_url
+
+    def fail(_: Request) -> _HeadResponse:
+        raise URLError("simulated metadata outage")
+
+    with pytest.raises(UCSCResourceAcquisitionError, match="metadata outage"):
+        _inspect_ucsc_resource(
+            url,
+            terms_acknowledged=True,
+            open_url=fail,
+        )
+
+
+def test_bundle_transfer_inspection_requires_terms_before_any_item_inspection() -> None:
+    plan = plan_ucsc_bundle_acquisition(_comparative_bundle())
+    calls: list[str] = []
+
+    def inspect(url: str) -> UCSCRemoteResourceMetadata:
+        calls.append(url)
+        raise AssertionError("bundle inspection must fail before contacting the provider")
+
+    with pytest.raises(UCSCResourceTermsAcknowledgementRequired):
+        _inspect_ucsc_bundle_transfer_plan(
+            plan,
+            terms_acknowledged=False,
+            inspect_resource=inspect,
+        )
+
+    assert calls == []
+
+
+def test_bundle_transfer_inspection_preserves_exact_plan_and_totals() -> None:
+    plan = plan_ucsc_bundle_acquisition(_comparative_bundle())
+    sizes = {item.url: (index + 1) * 100 for index, item in enumerate(plan.items)}
+
+    def inspect(url: str) -> UCSCRemoteResourceMetadata:
+        return UCSCRemoteResourceMetadata(
+            url=url,
+            terms=ucsc_resource_terms(url),
+            content_length_bytes=sizes[url],
+            accept_ranges="bytes",
+            last_modified=None,
+            etag=None,
+            content_encoding=None,
+        )
+
+    result = _inspect_ucsc_bundle_transfer_plan(
+        plan,
+        terms_acknowledged=True,
+        inspect_resource=inspect,
+    )
+
+    assert isinstance(result, UCSCBundleTransferInspection)
+    assert result.source_db == plan.source_db
+    assert result.target_db == plan.target_db
+    assert result.evidence_tier is plan.evidence_tier
+    assert tuple(item.role for item in result.items) == tuple(
+        item.role for item in plan.items
+    )
+    assert tuple(item.metadata.url for item in result.items) == tuple(
+        item.url for item in plan.items
+    )
+    assert result.known_content_length_bytes == 1500
+    assert result.total_content_length_bytes == 1500
+
+
+def test_bundle_transfer_inspection_excludes_non_identity_encoded_lengths() -> None:
+    plan = plan_ucsc_bundle_acquisition(_liftover_bundle())
+
+    def inspect(url: str) -> UCSCRemoteResourceMetadata:
+        return UCSCRemoteResourceMetadata(
+            url=url,
+            terms=ucsc_resource_terms(url),
+            content_length_bytes=1234,
+            accept_ranges="bytes",
+            last_modified=None,
+            etag=None,
+            content_encoding="gzip",
+        )
+
+    result = _inspect_ucsc_bundle_transfer_plan(
+        plan,
+        terms_acknowledged=True,
+        inspect_resource=inspect,
+    )
+
+    assert result.items[0].metadata.content_length_bytes == 1234
+    assert result.items[0].metadata.content_encoding == "gzip"
+    assert result.known_content_length_bytes == 0
+    assert result.total_content_length_bytes is None
+
+
+def test_bundle_transfer_inspection_does_not_guess_unknown_total_size() -> None:
+    plan = plan_ucsc_bundle_acquisition(_liftover_bundle())
+
+    def inspect(url: str) -> UCSCRemoteResourceMetadata:
+        return UCSCRemoteResourceMetadata(
+            url=url,
+            terms=ucsc_resource_terms(url),
+            content_length_bytes=None,
+            accept_ranges=None,
+            last_modified=None,
+            etag=None,
+            content_encoding=None,
+        )
+
+    result = _inspect_ucsc_bundle_transfer_plan(
+        plan,
+        terms_acknowledged=True,
+        inspect_resource=inspect,
+    )
+
+    assert result.known_content_length_bytes == 0
+    assert result.total_content_length_bytes is None
+
+
+def test_bundle_transfer_inspection_rejects_wrong_pair_metadata() -> None:
+    plan = plan_ucsc_bundle_acquisition(_comparative_bundle())
+    wrong_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam5/"
+        "canFam3.canFam5.net.gz"
+    )
+    inspected = tuple(
+        UCSCBundleTransferInspectionItem(
+            role=item.role,
+            metadata=UCSCRemoteResourceMetadata(
+                url=(wrong_url if item.role is UCSCBundleResourceRole.NET else item.url),
+                terms=ucsc_resource_terms(
+                    wrong_url if item.role is UCSCBundleResourceRole.NET else item.url
+                ),
+                content_length_bytes=1,
+                accept_ranges=None,
+                last_modified=None,
+                etag=None,
+                content_encoding=None,
+            ),
+        )
+        for item in plan.items
+    )
+
+    with pytest.raises(ValueError, match="must use directional filename"):
+        UCSCBundleTransferInspection(
+            source_db=plan.source_db,
+            target_db=plan.target_db,
+            evidence_tier=plan.evidence_tier,
+            items=inspected,
+        )
+
+
+def test_public_remote_metadata_inspection_is_exported() -> None:
+    assert callable(inspect_ucsc_resource)
+    assert callable(inspect_ucsc_bundle_transfer_plan)

@@ -197,13 +197,27 @@ Implemented in the second acquisition slice:
 - keeps `LIFTOVER_ONLY` as a one-chain local bundle and `COMPARATIVE` as the exact five-role set: chain, net, syntenic net, reciprocal-best chain, reciprocal-best net;
 - binds each plan item's surfaced terms metadata back to its exact URL classification so an inspectable plan cannot display one terms class while executing another URL.
 
+Implemented in the third acquisition slice:
+
+- after explicit provider-terms acknowledgement, issues body-free HTTP HEAD requests for the exact
+  URLs already present in an acquisition plan;
+- requests identity encoding and preserves provider-advertised `Content-Length`, `Accept-Ranges`,
+  `Last-Modified`, `ETag`, and `Content-Encoding` values rather than guessing from directory display
+  text; a contrary non-identity content encoding is retained as metadata but excluded from transfer-size
+  totals;
+- reports a complete bundle byte total only when every planned resource advertises `Content-Length`, while still exposing the sum of individually known lengths;
+- preserves the existing role/URL/directional-pair validation in the inspection result;
+- does not treat `Accept-Ranges` or any other header as proof of resumable HTTP support and does not begin resource-body acquisition.
+
 Measured provider detail checked 2026-08-13: UCSC's `canFam3/vsCanFam4/md5sum.txt` publishes an MD5 for `canFam3.canFam4.all.chain.gz` and `canFam3.canFam4.syn.net.gz` but not `canFam3.canFam4.net.gz`; `canFam4/vsCanFam3/reciprocalBest/md5sum.txt` publishes MD5 values for both directional reciprocal-best chain/net files. Therefore the exact-filename checksum-optional behavior is required by the real fixture resources rather than being hypothetical.
 
 Measured size context checked from the live UCSC directory listings on 2026-08-14: the planned canFam3→canFam4 comparative set includes a roughly 2.5 GB `all.chain.gz`, alongside a roughly 10 MB net, 9.1 MB syntenic net, 5.2 MB directional reciprocal-best chain, and 7.8 MB directional reciprocal-best net. This is why bundle planning and explicit acknowledgement were added before any user-facing automatic comparative transfer. These human-readable listing sizes are context, not yet machine-verified plan metadata.
 
+Live provider verification completed 2026-08-14 for the five-resource canFam3→canFam4 comparative plan. HEAD returned exact `Content-Length` values for every resource, totaling 2,686,242,854 bytes; the 2,652,632,416-byte forward all-chain accounts for nearly the entire transfer. Every resource advertised `Accept-Ranges: bytes`, and the large chain supplied both `ETag` and `Last-Modified`. A separate small-range probe against that chain returned `206 Partial Content`, exact `Content-Range` and `Content-Length`, a stable ETag across adjacent requests, successful `If-Range`, and byte-identical reconstruction of adjacent ranges versus one combined range. These checks transferred only a few KiB of the chain and did not execute the full comparative acquisition.
+
 Still pending within this milestone:
 
-- add measured remote-size awareness to the transfer plan and a practical resumable/bulk-transfer strategy for very large UCSC resources;
+- implement restart-safe resumable HTTPS acquisition using the verified byte-range behavior, with partial-file metadata bound to the exact URL, expected object size, and remote validator, and restart rather than splice when those invariants do not match;
 - decide the future CLI's default OS/user cache location and refresh controls;
 - bridge acquired cache records into the existing file-backed candidate engine and final assessment/retrieval-provenance report without making user-supplied local resources second-class.
 

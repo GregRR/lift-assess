@@ -264,8 +264,15 @@ Assessment report (summary + detailed dossier)
   checksums (including MD5 where that is what the provider publishes) are separate transfer-integrity
   checks and are not promoted into liftAssess provenance identity. Upstream alignment/process
   provenance remains caller-supplied because file bytes cannot reveal how the artifact was produced.
-  A downloader/cache layer can later compute the SHA-256 during transfer while recording source URL,
-  retrieval metadata, applicable provider terms, and any provider checksum verification.
+  The acquisition/cache layer computes SHA-256 during transfer while recording source URL, retrieval
+  metadata, applicable provider terms, and any provider checksum verification. Single-resource
+  acquisition and complete bundle planning/execution are implemented against a caller-supplied cache
+  root; no repository-local cache is created. After explicit provider-terms acknowledgement, a
+  separate metadata-inspection step may issue body-free HTTP HEAD requests to expose
+  provider-advertised `Content-Length` and transport headers before transfer-plan acknowledgement.
+  Live provider checks on 2026-08-14 verified exact HEAD sizes plus byte-range/`If-Range` behavior for
+  the planned canFam3→canFam4 comparative resources. Restart-safe resumable HTTPS acquisition remains
+  a separate implementation step; inspection alone never creates or resumes partial downloads.
 - **Reciprocal-best completeness metadata survives orchestration filtering unchanged.** The
   engine's source-sequence, target-sequence, and orientation filter is lossless for candidate
   membership: it removes only reciprocal-best chains that the downstream geometry matcher would
@@ -340,8 +347,11 @@ Assessment report (summary + detailed dossier)
   required by the discovered evidence tier, surface each resource's terms classification, and require a
   separate acknowledgement of that transfer plan before acquiring any item. A returned cached bundle is
   complete for its evidence tier; if a later item fails, no partial bundle object is returned, while any
-  already-published content-addressed artifacts remain valid cache entries for retry. Remote-size metadata
-  and a resumable/bulk strategy for very large files remain separate pending work rather than being guessed.
+  already-published content-addressed artifacts remain valid cache entries for retry. A separate body-free
+  metadata-inspection step can record provider-advertised size and transport headers for the exact plan
+  URLs after explicit provider-terms acknowledgement. Live provider verification has established the
+  required HEAD and byte-range behavior for the current comparative fixture, but restart-safe resumable
+  HTTPS acquisition remains separate pending work.
 - **Call these "evidence-availability tiers," not "confidence tiers."** How much evidence exists
   and how strong the resulting verdict is are orthogonal (see invariant 3, §3).
 
@@ -365,13 +375,15 @@ Assessment report (summary + detailed dossier)
   UCSC lists the `src/hg/liftOver` source directory under its non-commercial UC license and offers
   commercial licensing for liftOver. liftAssess therefore does not depend on or redistribute the
   UCSC liftOver implementation for its core logic.
-- **Discovery is not permission to download.** The resource resolver may identify either a
-  comparative URL or a restricted `liftOver/*.over.chain.gz` URL. The acquisition layer therefore
-  refuses network access until the caller explicitly acknowledges review of UCSC's general and
-  relevant directory-specific terms. Restricted liftOver chains are surfaced distinctly because
-  UCSC states that downloading or using them indicates EULA acceptance and limits free use to the
-  described non-commercial/nonprofit cases unless an applicable commercial license exists. URL
-  discovery alone is never treated as acceptance.
+- **Provider network access is explicitly gated.** The resource resolver may identify either a
+  comparative URL or a restricted `liftOver/*.over.chain.gz` URL. Provider-contacting inspection and
+  acquisition therefore refuse network access until the caller explicitly acknowledges
+  review of UCSC's general and relevant directory-specific terms. Restricted liftOver chains are
+  surfaced distinctly because UCSC states that downloading or using them indicates EULA acceptance and
+  limits free use to the described non-commercial/nonprofit cases unless an applicable commercial
+  license exists. No-network discovery/planning itself does not require terms acknowledgement, and HEAD
+  inspection does not substitute for the separate transfer-plan acknowledgement required to download
+  resource bodies.
 - Do not bundle or mirror UCSC chain/net resources in the liftAssess source tree, package,
   release artifacts, or fixtures. Keep downloaded provider data in a separate local cache,
   preserve source URL, applicable terms/README provenance, retrieval metadata, and content

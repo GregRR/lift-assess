@@ -17,9 +17,13 @@ Primary provider references checked 2026-08-13:
 - canFam3/canFam4 comparative terms and files: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/
 - comparative MD5 metadata: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/md5sum.txt
 - reciprocal-best MD5 metadata: https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/reciprocalBest/md5sum.txt
+- UCSC download guidance: https://genome.ucsc.edu/goldenpath/help/ftp.html
 
 The canFam3/canFam4 comparison demonstrates why checksum lookup is exact-filename
 based: its MD5 file covers some comparison artifacts but not ``canFam3.canFam4.net.gz``.
+Remote metadata inspection uses body-free HTTP HEAD requests and preserves only headers
+actually advertised by the provider.  Range/resume behavior is deliberately not inferred
+from those headers until it is verified against the live UCSC server.
 """
 
 from __future__ import annotations
@@ -125,6 +129,104 @@ class CachedResource:
     provider_checksum: ProviderChecksum | None
     terms: UCSCResourceTerms
     cache_hit: bool
+
+
+@dataclass(frozen=True)
+class UCSCRemoteResourceMetadata:
+    """Metadata returned by a body-free HTTP HEAD request for one UCSC resource.
+
+    ``content_length_bytes`` records the provider's HTTP ``Content-Length`` when it is
+    present; it is not guessed from directory-listing display text.  Inspection requests
+    identity encoding.  If a provider nevertheless reports a non-identity
+    ``Content-Encoding``, the raw header value is preserved but excluded from bundle
+    transfer-size totals because it may not describe the cached resource bytes.
+    ``accept_ranges`` is preserved as advertised and is not, by itself, treated as proof
+    that resumable HTTP acquisition is safe.
+    """
+
+    url: str
+    terms: UCSCResourceTerms
+    content_length_bytes: int | None
+    accept_ranges: str | None
+    last_modified: str | None
+    etag: str | None
+    content_encoding: str | None
+
+    def __post_init__(self) -> None:
+        expected_terms = ucsc_resource_terms(self.url)
+        if self.terms != expected_terms:
+            raise ValueError(
+                "remote resource metadata terms must match the resource URL classification"
+            )
+        if self.content_length_bytes is not None and self.content_length_bytes < 0:
+            raise ValueError("remote resource Content-Length cannot be negative")
+
+
+@dataclass(frozen=True)
+class UCSCBundleTransferInspectionItem:
+    """Remote metadata for one exact role/URL in a bundle acquisition plan."""
+
+    role: UCSCBundleResourceRole
+    metadata: UCSCRemoteResourceMetadata
+
+    def __post_init__(self) -> None:
+        _validate_resource_role_filename(self.role, self.metadata.url)
+
+
+@dataclass(frozen=True)
+class UCSCBundleTransferInspection:
+    """Body-free remote metadata inspection for an existing bundle plan."""
+
+    source_db: str
+    target_db: str
+    evidence_tier: EvidenceAvailabilityTier
+    items: tuple[UCSCBundleTransferInspectionItem, ...]
+
+    def __post_init__(self) -> None:
+        expected_roles = _bundle_roles_for_tier(self.evidence_tier)
+        actual_roles = tuple(item.role for item in self.items)
+        if actual_roles != expected_roles:
+            raise ValueError(
+                "bundle transfer inspection must contain the exact ordered resource roles "
+                f"for {self.evidence_tier.value}: expected {expected_roles}, got "
+                f"{actual_roles}"
+            )
+        for item in self.items:
+            _validate_bundle_resource_binding(
+                item.role,
+                item.metadata.url,
+                source_db=self.source_db,
+                target_db=self.target_db,
+                evidence_tier=self.evidence_tier,
+            )
+
+    @property
+    def known_content_length_bytes(self) -> int:
+        """Sum usable provider Content-Length values for identity-encoded resources."""
+
+        return sum(
+            _identity_content_length_bytes(item.metadata) or 0 for item in self.items
+        )
+
+    @property
+    def total_content_length_bytes(self) -> int | None:
+        """Return the complete identity-encoded bundle size only when fully known."""
+
+        lengths = tuple(_identity_content_length_bytes(item.metadata) for item in self.items)
+        if any(length is None for length in lengths):
+            return None
+        return sum(cast(int, length) for length in lengths)
+
+
+def _identity_content_length_bytes(
+    metadata: UCSCRemoteResourceMetadata,
+) -> int | None:
+    if (
+        metadata.content_encoding is not None
+        and metadata.content_encoding.casefold() != "identity"
+    ):
+        return None
+    return metadata.content_length_bytes
 
 
 @dataclass(frozen=True)
@@ -300,9 +402,10 @@ def plan_ucsc_bundle_acquisition(
 
     Planning does not create the cache or contact UCSC.  It enumerates the exact URLs
     required by the bundle's evidence-availability tier and records the applicable
-    provider terms for each resource.  Size discovery is intentionally not guessed in
-    this slice; callers must inspect this plan and explicitly acknowledge it before
-    execution, and future CLI work can add measured remote-size metadata separately.
+    provider terms for each resource.  After reviewing those terms, callers can pass
+    the resulting plan to ``inspect_ucsc_bundle_transfer_plan`` with explicit terms
+    acknowledgement for body-free provider metadata before separately acknowledging
+    and executing the transfer plan.
     """
 
     urls: tuple[tuple[UCSCBundleResourceRole, str], ...]
@@ -340,6 +443,125 @@ def plan_ucsc_bundle_acquisition(
             )
             for role, url in urls
         ),
+    )
+
+
+def inspect_ucsc_resource(
+    url: str,
+    *,
+    terms_acknowledged: bool,
+) -> UCSCRemoteResourceMetadata:
+    """Inspect one UCSC resource with an HTTP HEAD request and no body transfer.
+
+    This is metadata inspection, not acquisition: it does not create a cache or download
+    resource bytes.  Because it still contacts the provider, it requires the same
+    explicit terms acknowledgement as resource acquisition.  Missing HTTP metadata is
+    preserved as ``None`` rather than inferred from a directory listing or filename.
+    """
+
+    return _inspect_ucsc_resource(
+        url,
+        terms_acknowledged=terms_acknowledged,
+        open_url=_open_url,
+    )
+
+
+def _inspect_ucsc_resource(
+    url: str,
+    *,
+    terms_acknowledged: bool,
+    open_url: URLopener,
+) -> UCSCRemoteResourceMetadata:
+    terms = ucsc_resource_terms(url)
+    _require_terms_acknowledgement(terms, terms_acknowledged=terms_acknowledged)
+    request = Request(
+        url,
+        headers={
+            "User-Agent": _USER_AGENT,
+            "Accept-Encoding": "identity",
+        },
+        method="HEAD",
+    )
+    try:
+        with open_url(request) as response:
+            content_length = _response_content_length(response)
+            accept_ranges = _optional_response_header(response, "Accept-Ranges")
+            last_modified = _optional_response_header(response, "Last-Modified")
+            etag = _optional_response_header(response, "ETag")
+            content_encoding = _optional_response_header(response, "Content-Encoding")
+    except HTTPError as exc:
+        raise UCSCResourceAcquisitionError(
+            f"failed to inspect UCSC resource metadata {url}: HTTP {exc.code}"
+        ) from exc
+    except (URLError, TimeoutError, OSError) as exc:
+        raise UCSCResourceAcquisitionError(
+            f"failed to inspect UCSC resource metadata {url}: {exc}"
+        ) from exc
+
+    return UCSCRemoteResourceMetadata(
+        url=url,
+        terms=terms,
+        content_length_bytes=content_length,
+        accept_ranges=accept_ranges,
+        last_modified=last_modified,
+        etag=etag,
+        content_encoding=content_encoding,
+    )
+
+
+def inspect_ucsc_bundle_transfer_plan(
+    plan: UCSCBundleAcquisitionPlan,
+    *,
+    terms_acknowledged: bool,
+) -> UCSCBundleTransferInspection:
+    """Inspect remote metadata for every item in a bundle plan without GET bodies.
+
+    The existing no-network plan remains the source of role/URL/terms intent.  After
+    explicit terms acknowledgement, this separate step contacts each exact URL with HEAD
+    and returns only provider-advertised HTTP metadata.  It does not execute or
+    acknowledge the transfer plan.
+    """
+
+    return _inspect_ucsc_bundle_transfer_plan(
+        plan,
+        terms_acknowledged=terms_acknowledged,
+        inspect_resource=lambda url: inspect_ucsc_resource(
+            url,
+            terms_acknowledged=True,
+        ),
+    )
+
+
+class _ResourceInspector(Protocol):
+    def __call__(self, url: str) -> UCSCRemoteResourceMetadata:
+        ...
+
+
+def _inspect_ucsc_bundle_transfer_plan(
+    plan: UCSCBundleAcquisitionPlan,
+    *,
+    terms_acknowledged: bool,
+    inspect_resource: _ResourceInspector,
+) -> UCSCBundleTransferInspection:
+    if not terms_acknowledged:
+        # Fail before inspecting the first item so bundle metadata inspection cannot make
+        # partial provider requests without the caller's explicit terms acknowledgement.
+        _require_terms_acknowledgement(
+            plan.items[0].terms,
+            terms_acknowledged=False,
+        )
+    inspected = tuple(
+        UCSCBundleTransferInspectionItem(
+            role=item.role,
+            metadata=inspect_resource(item.url),
+        )
+        for item in plan.items
+    )
+    return UCSCBundleTransferInspection(
+        source_db=plan.source_db,
+        target_db=plan.target_db,
+        evidence_tier=plan.evidence_tier,
+        items=inspected,
     )
 
 
@@ -565,19 +787,7 @@ def _acquire_ucsc_resource(
     now: Clock,
 ) -> CachedResource:
     terms = ucsc_resource_terms(url)
-    if not terms_acknowledged:
-        restriction = (
-            " UCSC identifies dedicated liftOver chain files as restricted and states "
-            "that downloading/using them indicates EULA acceptance."
-            if terms.restricted_liftover_chain
-            else ""
-        )
-        raise UCSCResourceTermsAcknowledgementRequired(
-            "UCSC resource retrieval requires explicit acknowledgement that the "
-            "applicable provider/directory terms were reviewed and permit the intended "
-            f"use.{restriction} Terms: {terms.general_terms_url} and "
-            f"{terms.directory_terms_url}"
-        )
+    _require_terms_acknowledgement(terms, terms_acknowledged=terms_acknowledged)
 
     root = Path(cache_root)
     root.mkdir(parents=True, exist_ok=True)
@@ -602,6 +812,28 @@ def _acquire_ucsc_resource(
         terms=terms,
         open_url=open_url,
         now=now,
+    )
+
+
+def _require_terms_acknowledgement(
+    terms: UCSCResourceTerms,
+    *,
+    terms_acknowledged: bool,
+) -> None:
+    if terms_acknowledged:
+        return
+
+    restriction = (
+        " UCSC identifies dedicated liftOver chain files as restricted and states "
+        "that downloading/using them indicates EULA acceptance."
+        if terms.restricted_liftover_chain
+        else ""
+    )
+    raise UCSCResourceTermsAcknowledgementRequired(
+        "UCSC provider access requires explicit acknowledgement that the applicable "
+        "provider/directory terms were reviewed and permit the intended "
+        f"use.{restriction} Terms: {terms.general_terms_url} and "
+        f"{terms.directory_terms_url}"
     )
 
 
@@ -808,6 +1040,14 @@ def _response_content_length(response: _BinaryResponse) -> int | None:
             f"invalid UCSC Content-Length header: {value!r}"
         )
     return size
+
+
+def _optional_response_header(response: _BinaryResponse, name: str) -> str | None:
+    value = response.getheader(name)
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 def _provider_checksum_from_index(value: object) -> ProviderChecksum | None:
