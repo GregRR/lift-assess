@@ -271,8 +271,16 @@ Assessment report (summary + detailed dossier)
   separate metadata-inspection step may issue body-free HTTP HEAD requests to expose
   provider-advertised `Content-Length` and transport headers before transfer-plan acknowledgement.
   Live provider checks on 2026-08-14 verified exact HEAD sizes plus byte-range/`If-Range` behavior for
-  the planned canFam3→canFam4 comparative resources. Restart-safe resumable HTTPS acquisition remains
-  a separate implementation step; inspection alone never creates or resumes partial downloads.
+  the planned canFam3→canFam4 comparative resources. The acquisition layer now uses those semantics
+  opportunistically: when an exact provider checksum, identity-encoded `Content-Length`, explicit byte-range support, and a strong
+  `ETag` are available, interrupted HTTPS transfers retain a URL/size/validator-bound partial and resume
+  with `Range` + `If-Range`. A response that fails the expected 206/`Content-Range`/validator contract is
+  never appended to that prefix and instead restarts through the fresh streaming path. The shared partial
+  itself is never promoted into the content-addressed store: completion is copied through the process's
+  open handle into a unique private snapshot, provider MD5 and SHA-256 are recomputed over that snapshot,
+  and only the private file is atomically published. This prevents another process holding the shared
+  partial inode open from mutating an already-published artifact. When the required metadata is absent,
+  acquisition remains non-resumable rather than inventing a weaker validator.
 - **Reciprocal-best completeness metadata survives orchestration filtering unchanged.** The
   engine's source-sequence, target-sequence, and orientation filter is lossless for candidate
   membership: it removes only reciprocal-best chains that the downstream geometry matcher would
@@ -349,9 +357,10 @@ Assessment report (summary + detailed dossier)
   complete for its evidence tier; if a later item fails, no partial bundle object is returned, while any
   already-published content-addressed artifacts remain valid cache entries for retry. A separate body-free
   metadata-inspection step can record provider-advertised size and transport headers for the exact plan
-  URLs after explicit provider-terms acknowledgement. Live provider verification has established the
-  required HEAD and byte-range behavior for the current comparative fixture, but restart-safe resumable
-  HTTPS acquisition remains separate pending work.
+  URLs after explicit provider-terms acknowledgement. Live provider verification established the required
+  HEAD and byte-range behavior for the current comparative fixture. The acquisition layer now retains and
+  resumes partial HTTPS transfers only when an exact provider checksum plus the required strong
+  validator/size/range metadata are available; otherwise it uses the fresh streaming path.
 - **Call these "evidence-availability tiers," not "confidence tiers."** How much evidence exists
   and how strong the resulting verdict is are orthogonal (see invariant 3, §3).
 
@@ -390,10 +399,10 @@ Assessment report (summary + detailed dossier)
   checksum, and keep liftAssess's own GPL-licensed code independent of those external files.
   The acquisition layer now supports individual resources plus explicit complete-bundle transfer plans
   in a caller-selected external cache. Planning itself performs no network access, and bundle execution
-  requires a separate transfer-plan acknowledgement before any resource acquisition starts. Remote-size
-  metadata and a practical large-file/resumable strategy are still pending; future bulk transfer should
-  follow the provider's current directory-specific guidance rather than silently starting multi-gigabyte
-  ordinary web transfers.
+  requires a separate transfer-plan acknowledgement before any resource acquisition starts. Terms-gated
+  HEAD inspection can expose exact remote size before transfer. When an exact provider checksum, strong ETag, exact identity-encoded
+  size, and byte-range support are available, interrupted HTTPS transfers can resume safely; otherwise the
+  implementation falls back to a fresh streaming transfer rather than inventing a weaker resume contract.
 - Treat UCSC as one external, terms-bound evidence provider. Always accept user-supplied resources;
   their licensing remains the user's/provider's responsibility and must not be represented as
   covered by liftAssess's GPL license.
@@ -504,8 +513,7 @@ anything now.
 - Decide the exact `--details` / JSON schema.
 - Decide the source for optional flanking-gene synteny context (e.g. Ensembl Compara) and its
   fallback behavior when no ortholog table exists for a species pair.
-- Add measured remote-size metadata and a practical resumable/bulk-transfer strategy for very large UCSC
-  resources before the future CLI makes full comparative acquisition routine. Discovery, single-resource
-  acquisition, and explicit complete-bundle planning/acquisition now exist; cached resources still need a
-  direct bridge into the final provenance/assessment orchestration without making user-supplied local
-  resources second-class.
+- Choose the future CLI's default cache location, refresh/progress controls, and user-facing transfer
+  confirmation around large comparative bundles. Measured HEAD preflight and restart-safe resumable HTTPS
+  acquisition now exist; cached resources still need a direct bridge into the final provenance/assessment
+  orchestration without making user-supplied local resources second-class.

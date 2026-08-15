@@ -22,8 +22,11 @@ Primary provider references checked 2026-08-13:
 The canFam3/canFam4 comparison demonstrates why checksum lookup is exact-filename
 based: its MD5 file covers some comparison artifacts but not ``canFam3.canFam4.net.gz``.
 Remote metadata inspection uses body-free HTTP HEAD requests and preserves only headers
-actually advertised by the provider.  Range/resume behavior is deliberately not inferred
-from those headers until it is verified against the live UCSC server.
+actually advertised by the provider.  Live UCSC checks on 2026-08-14 verified byte-range,
+``Content-Range``, strong-ETag, and ``If-Range`` behavior for the comparative fixture.
+Acquisition can therefore retain and resume validator-bound partial HTTPS transfers when
+those exact preconditions are advertised, while falling back to the original fresh streaming
+path when resumable metadata is unavailable.
 """
 
 from __future__ import annotations
@@ -39,7 +42,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path, PurePosixPath
 from types import TracebackType
-from typing import Protocol, Self, TypeAlias, cast
+from typing import BinaryIO, Protocol, Self, TypeAlias, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import SplitResult, urljoin, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
@@ -60,6 +63,7 @@ _USER_AGENT = "liftAssess/0.0 resource-acquisition"
 _CHUNK_SIZE = 1024 * 1024
 _MD5_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 _CACHE_SCHEMA_VERSION = 1
+_CONTENT_RANGE_RE = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
 
 
 class UCSCResourceAcquisitionError(RuntimeError):
@@ -72,6 +76,10 @@ class UCSCResourceTermsAcknowledgementRequired(UCSCResourceAcquisitionError):
 
 class UCSCBundleAcquisitionPlanAcknowledgementRequired(UCSCResourceAcquisitionError):
     """Bundle retrieval was requested without acknowledging its explicit transfer plan."""
+
+
+class _ResumeRestartRequired(RuntimeError):
+    """A partial download cannot be safely extended and must restart fresh."""
 
 
 class UCSCResourceClass(str, Enum):
@@ -326,6 +334,8 @@ class CachedUCSCResourceBundle:
 
 
 class _BinaryResponse(Protocol):
+    status: int
+
     def read(self, size: int = -1) -> bytes:
         ...
 
@@ -584,8 +594,8 @@ def acquire_ucsc_resource_bundle(
     ``transfer_plan_acknowledged`` is separate from provider-terms acknowledgement.
     It exists so a caller cannot pass a discovered COMPARATIVE bundle directly into a
     function that silently starts several transfers, including potentially very large
-    UCSC resources.  Remote size metadata and resumable large-file transfer remain a
-    later milestone.
+    UCSC resources.  The single-resource layer can now resume checksum-verifiable HTTPS
+    transfers when the provider advertises the required strong validator/range metadata.
     """
 
     return _acquire_ucsc_resource_bundle(
@@ -764,7 +774,9 @@ def acquire_ucsc_resource(
     checksum was published at retrieval time, that metadata is retained with the URL
     index. A verified cache hit is intentionally usable offline and does not claim that
     the remote URL is unchanged; callers set ``refresh=True`` to contact UCSC and
-    reacquire current bytes.
+    reacquire current bytes.  When UCSC also publishes an exact provider checksum and
+    HEAD supplies a strong ETag, exact identity-encoded size, and byte-range support, an
+    interrupted transfer may retain a validator-bound partial and resume it safely.
     """
 
     return _acquire_ucsc_resource(
@@ -804,6 +816,27 @@ def _acquire_ucsc_resource(
             return cached
 
     provider_checksum = _read_ucsc_provider_md5(url, open_url)
+    remote_metadata = (
+        _inspect_for_resumable_acquisition(url, open_url)
+        if provider_checksum is not None
+        else None
+    )
+    if (
+        provider_checksum is not None
+        and remote_metadata is not None
+        and _supports_resumable_https(remote_metadata)
+    ):
+        return _download_and_cache_resumable(
+            url,
+            root,
+            index_path=index_path,
+            provider_checksum=provider_checksum,
+            terms=terms,
+            remote_metadata=remote_metadata,
+            open_url=open_url,
+            now=now,
+        )
+
     return _download_and_cache(
         url,
         root,
@@ -837,6 +870,413 @@ def _require_terms_acknowledgement(
     )
 
 
+def _inspect_for_resumable_acquisition(
+    url: str,
+    open_url: URLopener,
+) -> UCSCRemoteResourceMetadata | None:
+    """Best-effort HEAD inspection used only to decide whether resume is available.
+
+    Acquisition itself remains usable when HEAD metadata is unavailable: a failure here
+    falls back to the existing fresh streaming path.  Provider terms have already been
+    acknowledged before this helper is reached.
+    """
+
+    try:
+        return _inspect_ucsc_resource(
+            url,
+            terms_acknowledged=True,
+            open_url=open_url,
+        )
+    except UCSCResourceAcquisitionError:
+        return None
+
+
+def _supports_resumable_https(metadata: UCSCRemoteResourceMetadata) -> bool:
+    """Return whether the advertised metadata is sufficient for safe byte-range resume.
+
+    v1 resume deliberately requires a strong ETag, a known identity-encoded total size,
+    and explicit byte-range support.  The acquisition caller separately requires an exact
+    provider checksum before it selects this path, so a retained prefix cannot become a
+    cached artifact on SHA-256 self-identity alone.  When any precondition is absent, the
+    caller falls back to a fresh streaming transfer.
+    """
+
+    if metadata.content_length_bytes is None or metadata.content_length_bytes <= 0:
+        return False
+    if _identity_content_length_bytes(metadata) is None:
+        return False
+    if not _accepts_byte_ranges(metadata.accept_ranges):
+        return False
+    return _strong_etag(metadata.etag) is not None
+
+
+def _accepts_byte_ranges(value: str | None) -> bool:
+    if value is None:
+        return False
+    return any(token.strip().casefold() == "bytes" for token in value.split(","))
+
+
+def _strong_etag(value: str | None) -> str | None:
+    if value is None:
+        return None
+    etag = value.strip()
+    if (
+        len(etag) < 2
+        or etag.casefold().startswith("w/")
+        or not etag.startswith('"')
+        or not etag.endswith('"')
+    ):
+        return None
+    return etag
+
+
+def _resource_get_request(
+    url: str,
+    *,
+    range_start: int | None = None,
+    if_range: str | None = None,
+) -> Request:
+    headers = {
+        "User-Agent": _USER_AGENT,
+        "Accept-Encoding": "identity",
+    }
+    if range_start is not None:
+        headers["Range"] = f"bytes={range_start}-"
+        if if_range is not None:
+            headers["If-Range"] = if_range
+    return Request(url, headers=headers)
+
+
+def _resumable_partial_path(
+    root: Path,
+    url: str,
+    *,
+    total_size: int,
+    etag: str,
+) -> Path:
+    """Return a deterministic partial path bound to URL + strong representation ETag.
+
+    The URL hash keeps unrelated resources separate.  The ETag hash plus exact total
+    length prevents bytes from a previous representation from being appended after the
+    provider changes the object.  No sidecar metadata is needed to make that binding.
+    """
+
+    url_key = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    etag_key = hashlib.sha256(etag.encode("utf-8")).hexdigest()
+    return (
+        root
+        / "partials"
+        / url_key[:2]
+        / url_key
+        / f"{etag_key}-{total_size}.part"
+    )
+
+
+def _download_and_cache_resumable(
+    url: str,
+    root: Path,
+    *,
+    index_path: Path,
+    provider_checksum: ProviderChecksum,
+    terms: UCSCResourceTerms,
+    remote_metadata: UCSCRemoteResourceMetadata,
+    open_url: URLopener,
+    now: Clock,
+) -> CachedResource:
+    total_size = cast(int, remote_metadata.content_length_bytes)
+    etag = cast(str, _strong_etag(remote_metadata.etag))
+    partial_path = _resumable_partial_path(
+        root,
+        url,
+        total_size=total_size,
+        etag=etag,
+    )
+    partial_path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path.touch(exist_ok=True)
+
+    try:
+        size_on_disk = partial_path.stat().st_size
+    except OSError as exc:
+        raise UCSCResourceAcquisitionError(
+            f"failed to inspect resumable UCSC partial download {partial_path}: {exc}"
+        ) from exc
+
+    if size_on_disk > total_size:
+        # A file larger than the representation it claims to prefix is unusable.  It
+        # cannot be repaired by appending more bytes, so reset it before any request.
+        try:
+            partial_path.write_bytes(b"")
+        except OSError as exc:
+            raise UCSCResourceAcquisitionError(
+                f"failed to reset invalid UCSC partial download {partial_path}: {exc}"
+            ) from exc
+        size_on_disk = 0
+
+    snapshot_path: Path | None = None
+    snapshot_sha256: str | None = None
+    snapshot_md5: str | None = None
+
+    try:
+        with partial_path.open("r+b") as output:
+            output.seek(size_on_disk)
+
+            if size_on_disk < total_size:
+                request = _resource_get_request(
+                    url,
+                    range_start=size_on_disk if size_on_disk > 0 else None,
+                    if_range=etag if size_on_disk > 0 else None,
+                )
+                try:
+                    with open_url(request) as response:
+                        if size_on_disk > 0:
+                            response_bytes = _validate_resume_response(
+                                response,
+                                url=url,
+                                range_start=size_on_disk,
+                                total_size=total_size,
+                                expected_etag=etag,
+                            )
+                        else:
+                            response_bytes = _validate_fresh_resumable_response(
+                                response,
+                                url=url,
+                                total_size=total_size,
+                                expected_etag=etag,
+                            )
+
+                        received = _stream_expected_response_bytes(
+                            response,
+                            output,
+                            expected_bytes=response_bytes,
+                        )
+                        size_on_disk += received
+                except _ResumeRestartRequired:
+                    raise
+                except (HTTPError, URLError, TimeoutError, OSError) as exc:
+                    _sync_partial_file(output)
+                    size_on_disk = output.tell()
+                    if size_on_disk == 0 and partial_path.exists():
+                        partial_path.unlink()
+                    raise UCSCResourceAcquisitionError(
+                        f"interrupted UCSC resource download {url}; verified partial "
+                        f"state was retained for retry: {exc}"
+                    ) from exc
+
+            _sync_partial_file(output)
+            if size_on_disk == total_size:
+                (
+                    snapshot_path,
+                    snapshot_sha256,
+                    snapshot_md5,
+                ) = _snapshot_resumable_partial(
+                    output,
+                    root,
+                    total_size=total_size,
+                    url=url,
+                )
+    except _ResumeRestartRequired:
+        # Never splice a response that fails the Range/validator contract onto the
+        # existing prefix.  Discard this resumable state and restart through the fresh
+        # path; the fresh downloader writes to its own unique temporary file.
+        partial_path.unlink(missing_ok=True)
+        return _download_and_cache(
+            url,
+            root,
+            index_path=index_path,
+            provider_checksum=provider_checksum,
+            terms=terms,
+            open_url=open_url,
+            now=now,
+        )
+
+    if size_on_disk != total_size:
+        raise UCSCResourceAcquisitionError(
+            f"incomplete UCSC resource download {url}: expected {total_size} bytes, "
+            f"received {size_on_disk}; partial state retained for retry"
+        )
+
+    # The deterministic partial path is intentionally shared resumable state.  Never
+    # publish that inode directly: another process may still have it open for writing,
+    # and an ``os.replace`` would let that stale descriptor mutate the supposedly
+    # immutable content-addressed artifact after publication.  The snapshot above was
+    # therefore copied through this process's already-open handle into a unique private
+    # file and re-hashed independently before publication.
+    if snapshot_path is None or snapshot_sha256 is None or snapshot_md5 is None:
+        raise UCSCResourceAcquisitionError(
+            f"completed UCSC resumable download {url} could not be finalized safely"
+        )
+
+    try:
+        if snapshot_md5 != provider_checksum.value:
+            partial_path.unlink(missing_ok=True)
+            raise ResourceChecksumMismatchError(
+                f"md5 checksum mismatch for downloaded UCSC resource {url}: "
+                f"expected {provider_checksum.value}, got {snapshot_md5}"
+            )
+
+        result = _publish_completed_download(
+            snapshot_path,
+            url=url,
+            root=root,
+            index_path=index_path,
+            sha256_hex=snapshot_sha256,
+            size_bytes=size_on_disk,
+            provider_checksum=provider_checksum,
+            terms=terms,
+            now=now,
+        )
+        partial_path.unlink(missing_ok=True)
+        return result
+    finally:
+        snapshot_path.unlink(missing_ok=True)
+
+
+def _snapshot_resumable_partial(
+    source: BinaryIO,
+    root: Path,
+    *,
+    total_size: int,
+    url: str,
+) -> tuple[Path, str, str]:
+    """Copy shared resumable state into a private, independently verified snapshot."""
+
+    temp_dir = root / "tmp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix="resume-snapshot-", suffix=".part", dir=temp_dir
+    )
+    snapshot_path = Path(temp_name)
+    sha256 = hashlib.sha256()
+    md5 = hashlib.md5(usedforsecurity=False)
+
+    try:
+        with os.fdopen(fd, "wb") as destination:
+            source.seek(0)
+            remaining = total_size
+            while remaining:
+                chunk = source.read(min(_CHUNK_SIZE, remaining))
+                if not chunk:
+                    raise UCSCResourceAcquisitionError(
+                        f"resumable UCSC partial for {url} changed while being finalized"
+                    )
+                destination.write(chunk)
+                sha256.update(chunk)
+                md5.update(chunk)
+                remaining -= len(chunk)
+
+            if source.read(1):
+                raise UCSCResourceAcquisitionError(
+                    f"resumable UCSC partial for {url} exceeded its expected size "
+                    "while being finalized"
+                )
+
+            destination.flush()
+            os.fsync(destination.fileno())
+
+        return snapshot_path, sha256.hexdigest(), md5.hexdigest()
+    except Exception:
+        snapshot_path.unlink(missing_ok=True)
+        raise
+
+
+def _validate_fresh_resumable_response(
+    response: _BinaryResponse,
+    *,
+    url: str,
+    total_size: int,
+    expected_etag: str,
+) -> int:
+    if response.status != 200:
+        raise _ResumeRestartRequired(
+            f"fresh UCSC resumable GET returned HTTP {response.status}"
+        )
+    _require_identity_content_encoding(response, url=url)
+    response_etag = _optional_response_header(response, "ETag")
+    if response_etag != expected_etag:
+        raise _ResumeRestartRequired("fresh GET representation does not match HEAD ETag")
+    response_length = _response_content_length(response)
+    if response_length is not None and response_length != total_size:
+        raise _ResumeRestartRequired("fresh GET length does not match HEAD Content-Length")
+    return total_size
+
+
+def _validate_resume_response(
+    response: _BinaryResponse,
+    *,
+    url: str,
+    range_start: int,
+    total_size: int,
+    expected_etag: str,
+) -> int:
+    if response.status != 206:
+        raise _ResumeRestartRequired(
+            f"resume request returned HTTP {response.status} instead of 206"
+        )
+    _require_identity_content_encoding(response, url=url)
+    response_etag = _optional_response_header(response, "ETag")
+    if response_etag is not None and response_etag != expected_etag:
+        raise _ResumeRestartRequired("resume response ETag changed")
+
+    content_range = _optional_response_header(response, "Content-Range")
+    if content_range is None:
+        raise _ResumeRestartRequired("resume response omitted Content-Range")
+    match = _CONTENT_RANGE_RE.fullmatch(content_range)
+    if match is None:
+        raise _ResumeRestartRequired("resume response returned malformed Content-Range")
+    start, end, total = (int(value) for value in match.groups())
+    if start != range_start or end < start or total != total_size or end >= total_size:
+        raise _ResumeRestartRequired("resume response Content-Range does not match request")
+
+    expected_bytes = end - start + 1
+    response_length = _response_content_length(response)
+    if response_length is not None and response_length != expected_bytes:
+        raise _ResumeRestartRequired(
+            "resume response Content-Length does not match Content-Range"
+        )
+    return expected_bytes
+
+
+def _stream_expected_response_bytes(
+    response: _BinaryResponse,
+    output: BinaryIO,
+    *,
+    expected_bytes: int,
+) -> int:
+    remaining = expected_bytes
+    received = 0
+    while remaining:
+        chunk = response.read(min(_CHUNK_SIZE, remaining))
+        if not chunk:
+            break
+        output.write(chunk)
+        received += len(chunk)
+        remaining -= len(chunk)
+
+    if remaining:
+        return received
+    if response.read(1):
+        raise _ResumeRestartRequired("UCSC response exceeded its advertised byte range")
+    return received
+
+
+def _sync_partial_file(output: BinaryIO) -> None:
+    output.flush()
+    os.fsync(output.fileno())
+
+
+def _require_identity_content_encoding(
+    response: _BinaryResponse,
+    *,
+    url: str,
+) -> None:
+    encoding = _optional_response_header(response, "Content-Encoding")
+    if encoding is not None and encoding.casefold() != "identity":
+        raise UCSCResourceAcquisitionError(
+            f"UCSC resource {url} returned unsupported Content-Encoding {encoding!r}; "
+            "exact provider bytes require identity encoding"
+        )
+
+
 def _download_and_cache(
     url: str,
     root: Path,
@@ -857,7 +1297,8 @@ def _download_and_cache(
     try:
         with os.fdopen(fd, "wb") as output:
             try:
-                with open_url(Request(url, headers={"User-Agent": _USER_AGENT})) as response:
+                with open_url(_resource_get_request(url)) as response:
+                    _require_identity_content_encoding(response, url=url)
                     expected_size = _response_content_length(response)
                     size_bytes = 0
                     while chunk := response.read(_CHUNK_SIZE):
@@ -887,42 +1328,82 @@ def _download_and_cache(
                     f"expected {provider_checksum.value}, got {actual_md5}"
                 )
 
-        artifact_path = _artifact_path(root, sha256_hex)
-        artifact_path.parent.mkdir(parents=True, exist_ok=True)
-        if artifact_path.exists():
-            existing_sha256 = compute_resource_checksum(
-                artifact_path, ResourceChecksumAlgorithm.SHA256
-            )
-            if existing_sha256 == sha256_hex:
-                temp_path.unlink()
-            else:
-                os.replace(temp_path, artifact_path)
-        else:
-            os.replace(temp_path, artifact_path)
-
-        retrieved_at = _format_timestamp(now())
-        _write_url_index(
-            index_path,
-            source_url=url,
-            retrieved_at=retrieved_at,
-            sha256=sha256_hex,
+        return _publish_completed_download(
+            temp_path,
+            url=url,
+            root=root,
+            index_path=index_path,
+            sha256_hex=sha256_hex,
             size_bytes=size_bytes,
             provider_checksum=provider_checksum,
             terms=terms,
-        )
-        return CachedResource(
-            path=artifact_path,
-            source_url=url,
-            retrieved_at=retrieved_at,
-            sha256=f"sha256:{sha256_hex}",
-            size_bytes=size_bytes,
-            provider_checksum=provider_checksum,
-            terms=terms,
-            cache_hit=False,
+            now=now,
         )
     finally:
         if temp_path.exists():
             temp_path.unlink()
+
+
+def _publish_completed_download(
+    completed_path: Path,
+    *,
+    url: str,
+    root: Path,
+    index_path: Path,
+    sha256_hex: str,
+    size_bytes: int,
+    provider_checksum: ProviderChecksum | None,
+    terms: UCSCResourceTerms,
+    now: Clock,
+) -> CachedResource:
+    artifact_path = _artifact_path(root, sha256_hex)
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    if artifact_path.exists():
+        existing_sha256 = compute_resource_checksum(
+            artifact_path, ResourceChecksumAlgorithm.SHA256
+        )
+        if existing_sha256 == sha256_hex:
+            completed_path.unlink(missing_ok=True)
+        else:
+            os.replace(completed_path, artifact_path)
+    else:
+        try:
+            os.replace(completed_path, artifact_path)
+        except FileNotFoundError:
+            # Another process may have completed the same exact representation while this
+            # process was streaming it.  Accept that race only if the final content-addressed
+            # artifact now exists and verifies to the digest computed here.
+            if not artifact_path.is_file():
+                raise
+            existing_sha256 = compute_resource_checksum(
+                artifact_path, ResourceChecksumAlgorithm.SHA256
+            )
+            if existing_sha256 != sha256_hex:
+                raise UCSCResourceAcquisitionError(
+                    f"concurrent UCSC cache publication produced an unexpected artifact "
+                    f"for {url}"
+                )
+
+    retrieved_at = _format_timestamp(now())
+    _write_url_index(
+        index_path,
+        source_url=url,
+        retrieved_at=retrieved_at,
+        sha256=sha256_hex,
+        size_bytes=size_bytes,
+        provider_checksum=provider_checksum,
+        terms=terms,
+    )
+    return CachedResource(
+        path=artifact_path,
+        source_url=url,
+        retrieved_at=retrieved_at,
+        sha256=f"sha256:{sha256_hex}",
+        size_bytes=size_bytes,
+        provider_checksum=provider_checksum,
+        terms=terms,
+        cache_hit=False,
+    )
 
 
 def _read_ucsc_provider_md5(

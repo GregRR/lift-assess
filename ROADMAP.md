@@ -185,8 +185,8 @@ Implemented in the first acquisition slice:
 - streams downloads into a temporary file while computing liftAssess's canonical SHA-256 and any provider MD5, validates HTTP `Content-Length` when supplied, then publishes the artifact atomically under a content-addressed `artifacts/sha256/...` path;
 - writes an atomic URL index retaining source URL, retrieval timestamp, SHA-256, provider checksum metadata when available, and applicable terms references;
 - reuses a cached artifact only after re-verifying its local SHA-256; retains the provider checksum recorded at acquisition time without requiring a network freshness check;
-- supports `refresh=True` for a fresh transfer, which is especially relevant when the provider publishes no checksum for that exact file;
-- cleans partial downloads on checksum and transport failure; identical bytes acquired from different URLs converge on one artifact.
+- supports `refresh=True` to contact the provider and reacquire the current representation, which is especially relevant when the provider publishes no checksum for that exact file;
+- cleans ordinary temporary downloads on failure; identical bytes acquired from different URLs converge on one artifact.
 
 Implemented in the second acquisition slice:
 
@@ -209,15 +209,29 @@ Implemented in the third acquisition slice:
 - preserves the existing role/URL/directional-pair validation in the inspection result;
 - does not treat `Accept-Ranges` or any other header as proof of resumable HTTP support and does not begin resource-body acquisition.
 
+Implemented in the fourth acquisition slice:
+
+- treats HEAD metadata as an opportunistic resume capability rather than a new acquisition prerequisite: if HEAD inspection fails or lacks the required fields, the existing fresh streaming path remains available;
+- enables resumable HTTPS only when UCSC also publishes an exact checksum and the representation has an exact identity-encoded `Content-Length`, explicit `Accept-Ranges: bytes`, and a strong ETag; weak ETags and `Last-Modified` alone are not used as resume validators;
+- retains interrupted partial bytes under a cache path derived from the source URL plus the exact total length and strong-ETag hash, so a changed provider representation cannot be appended to an old prefix by filename accident;
+- resumes from the existing prefix with `Range: bytes=<offset>-` and `If-Range: <ETag>`, requiring `206 Partial Content` and a matching `Content-Range` before any resumed bytes are written;
+- rejects a changed/missing resume contract by restarting through the fresh-transfer path rather than splicing incompatible representations;
+- can publish a fully received retained partial on retry without another resource-body GET, while still re-running provider checksum lookup/HEAD and final SHA-256/provider-MD5 verification;
+- never promotes the shared deterministic partial inode directly into the content-addressed store: a completing process snapshots its open partial into a unique private temporary file, recomputes provider MD5 and SHA-256 over that snapshot, and publishes only the private file, preventing a concurrent stale writer from mutating an already-published artifact;
+- requests identity encoding for ordinary resource GETs as well, so cached bytes remain the provider resource representation even when no provider checksum is published.
+
 Measured provider detail checked 2026-08-13: UCSC's `canFam3/vsCanFam4/md5sum.txt` publishes an MD5 for `canFam3.canFam4.all.chain.gz` and `canFam3.canFam4.syn.net.gz` but not `canFam3.canFam4.net.gz`; `canFam4/vsCanFam3/reciprocalBest/md5sum.txt` publishes MD5 values for both directional reciprocal-best chain/net files. Therefore the exact-filename checksum-optional behavior is required by the real fixture resources rather than being hypothetical.
 
-Measured size context checked from the live UCSC directory listings on 2026-08-14: the planned canFam3→canFam4 comparative set includes a roughly 2.5 GB `all.chain.gz`, alongside a roughly 10 MB net, 9.1 MB syntenic net, 5.2 MB directional reciprocal-best chain, and 7.8 MB directional reciprocal-best net. This is why bundle planning and explicit acknowledgement were added before any user-facing automatic comparative transfer. These human-readable listing sizes are context, not yet machine-verified plan metadata.
+Measured size context checked from the live UCSC directory listings on 2026-08-14: the planned canFam3→canFam4 comparative set includes a roughly 2.5 GB `all.chain.gz`, alongside a roughly 10 MB net, 9.1 MB syntenic net, 5.2 MB directional reciprocal-best chain, and 7.8 MB directional reciprocal-best net. This is why bundle planning and explicit acknowledgement were added before any user-facing automatic comparative transfer. The subsequent HEAD verification below supplied exact machine-readable lengths for all five resources.
 
 Live provider verification completed 2026-08-14 for the five-resource canFam3→canFam4 comparative plan. HEAD returned exact `Content-Length` values for every resource, totaling 2,686,242,854 bytes; the 2,652,632,416-byte forward all-chain accounts for nearly the entire transfer. Every resource advertised `Accept-Ranges: bytes`, and the large chain supplied both `ETag` and `Last-Modified`. A separate small-range probe against that chain returned `206 Partial Content`, exact `Content-Range` and `Content-Length`, a stable ETag across adjacent requests, successful `If-Range`, and byte-identical reconstruction of adjacent ranges versus one combined range. These checks transferred only a few KiB of the chain and did not execute the full comparative acquisition.
 
+End-to-end resume behavior was then measured on 2026-08-14 against the 5,403,921-byte directional reciprocal-best chain. The first GET was intentionally interrupted after 262,144 bytes; retry performed a fresh HEAD and requested `Range: bytes=262144-` with the same strong ETag in `If-Range`. The completed resource matched UCSC MD5 `03bc68aa1c8ce4582cff71a8813f0b6b` and liftAssess SHA-256 `34f4061fd29e7720c7eb2adc1ea8299e86f21f08e18f97f9ba468cf8b466690c`, and the retained partial was removed after publication.
+
+Focused review then reproduced a concurrent-writer corruption bug in the original resumable finalization path: directly renaming the shared partial into the artifact store allowed a second process holding the same inode open to mutate the published artifact after `os.replace`. The corrected path snapshots the shared partial into a private temporary file through the completing process's open descriptor, recomputes provider MD5 and SHA-256 over that private snapshot, and publishes only the snapshot. A deterministic regression reproduces the corruption against the pre-fix implementation and verifies that the published artifact remains immutable after the fix.
+
 Still pending within this milestone:
 
-- implement restart-safe resumable HTTPS acquisition using the verified byte-range behavior, with partial-file metadata bound to the exact URL, expected object size, and remote validator, and restart rather than splice when those invariants do not match;
 - decide the future CLI's default OS/user cache location and refresh controls;
 - bridge acquired cache records into the existing file-backed candidate engine and final assessment/retrieval-provenance report without making user-supplied local resources second-class.
 

@@ -65,6 +65,9 @@ The current development code includes:
 - terms-gated, body-free remote metadata inspection using HTTP HEAD with identity encoding requested,
   preserving provider-advertised `Content-Length`, `Accept-Ranges`, `Last-Modified`, `ETag`, and
   `Content-Encoding` without transferring resource bodies;
+- restart-safe resumable HTTPS acquisition when UCSC publishes an exact checksum and advertises an identity-encoded size, byte-range
+  support, and a strong ETag; retained partials are bound to that exact URL/size/validator and resumed with
+  `Range` + `If-Range`, while contract mismatches restart fresh rather than splicing representations;
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
 
 ## Not implemented yet
@@ -72,7 +75,6 @@ The current development code includes:
 The project is not yet an end-to-end user tool. Major v1 work still includes:
 
 - the assessor logic that deterministically converts evidence into `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE`;
-- restart-safe resumable HTTPS acquisition for multi-gigabyte comparative resources;
 - a future CLI/user-cache default (the library currently requires an explicit caller-supplied cache root);
 - a direct bridge from a fully cached resource bundle into the final provenance/assessment orchestration;
 - orchestration from the resulting candidate evidence into an assessment verdict and report;
@@ -184,7 +186,9 @@ UCSC resource terms are not uniform simply because multiple resources use chain 
 
 The resolver and acquisition layers remain separate. The acquisition API can retrieve one explicitly requested UCSC resource or execute an explicit plan for a complete discovered resource bundle into a caller-selected cache outside the source tree. Planning is no-network and enumerates every required URL plus its provider-terms classification; bundle execution additionally requires explicit acknowledgement of that transfer plan before any resource acquisition begins. This is deliberately separate from terms acknowledgement. Dedicated `liftOver/*.over.chain.gz` files are identified separately because UCSC applies additional liftOver-chain restrictions. Provider `md5sum.txt` entries are verified when an exact filename entry exists, while liftAssess SHA-256 remains the canonical artifact identity. Verified cached URL→artifact reuse is intentionally available offline and does not claim remote freshness; callers request an explicit refresh to contact UCSC and reacquire current bytes. A separate body-free metadata-inspection step can query provider HTTP headers after explicit terms acknowledgement and before transfer-plan acknowledgement. It does not create cache artifacts or transfer resource bodies. A live canFam3→canFam4 check on 2026-08-14 verified exact `Content-Length` values for all five comparative resources and `Accept-Ranges: bytes`; a separate small-range probe verified `206 Partial Content`, exact `Content-Range`, stable `ETag`, and `If-Range` behavior without downloading the full chain.
 
-Restart-safe resumable HTTPS acquisition remains pending implementation. The current inspection layer records provider metadata only; it does not yet retain partial downloads or resume them.
+The acquisition layer now uses that verified transport contract opportunistically. If UCSC publishes an exact checksum and HEAD supplies an exact identity-encoded size, explicit byte-range support, and a strong ETag, an interrupted download retains a partial whose cache path is bound to the exact URL, total size, and validator. A later attempt resumes with `Range` + `If-Range`; a `200` response, malformed/mismatched `Content-Range`, or changed validator is never appended and instead triggers a fresh transfer. Shared resumable partials are never promoted directly into the content-addressed store: completion is copied into a unique private snapshot and independently MD5/SHA-256 verified before atomic publication, so a concurrent stale writer cannot mutate a published artifact. If the required resume metadata is unavailable, acquisition keeps the existing non-resumable streaming behavior.
+
+A live interrupted acquisition check on 2026-08-14 exercised the full resume path against the 5,403,921-byte `canFam3.canFam4.rbest.chain.gz`: the first transfer was stopped after 262,144 bytes, retry revalidated with HEAD and requested `Range: bytes=262144-` plus `If-Range`, and the completed file matched both UCSC's published MD5 and the previously measured liftAssess SHA-256 identity.
 
 Automatic UCSC discovery is intended as a convenience, not a permanent hard dependency. User-supplied resources are part of the v1 design and remain subject to their own provider terms.
 
