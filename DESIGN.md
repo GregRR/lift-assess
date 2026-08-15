@@ -281,6 +281,21 @@ Assessment report (summary + detailed dossier)
   and only the private file is atomically published. This prevents another process holding the shared
   partial inode open from mutating an already-published artifact. When the required metadata is absent,
   acquisition remains non-resumable rather than inventing a weaker validator.
+  A fully acquired cached bundle can now bridge directly into the same file-backed engine without
+  re-downloading resources or pre-hashing them a second time: cache-recorded SHA-256 values create
+  the file provenance nodes, while the parser still hashes every consumed raw stream and rejects a
+  post-acquisition mutation before candidates return. The bridge requires caller-supplied upstream
+  alignment provenance and validates the bundle's UCSC database strings only against explicit
+  assembly names/aliases; it does not create a general alias resolver. For `COMPARATIVE`, all five
+  acquired files remain on the bundle, but the v1 engine consumes the all-chain, ordinary net, and
+  reciprocal-best chain. UCSC's current `doBlastzChainNet.pl` produces the ordinary net through
+  `chainNet`/`netSyntenic` and `netClass`, while the optional `*.syn.net.gz` is a subsequent
+  `netFilter -syn` derivative; substituting the syntenic net would therefore discard exactly the
+  non-syntenic placements that the assessor needs to preserve. The reciprocal-best net likewise
+  remains retained provider/retrieval context while membership is computed from the published
+  reciprocal-best chain geometry. Primary implementation references:
+  https://raw.githubusercontent.com/ucscGenomeBrowser/kent/refs/heads/master/src/hg/utils/automation/doBlastzChainNet.pl
+  and https://raw.githubusercontent.com/ucscGenomeBrowser/kent/refs/heads/master/src/hg/utils/automation/doRecipBest.pl.
 - **Reciprocal-best completeness metadata survives orchestration filtering unchanged.** The
   engine's source-sequence, target-sequence, and orientation filter is lossless for candidate
   membership: it removes only reciprocal-best chains that the downstream geometry matcher would
@@ -514,6 +529,6 @@ anything now.
 - Decide the source for optional flanking-gene synteny context (e.g. Ensembl Compara) and its
   fallback behavior when no ortholog table exists for a species pair.
 - Choose the future CLI's default cache location, refresh/progress controls, and user-facing transfer
-  confirmation around large comparative bundles. Measured HEAD preflight and restart-safe resumable HTTPS
-  acquisition now exist; cached resources still need a direct bridge into the final provenance/assessment
-  orchestration without making user-supplied local resources second-class.
+  confirmation around large comparative bundles. Measured HEAD preflight, restart-safe resumable HTTPS
+  acquisition, and a cached-bundle-to-engine bridge now exist; final retrieval metadata presentation belongs
+  with the assessment/report orchestration rather than the acquisition layer.

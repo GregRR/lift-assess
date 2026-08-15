@@ -171,7 +171,7 @@ Implemented in the resolver:
 
 Live verification completed on 2026-08-13: `discover_ucsc_resources("canFam3", "canFam4")` returned `COMPARATIVE`, with chain/net/syn-net URLs under `canFam3/vsCanFam4/` and the exact directional reciprocal-best URLs under `canFam4/vsCanFam3/reciprocalBest/`. The unit suite also includes an orchestration-level regression confirming that a transport failure during the sibling lookup propagates as `UCSCResourceDiscoveryError` rather than being misread as absence and silently downgrading the evidence tier.
 
-### 11. Resource acquisition and cache — in progress
+### 11. Resource acquisition and cache — complete
 
 Goal: connect already-implemented UCSC resource discovery to exact local files without mixing network behavior, licensing acknowledgement, and scientific interpretation.
 
@@ -230,10 +230,16 @@ End-to-end resume behavior was then measured on 2026-08-14 against the 5,403,921
 
 Focused review then reproduced a concurrent-writer corruption bug in the original resumable finalization path: directly renaming the shared partial into the artifact store allowed a second process holding the same inode open to mutate the published artifact after `os.replace`. The corrected path snapshots the shared partial into a private temporary file through the completing process's open descriptor, recomputes provider MD5 and SHA-256 over that private snapshot, and publishes only the snapshot. A deterministic regression reproduces the corruption against the pre-fix implementation and verifies that the published artifact remains immutable after the fix.
 
-Still pending within this milestone:
+Implemented in the fifth acquisition slice:
 
-- decide the future CLI's default OS/user cache location and refresh controls;
-- bridge acquired cache records into the existing file-backed candidate engine and final assessment/retrieval-provenance report without making user-supplied local resources second-class.
+- bridges a complete `CachedUCSCResourceBundle` directly into the existing file-backed candidate engine while preserving the lower-level user-supplied-file API unchanged;
+- builds content-addressed file provenance from the SHA-256 identities already recorded by acquisition, avoiding an extra pre-parse full-file hash while retaining the parser's exact-byte SHA-256 verification on every consumed resource;
+- requires caller-supplied upstream alignment provenance, so acquisition metadata is never mistaken for evidence independence or alignment-process provenance;
+- validates cached bundle `source_db`/`target_db` strings against only the source/target assembly's explicit name or aliases, avoiding speculative general alias resolution;
+- maps `LIFTOVER_ONLY` to its chain-only engine path and `COMPARATIVE` to the all-chain, ordinary classified net, and reciprocal-best chain with `COMPLETE_RESOURCE` semantics;
+- deliberately retains the syntenic net and reciprocal-best net on the five-resource comparative bundle without parsing them as current v1 engine inputs. UCSC's current automation confirms that `*.syn.net.gz` is a `netFilter -syn` derivative of the ordinary net, so substituting it would discard non-syntenic placements rather than add evidence.
+
+This closes the acquisition/cache milestone itself. The future CLI's default cache location, progress/refresh controls, and large-transfer confirmation belong to milestone 15. Presentation of retrieval metadata in the final assessment belongs to milestone 14.
 
 **Repository note:** this implementation deliberately does **not** create a runtime/cache directory in the repository, so no `.gitignore` change is required. If a future development workflow introduces any repo-local runtime/cache path, `.gitignore` must change in the same batch.
 
@@ -253,7 +259,7 @@ The fixture should exercise, from real UCSC comparative resources after mileston
 
 This fixture is mechanical validation only because canFam3 and canFam4 represent different dogs. It must not be described as biological ground truth.
 
-A practical acquisition strategy is required before treating the multi-gigabyte full comparative chain as routine test data. Large provider resources should not be committed to the repository.
+The acquisition path now has measured size preflight plus restart-safe resumable HTTPS, so the multi-gigabyte all-chain can be acquired deliberately for this fixture without treating it as routine unit-test data. Large provider resources must remain outside the repository and must not be committed as fixtures.
 
 ### 13. Assessor core and deterministic verdict logic
 
@@ -283,7 +289,8 @@ Once verdict logic exists:
 - build the full source + target + locus → resources → candidates → evidence → verdict path;
 - create the final `Assessment` object from real engine output;
 - ensure evidence tier is always displayed independently from verdict;
-- expose provenance/dependency detail sufficient for scientific audit.
+- expose provenance/dependency detail sufficient for scientific audit;
+- surface cached retrieval metadata (source URLs, retrieval timestamps, provider checksum metadata, and terms references) alongside file/evidence provenance without claiming that unconsumed bundle resources were assessed.
 
 ### 15. CLI and user-facing reports
 
@@ -300,7 +307,8 @@ Required behavior:
 - plain-language evidence-availability tier is shown before interpretation;
 - default output is concise;
 - `--details` exposes the evidence dossier;
-- JSON output preserves coordinates, provenance, dependencies, resource hashes, and verdict semantics.
+- JSON output preserves coordinates, provenance, dependencies, resource hashes, and verdict semantics;
+- choose the OS/user cache default plus refresh/progress controls and explicit confirmation for large comparative transfers, while retaining caller-supplied cache roots in the library API.
 
 The README should gain real installation/usage examples only when these commands actually work.
 
@@ -327,7 +335,7 @@ Identify one concrete, independently established `canFam3.1` → `canFam6` locus
 
 `AssemblyIdentifier` currently uses frozen-dataclass structural equality, including optional accession and aliases. That conservative behavior is safe today because `resources.py` still uses plain UCSC `source_db`/`target_db` strings and each engine call threads one `AssemblyIdentifier` instance through its candidate geometry.
 
-The issue becomes live when the resolver/cache/CLI layer first converts those database strings into assembly objects that may then be compared with independently constructed objects carrying additional accession/alias metadata. Before that bridge lands, define explicit identity/canonicalization semantics rather than either relying indefinitely on structural equality or weakening `__eq__` speculatively.
+The cached-bundle-to-engine bridge deliberately avoids this trigger: it does not construct a new assembly object from UCSC database strings and instead validates those strings against the caller's explicitly recorded assembly name/aliases. The issue becomes live when the resolver/CLI first constructs assembly objects from external identifiers that may then be compared with independently constructed objects carrying different accession/alias metadata. Before that object-construction bridge lands, define explicit identity/canonicalization semantics rather than either relying indefinitely on structural equality or weakening `__eq__` speculatively.
 
 ### Candidate-rank and target-placement evidence
 

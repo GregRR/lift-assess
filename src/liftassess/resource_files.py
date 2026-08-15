@@ -5,12 +5,11 @@ that they remain independent of storage.  This module is the thin local-file bou
 it opens plain-text or gzip-compressed resources, keeps the file handle alive only for
 the duration of iteration, and feeds the existing parsers into the UCSC engine.
 
-It deliberately does not download resources or infer provider terms. Callers supply
-provenance describing the files they chose; ``provenance_source_for_file`` in the
-resource-identity layer constructs the content-addressed file node, while callers still
-provide any upstream alignment/process provenance that file bytes cannot establish. A
-future downloader/cache layer can add recorded URLs, retrieval metadata, provider
-checksum verification, and applicable terms without coupling those concerns to parsing.
+It deliberately does not download resources or infer provider terms. Callers may
+supply local files plus provenance directly, or pass a fully acquired cache bundle
+through the bridge below. In both cases upstream alignment/process provenance remains
+explicit because file bytes and retrieval metadata cannot establish that dependency on
+their own.
 """
 
 from __future__ import annotations
@@ -28,12 +27,16 @@ from .chain import ChainRecord, iter_chain_records
 from .engine import build_ucsc_candidates
 from .models import (
     AssemblyIdentifier,
+    EvidenceAvailabilityTier,
     GenomicInterval,
     NormalizedCandidate,
+    ProvenanceIdentifier,
+    ProvenanceIdentifierKind,
     ProvenanceSource,
     ReciprocalBestResourceCompleteness,
 )
 from .net import NetRecord, iter_net_records
+from .resource_cache import CachedResource, CachedUCSCResourceBundle
 from .resource_identity import (
     ResourceIdentityMismatchError,
     _sha256_checksum_from_file_provenance,
@@ -156,6 +159,149 @@ def build_ucsc_candidates_from_files(
         reciprocal_best_chains=reciprocal_best_chains,
         reciprocal_best_provenance=reciprocal_best_provenance,
         reciprocal_best_completeness=reciprocal_best_completeness,
+    )
+
+
+def build_ucsc_candidates_from_cached_bundle(
+    source_interval: GenomicInterval,
+    bundle: CachedUCSCResourceBundle,
+    *,
+    target_assembly: AssemblyIdentifier,
+    alignment_provenance: ProvenanceSource,
+) -> tuple[NormalizedCandidate, ...]:
+    """Build candidates from one fully acquired UCSC cache bundle.
+
+    The cache already records the exact SHA-256 identity assigned at acquisition, so
+    this bridge constructs content-addressed file provenance directly from those
+    recorded digests instead of performing a separate pre-parse rehash. The existing
+    file-backed parser still hashes every *consumed* raw file stream and checks it
+    against that identity before candidates can return, preserving the mutation/TOCTOU
+    protection at the scientific-use boundary.
+
+    ``alignment_provenance`` remains caller-supplied. A cached URL plus file digest can
+    identify the external artifacts liftAssess acquired, but cannot by itself establish
+    the upstream alignment/process provenance needed to reason about evidence
+    dependence.
+
+    A complete COMPARATIVE cache bundle intentionally contains five provider files,
+    while the current v1 candidate engine consumes three of them: the all-chain for
+    candidate generation, the ordinary classified net for chain/net evidence, and the
+    reciprocal-best chain for membership geometry. UCSC's current automation pipeline
+    produces the ordinary net through chainNet/netSyntenic and netClass, then creates
+    the optional ``*.syn.net.gz`` by filtering that ordinary net for synteny. Its
+    reciprocal-best pipeline publishes both net and chain resources, while the v1
+    membership implementation operates on the reciprocal-best chain geometry. The
+    syntenic net and reciprocal-best net therefore remain available on ``bundle`` as
+    retrieval/provenance context but are not silently substituted into parsers that do
+    not use them.
+
+    Primary implementation references checked 2026-08-14:
+    https://raw.githubusercontent.com/ucscGenomeBrowser/kent/refs/heads/master/src/hg/utils/automation/doBlastzChainNet.pl
+    https://raw.githubusercontent.com/ucscGenomeBrowser/kent/refs/heads/master/src/hg/utils/automation/doRecipBest.pl
+    """
+
+    _validate_cached_bundle_assemblies(
+        source_interval,
+        bundle,
+        target_assembly=target_assembly,
+    )
+
+    chain_provenance = _provenance_for_cached_resource(
+        bundle.chain,
+        label=f"UCSC {bundle.source_db}→{bundle.target_db} chain resource",
+        derived_from=(alignment_provenance,),
+    )
+
+    if bundle.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
+        return build_ucsc_candidates_from_files(
+            source_interval,
+            bundle.chain.path,
+            target_assembly=target_assembly,
+            chain_provenance=chain_provenance,
+        )
+
+    # CachedUCSCResourceBundle enforces the complete five-resource COMPARATIVE shape.
+    # These assertions narrow the dataclass invariants for the type checker; only the
+    # three resources below are direct inputs to the current candidate engine.
+    assert bundle.net is not None
+    assert bundle.reciprocal_best_chain is not None
+
+    net_provenance = _provenance_for_cached_resource(
+        bundle.net,
+        label=f"UCSC {bundle.source_db}→{bundle.target_db} net resource",
+        derived_from=(alignment_provenance,),
+    )
+    reciprocal_best_provenance = _provenance_for_cached_resource(
+        bundle.reciprocal_best_chain,
+        label=(
+            f"UCSC {bundle.source_db}→{bundle.target_db} "
+            "reciprocal-best chain resource"
+        ),
+        derived_from=(alignment_provenance,),
+    )
+
+    # Passing a CachedUCSCResourceBundle is the caller's claim that these cache
+    # records represent the complete published bundle produced by the acquisition
+    # boundary. As with the lower-level COMPLETE_RESOURCE API, liftAssess can verify
+    # the bytes it consumes but cannot independently prove that a manually constructed
+    # external object was not truncated before being described as complete.
+    return build_ucsc_candidates_from_files(
+        source_interval,
+        bundle.chain.path,
+        target_assembly=target_assembly,
+        chain_provenance=chain_provenance,
+        net_path=bundle.net.path,
+        net_provenance=net_provenance,
+        reciprocal_best_chain_path=bundle.reciprocal_best_chain.path,
+        reciprocal_best_provenance=reciprocal_best_provenance,
+        reciprocal_best_completeness=(
+            ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE
+        ),
+    )
+
+
+def _validate_cached_bundle_assemblies(
+    source_interval: GenomicInterval,
+    bundle: CachedUCSCResourceBundle,
+    *,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    if not _assembly_represents_ucsc_db(source_interval.assembly, bundle.source_db):
+        raise ValueError(
+            "source interval assembly does not represent cached bundle source db "
+            f"{bundle.source_db!r}"
+        )
+    if not _assembly_represents_ucsc_db(target_assembly, bundle.target_db):
+        raise ValueError(
+            "target assembly does not represent cached bundle target db "
+            f"{bundle.target_db!r}"
+        )
+
+
+def _assembly_represents_ucsc_db(
+    assembly: AssemblyIdentifier,
+    db: str,
+) -> bool:
+    """Match only an explicitly recorded UCSC db name/alias; do no alias resolution."""
+
+    return db == assembly.name or db in assembly.aliases
+
+
+def _provenance_for_cached_resource(
+    resource: CachedResource,
+    *,
+    label: str,
+    derived_from: tuple[ProvenanceSource, ...],
+) -> ProvenanceSource:
+    identifier = ProvenanceIdentifier(
+        kind=ProvenanceIdentifierKind.SHA256,
+        value=resource.sha256,
+    )
+    return ProvenanceSource(
+        source_id=f"file:{identifier.value}",
+        label=label,
+        identifiers=(identifier,),
+        derived_from=derived_from,
     )
 
 

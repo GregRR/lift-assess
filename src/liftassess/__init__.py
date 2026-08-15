@@ -48,6 +48,7 @@ from .resource_cache import (
     ucsc_resource_terms,
 )
 from .resource_files import (
+    build_ucsc_candidates_from_cached_bundle,
     build_ucsc_candidates_from_files,
     iter_chain_file,
     iter_net_file,
@@ -112,6 +113,7 @@ __all__ = [
     "acquire_ucsc_resource",
     "acquire_ucsc_resource_bundle",
     "build_ucsc_candidates",
+    "build_ucsc_candidates_from_cached_bundle",
     "build_ucsc_candidates_from_files",
     "compute_resource_checksum",
     "discover_ucsc_resources",

@@ -7,6 +7,9 @@ import pytest
 
 from liftassess import (
     AssemblyIdentifier,
+    CachedResource,
+    CachedUCSCResourceBundle,
+    EvidenceAvailabilityTier,
     EvidenceKind,
     GenomicInterval,
     MappingOrientation,
@@ -17,10 +20,13 @@ from liftassess import (
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
     ResourceIdentityMismatchError,
+    build_ucsc_candidates_from_cached_bundle,
     build_ucsc_candidates_from_files,
     iter_chain_file,
     iter_net_file,
     provenance_source_for_file,
+    sha256_identifier_for_file,
+    ucsc_resource_terms,
 )
 from liftassess.models import EvidenceValue
 from liftassess.net import NetClassification
@@ -335,4 +341,246 @@ def test_file_adapter_uses_engine_validation_for_reciprocal_best_group(
             chain_provenance=chain_provenance,
             reciprocal_best_chain_path=rbest_path,
             reciprocal_best_provenance=rbest_provenance,
+        )
+
+
+def _cached_resource(path: Path, url: str) -> CachedResource:
+    return CachedResource(
+        path=path,
+        source_url=url,
+        retrieved_at="2026-08-14T00:00:00Z",
+        sha256=sha256_identifier_for_file(path).value,
+        size_bytes=path.stat().st_size,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(url),
+        cache_hit=False,
+    )
+
+
+def _comparative_cached_bundle(tmp_path: Path) -> CachedUCSCResourceBundle:
+    chain_path = tmp_path / "chain-artifact"
+    net_path = tmp_path / "net-artifact"
+    syn_net_path = tmp_path / "syn-net-artifact"
+    rbest_chain_path = tmp_path / "rbest-chain-artifact"
+    rbest_net_path = tmp_path / "rbest-net-artifact"
+
+    _write_gzip(chain_path, _chain_text(chain_id=1))
+    _write_gzip(net_path, _net_text())
+    # These two complete the provider bundle but are deliberately invalid parser
+    # inputs. The current v1 bridge must retain them without pretending to consume
+    # them as candidate-engine evidence.
+    syn_net_path.write_bytes(b"not a parseable syntenic net")
+    rbest_net_path.write_bytes(b"not a parseable reciprocal-best net")
+    _write_gzip(rbest_chain_path, _chain_text(chain_id=101))
+
+    forward = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+    )
+    reciprocal = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/"
+        "canFam4/vsCanFam3/reciprocalBest/"
+    )
+    return CachedUCSCResourceBundle(
+        source_db="canFam3",
+        target_db="canFam4",
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        chain=_cached_resource(
+            chain_path, f"{forward}canFam3.canFam4.all.chain.gz"
+        ),
+        net=_cached_resource(net_path, f"{forward}canFam3.canFam4.net.gz"),
+        syntenic_net=_cached_resource(
+            syn_net_path, f"{forward}canFam3.canFam4.syn.net.gz"
+        ),
+        reciprocal_best_chain=_cached_resource(
+            rbest_chain_path,
+            f"{reciprocal}canFam3.canFam4.rbest.chain.gz",
+        ),
+        reciprocal_best_net=_cached_resource(
+            rbest_net_path,
+            f"{reciprocal}canFam3.canFam4.rbest.net.gz",
+        ),
+    )
+
+
+def test_cached_liftover_bundle_bridges_to_chain_engine(
+    tmp_path: Path,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    chain_path = tmp_path / "chain-artifact"
+    _write_gzip(chain_path, _chain_text(chain_id=17))
+    url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/"
+        "canFam3ToCanFam4.over.chain.gz"
+    )
+    bundle = CachedUCSCResourceBundle(
+        source_db="canFam3",
+        target_db="canFam4",
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        chain=_cached_resource(chain_path, url),
+    )
+    alignment = ProvenanceSource("alignment", "upstream UCSC alignment")
+
+    (candidate,) = build_ucsc_candidates_from_cached_bundle(
+        GenomicInterval(source_assembly, "chr1", 105, 115),
+        bundle,
+        target_assembly=target_assembly,
+        alignment_provenance=alignment,
+    )
+
+    assert candidate.candidate_id == f"file:{bundle.chain.sha256}:chain:17"
+    assert candidate.mapping_provenance.identifiers[0].value == bundle.chain.sha256
+    assert candidate.mapping_provenance.derived_from == (alignment,)
+
+
+def test_cached_comparative_bundle_bridges_only_engine_input_resources(
+    tmp_path: Path,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    bundle = _comparative_cached_bundle(tmp_path)
+    alignment = ProvenanceSource("alignment", "shared UCSC alignment")
+
+    (candidate,) = build_ucsc_candidates_from_cached_bundle(
+        GenomicInterval(source_assembly, "chr1", 105, 115),
+        bundle,
+        target_assembly=target_assembly,
+        alignment_provenance=alignment,
+    )
+
+    assert _observation_value(candidate, EvidenceKind.NET_CLASSIFICATION) == "syn"
+    reciprocal = _observation_value(
+        candidate, EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP
+    )
+    assert isinstance(reciprocal, ReciprocalBestMembershipSummary)
+    assert reciprocal.status is ReciprocalBestMembershipStatus.FULL
+    assert (
+        reciprocal.resource_completeness
+        is ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE
+    )
+
+    net_observation = next(
+        observation
+        for observation in candidate.evidence
+        if observation.kind is EvidenceKind.NET_CLASSIFICATION
+    )
+    reciprocal_observation = next(
+        observation
+        for observation in candidate.evidence
+        if observation.kind is EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP
+    )
+    assert candidate.mapping_provenance.derived_from == (alignment,)
+    assert net_observation.provenance.derived_from[0].derived_from == (alignment,)
+    assert reciprocal_observation.provenance.derived_from == (alignment,)
+
+
+def test_cached_bundle_bridge_accepts_explicit_ucsc_db_aliases(tmp_path: Path) -> None:
+    bundle = _comparative_cached_bundle(tmp_path)
+    source = AssemblyIdentifier(
+        name="CanFam3.1",
+        provider="NCBI",
+        aliases=("canFam3",),
+    )
+    target = AssemblyIdentifier(
+        name="CanFam4 biological assembly",
+        provider="UCSC",
+        aliases=("canFam4",),
+    )
+
+    candidates = build_ucsc_candidates_from_cached_bundle(
+        GenomicInterval(source, "chr1", 105, 115),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("alignment", "upstream alignment"),
+    )
+
+    assert len(candidates) == 1
+
+
+@pytest.mark.parametrize("side", ["source", "target"])
+def test_cached_bundle_bridge_rejects_assembly_pair_mismatch(
+    tmp_path: Path,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    side: str,
+) -> None:
+    bundle = _comparative_cached_bundle(tmp_path)
+    source = source_assembly
+    target = target_assembly
+    if side == "source":
+        source = AssemblyIdentifier(name="canFam5", provider="UCSC")
+        expected = "source interval assembly"
+    else:
+        target = AssemblyIdentifier(name="canFam5", provider="UCSC")
+        expected = "target assembly"
+
+    with pytest.raises(ValueError, match=expected):
+        build_ucsc_candidates_from_cached_bundle(
+            GenomicInterval(source, "chr1", 105, 115),
+            bundle,
+            target_assembly=target,
+            alignment_provenance=ProvenanceSource(
+                "alignment", "upstream alignment"
+            ),
+        )
+
+
+def test_cached_bundle_bridge_rejects_consumed_file_changed_after_acquisition(
+    tmp_path: Path,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    bundle = _comparative_cached_bundle(tmp_path)
+    assert bundle.net is not None
+    _write_text(
+        bundle.net.path,
+        _net_text().replace("score 100", "score 101"),
+    )
+
+    with pytest.raises(ResourceIdentityMismatchError, match="provenance mismatch"):
+        build_ucsc_candidates_from_cached_bundle(
+            GenomicInterval(source_assembly, "chr1", 105, 115),
+            bundle,
+            target_assembly=target_assembly,
+            alignment_provenance=ProvenanceSource(
+                "alignment", "upstream alignment"
+            ),
+        )
+
+
+def test_cached_bundle_bridge_rejects_malformed_cached_sha256_before_parsing(
+    tmp_path: Path,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    bundle = _comparative_cached_bundle(tmp_path)
+    malformed_chain = CachedResource(
+        path=bundle.chain.path,
+        source_url=bundle.chain.source_url,
+        retrieved_at=bundle.chain.retrieved_at,
+        sha256="not-a-canonical-sha256",
+        size_bytes=bundle.chain.size_bytes,
+        provider_checksum=bundle.chain.provider_checksum,
+        terms=bundle.chain.terms,
+        cache_hit=bundle.chain.cache_hit,
+    )
+    malformed_bundle = CachedUCSCResourceBundle(
+        source_db=bundle.source_db,
+        target_db=bundle.target_db,
+        evidence_tier=bundle.evidence_tier,
+        chain=malformed_chain,
+        net=bundle.net,
+        syntenic_net=bundle.syntenic_net,
+        reciprocal_best_chain=bundle.reciprocal_best_chain,
+        reciprocal_best_net=bundle.reciprocal_best_net,
+    )
+
+    with pytest.raises(ValueError, match="SHA256 provenance identifier"):
+        build_ucsc_candidates_from_cached_bundle(
+            GenomicInterval(source_assembly, "chr1", 105, 115),
+            malformed_bundle,
+            target_assembly=target_assembly,
+            alignment_provenance=ProvenanceSource(
+                "alignment", "upstream alignment"
+            ),
         )

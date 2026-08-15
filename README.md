@@ -190,6 +190,8 @@ The acquisition layer now uses that verified transport contract opportunisticall
 
 A live interrupted acquisition check on 2026-08-14 exercised the full resume path against the 5,403,921-byte `canFam3.canFam4.rbest.chain.gz`: the first transfer was stopped after 262,144 bytes, retry revalidated with HEAD and requested `Range: bytes=262144-` plus `If-Range`, and the completed file matched both UCSC's published MD5 and the previously measured liftAssess SHA-256 identity.
 
+A fully cached bundle can now feed the existing file-backed candidate engine directly while preserving content-addressed SHA-256 provenance and explicit shared upstream alignment provenance. `LIFTOVER_ONLY` consumes its chain. A complete `COMPARATIVE` bundle retains all five acquired resources, but the current v1 engine consumes only the all-chain, ordinary classified net, and reciprocal-best chain. UCSC's current automation produces the optional syntenic net by filtering the ordinary net for synteny, so liftAssess does not substitute it for the ordinary net evidence stream; the syntenic net and reciprocal-best net remain available on the cached bundle as retrieval/provenance context. The bridge validates the bundle's UCSC source/target database names against explicitly recorded assembly names or aliases rather than performing general alias resolution.
+
 Automatic UCSC discovery is intended as a convenience, not a permanent hard dependency. User-supplied resources are part of the v1 design and remain subject to their own provider terms.
 
 ## Project documentation
