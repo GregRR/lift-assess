@@ -113,6 +113,18 @@ def test_parser_rejects_non_chain_header() -> None:
         tuple(iter_chain_records(StringIO("not-chain data\n")))
 
 
+def test_parser_rejects_non_chain_text_between_records() -> None:
+    text = """\
+chain 10 chr1 100 + 0 5 chrA 100 + 10 15 1
+5
+
+not-chain data
+"""
+
+    with pytest.raises(ChainFormatError, match=r"line 4: expected chain header"):
+        tuple(iter_chain_records(StringIO(text)))
+
+
 def test_parser_rejects_negative_block_gap_with_line_context() -> None:
     text = """\
 chain 100 chrSource 1000 + 100 130 chrTarget 2000 + 500 530 7
@@ -158,6 +170,55 @@ def test_parser_accepts_terminal_block_at_eof_without_blank_line() -> None:
     assert len(record.blocks) == 1
     assert record.blocks[0].size == 20
     assert record.blocks[0].is_terminal
+
+
+def test_parser_skips_ucsc_metadata_while_looking_for_chain_headers() -> None:
+    text = """\
+##matrix=axtChain 16 91,-114,-31,-123
+# lastz.v1.04.03 H=2000 M=254 --format=axt+
+#
+chain 10 chr1 100 + 0 5 chrA 100 + 10 15 1
+5
+
+##gapPenalties=axtChain O=400 E=30
+chain 20 chr2 100 + 20 25 chrB 100 + 30 35 2
+5
+
+"""
+
+    records = tuple(iter_chain_records(StringIO(text)))
+
+    assert [record.chain_id for record in records] == [1, 2]
+
+
+def test_parser_rejects_metadata_inside_chain_record() -> None:
+    text = """\
+# allowed before the record
+chain 100 chrSource 1000 + 100 120 chrTarget 2000 + 500 520 7
+# metadata is not valid inside the block list
+20
+
+"""
+
+    with pytest.raises(
+        ChainFormatError,
+        match=r"line 3: metadata/comment line inside chain record",
+    ):
+        tuple(iter_chain_records(StringIO(text)))
+
+
+def test_parser_skips_trailing_metadata_after_last_record() -> None:
+    text = """\
+chain 10 chr1 100 + 0 5 chrA 100 + 10 15 1
+5
+
+# trailing metadata
+##gapPenalties=axtChain O=400 E=30
+"""
+
+    records = tuple(iter_chain_records(StringIO(text)))
+
+    assert [record.chain_id for record in records] == [1]
 
 
 def test_aligned_block_iterator_normalizes_reverse_query_geometry_once() -> None:

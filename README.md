@@ -76,7 +76,6 @@ The project is not yet an end-to-end user tool. Major v1 work still includes:
 
 - the assessor logic that deterministically converts evidence into `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE`;
 - a future CLI/user-cache default (the library currently requires an explicit caller-supplied cache root);
-- a direct bridge from a fully cached resource bundle into the final provenance/assessment orchestration;
 - orchestration from the resulting candidate evidence into an assessment verdict and report;
 - the command-line interface;
 - human-readable summary and detailed/JSON reports;

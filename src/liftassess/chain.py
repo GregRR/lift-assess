@@ -248,7 +248,9 @@ def iter_chain_records(lines: Iterable[str]) -> Iterator[ChainRecord]:
     """Yield UCSC chain records from an iterable of text lines.
 
     Records are parsed incrementally so callers do not need to load a complete
-    chain file into memory. A final record may end at EOF immediately after its
+    chain file into memory. To accept UCSC metadata prefixes without weakening
+    record parsing, ``#`` metadata/comment lines are ignored only while looking for
+    the next chain header. A final record may end at EOF immediately after its
     terminal block; otherwise records are separated by a blank line as in the
     documented format.
     """
@@ -256,7 +258,7 @@ def iter_chain_records(lines: Iterable[str]) -> Iterator[ChainRecord]:
     iterator = iter(enumerate(lines, start=1))
 
     while True:
-        header_item = _next_nonblank(iterator)
+        header_item = _next_chain_header_candidate(iterator)
         if header_item is None:
             return
         header_line_number, header_line = header_item
@@ -275,6 +277,10 @@ def iter_chain_records(lines: Iterable[str]) -> Iterator[ChainRecord]:
             if not stripped:
                 raise ChainFormatError(
                     f"line {line_number}: blank line before terminal chain block"
+                )
+            if stripped.startswith("#"):
+                raise ChainFormatError(
+                    f"line {line_number}: metadata/comment line inside chain record"
                 )
 
             parts = stripped.split()
@@ -317,11 +323,14 @@ def iter_chain_records(lines: Iterable[str]) -> Iterator[ChainRecord]:
             break
 
 
-def _next_nonblank(
+def _next_chain_header_candidate(
     iterator: Iterator[tuple[int, str]],
 ) -> tuple[int, str] | None:
+    """Return the next nonblank, non-metadata line outside a chain record."""
+
     for line_number, line in iterator:
-        if line.strip():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
             return line_number, line
     return None
 

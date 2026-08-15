@@ -261,6 +261,19 @@ This fixture is mechanical validation only because canFam3 and canFam4 represent
 
 The acquisition path now has measured size preflight plus restart-safe resumable HTTPS, so the multi-gigabyte all-chain can be acquired deliberately for this fixture without treating it as routine unit-test data. Large provider resources must remain outside the repository and must not be committed as fixtures.
 
+Measured fixture setup on 2026-08-14:
+
+- acquired the complete five-resource `canFam3`→`canFam4` comparative bundle into an external cache: 2,686,242,854 compressed bytes total;
+- verified the 2,652,632,416-byte all-chain as SHA-256 `f10a6b48b5461bb8378ffaff311fb7355b1910511131ce0f5df5402c4db67519` and provider MD5 `8dd10ad24f866e8eb88b5442b1e26742`;
+- verified the ordinary net as SHA-256 `c889134e95ff82741c0092b1673b3e5fe0125aa82f611ee97d91e468b56d51ac`;
+- verified the syntenic net as SHA-256 `39ba8ca12f935755ced5eaa555b9b476460c615cc7d6c0f122ac43194a9fabce`;
+- reused the previously measured reciprocal-best chain identity SHA-256 `34f4061fd29e7720c7eb2adc1ea8299e86f21f08e18f97f9ba468cf8b466690c`;
+- verified the reciprocal-best net as SHA-256 `cd4891e80eaa8b8625620162306c50fc291eab6912227d78c566d9dae7fe716e`.
+
+The first direct parse of that real all-chain exposed a format-compatibility gap: its decompressed prefix contains UCSC `#`/`##` lastz/axtChain metadata before the first `chain` record. Direct inspection of the cached bytes confirmed gzip magic `1f8b` and the leading metadata prefix. The chain parser now ignores metadata/comment lines only while looking for the next record header and still rejects them inside a chain record, preserving strict block parsing while accepting that measured UCSC prefix. The same outside-record rule intentionally permits comments between complete records and after the final record; those placements are parser policy covered by synthetic tests, not a claim that they were observed in this real resource.
+
+After that compatibility fix, the exploratory fixture scanner streamed the complete 2,652,632,416-byte cached all-chain without another parse error, then completed its ordinary-net and reciprocal-best passes. This is end-to-end mechanical validation of reading that exact real chain resource, not biological ground truth and not evidence that every synthetically supported outside-record comment placement occurs in the provider file.
+
 ### 13. Assessor core and deterministic verdict logic
 
 This is the largest remaining scientific implementation milestone.
