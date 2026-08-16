@@ -16,11 +16,12 @@ The project now has an integrated UCSC evidence pipeline plus a completed real c
 - preserve provenance relationships so observations derived from the same caller-declared upstream alignment are not presented as independent confirmation;
 - discover, inspect, acquire, cache, resume, and integrity-check UCSC comparative and liftOver-only resources;
 - bridge a complete cached resource bundle directly into the file-backed candidate/evidence engine;
-- and reproduce a measured `canFam3`→`canFam4` comparative fixture through that production cached-bundle path while keeping all multi-gigabyte provider resources outside the repository.
+- reproduce a measured `canFam3`→`canFam4` comparative fixture through that production cached-bundle path while keeping all multi-gigabyte provider resources outside the repository;
+- and run an initial deterministic assessor implementation, currently under focused review, over normalized coverage and reciprocal-best evidence without a numeric score.
 
-The routine automated suite contains **195 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
+The routine automated suite contains **216 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
-What liftAssess still cannot do is the most important user-facing part: it does **not yet assign `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE` verdicts**, and it does not yet provide the planned assessment/report/CLI workflow.
+The deterministic assessor semantics are still under focused review, and liftAssess does not yet provide the planned assessment/report/CLI workflow. Verdict assignment should therefore still be treated as development behavior rather than a released scientific interface.
 
 ## Implementation history
 
@@ -287,26 +288,50 @@ Full comparative fixture verification completed 2026-08-16 through the public `b
 
 The reproducible verifier is `scripts/verify_canFam3_canFam4_mechanical_fixture.py`. It requires the already-acquired external cache and deliberately does not download or commit UCSC bulk resources. This completes the mechanical comparative fixture milestone; the next implementation milestone is the assessor core and deterministic verdict logic.
 
-### 13. Assessor core and deterministic verdict logic
+### 13. Assessor core and deterministic verdict logic — implementation in review
 
 This is the largest remaining scientific implementation milestone.
 
-Goal: transform normalized candidates plus provenance-aware evidence into exactly one of:
+The first deterministic assessor slice is now implemented for review. It transforms normalized
+candidates plus provenance-aware evidence into exactly one of `WELL_SUPPORTED`, `CONTESTED`, or
+`INDETERMINATE` without a numeric score or biological-correctness claim.
 
-- `WELL_SUPPORTED`;
-- `CONTESTED`;
-- `INDETERMINATE`.
+Current verdict-driving rules are intentionally limited to categorical, locus-specific evidence
+whose direction is already explicit: source-locus mapping coverage and, for `COMPARATIVE`,
+reciprocal-best membership. Raw chain score, `ali`, `qDup`, net classification, and net hierarchy
+remain report context and do not silently become weights or thresholds.
 
-Constraints:
+The implementation also:
 
-- no numeric composite confidence score;
-- no automatic claim that a candidate is biologically correct;
-- dependent observations cannot masquerade as independent confirmation;
-- evidence availability and evidentiary support remain separate;
-- one candidate can still be `CONTESTED` if materially contradictory evidence exists;
-- qualitative rules must be deterministic enough that the same evidence set produces the same verdict.
+- keeps evidence availability separate from verdict strength, including allowing a single full
+  `LIFTOVER_ONLY` mapping to be `WELL_SUPPORTED`;
+- treats multiple sparse-tier candidates as `CONTESTED` instead of ranking them by chain score;
+- treats a single full comparative candidate with reciprocal-best `NONE` as `CONTESTED`, while
+  `PARTIAL` remains `INDETERMINATE` because v1 has no threshold for deciding when partial
+  self-consistency disagreement becomes material;
+- never counts multiple observations as votes, and rejects duplicate verdict-driving observations
+  rather than allowing duplication to strengthen a result;
+- validates source geometry, coverage denominators, and reciprocal-best denominators at the
+  assessor boundary so a malformed normalized candidate cannot receive a plausible-looking verdict;
+- sets a preferred candidate only for `WELL_SUPPORTED`.
 
-This logic should be built from explicit evidence patterns and adversarial tests, not by ranking raw chain scores or inventing thresholds because they are convenient.
+Adversarial tests cover sparse and comparative ambiguity, partial mappings, internal contradictory
+evidence, irrelevant high-valued score/qDup context, missing/duplicate verdict evidence, multiple
+fully retained candidates, 3+-candidate cases, both exhaustive reciprocal-best completeness bases,
+and inconsistent normalized geometry. Focused review corrected the sparse-tier evidence-role
+classification and narrowed sole-candidate `PARTIAL` reciprocal-best semantics to `INDETERMINATE`.
+It also confirmed that `COMPLETE_CANDIDATE_SUBSET` is exhaustive for the generated candidates, not a
+weaker arbitrary partial scan.
+
+The final candidate-equivalence review item is also resolved. A real audit of the frozen
+`canFam3`→`canFam4` fixture found zero exact-geometry and zero same-bounding duplicate groups among
+its 170 candidates, but synthetic valid-chain checks demonstrated that distinct chain records can
+still project one assessed locus to identical local coordinate geometry. v1 therefore treats
+candidate multiplicity as hypothesis-level rather than record-level: the assessor rejects distinct
+IDs with equivalent canonical local mapping geometry instead of silently merging their
+provenance/evidence or manufacturing a `CONTESTED` verdict. Adjacent collinear segment partitions
+are canonicalized for this check; equal target bounds with genuinely different internal mapping
+geometry remain distinct candidates.
 
 ### 14. Assessment/report orchestration
 

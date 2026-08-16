@@ -109,6 +109,38 @@ def test_projects_single_same_orientation_block(
     )
 
 
+def test_distinct_chain_records_can_project_same_local_mapping(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+) -> None:
+    source = GenomicInterval(source_assembly, "chr1", 120, 150)
+    first = _project(
+        source,
+        _chain(chain_id=31, target_start=100, query_start=500),
+        target_assembly,
+        chain_provenance,
+    )
+    second = _project(
+        source,
+        _chain(
+            chain_id=32,
+            blocks=(ChainBlock(120),),
+            target_start=90,
+            query_start=490,
+        ),
+        target_assembly,
+        chain_provenance,
+    )
+
+    assert first is not None
+    assert second is not None
+    assert first.candidate_id != second.candidate_id
+    assert first.orientation is second.orientation is MappingOrientation.SAME
+    assert first.target_interval == second.target_interval
+    assert first.segments == second.segments
+
+
 def test_projects_reverse_query_coordinates_to_forward_reference(
     source_assembly: AssemblyIdentifier,
     target_assembly: AssemblyIdentifier,

@@ -131,6 +131,71 @@ or preferred-candidate rules by verdict; those semantic construction rules belon
 core when verdict assignment is implemented. Container permissiveness is not a claim that every
 representable verdict/candidate combination is semantically valid.
 
+### Deterministic v1 assessor policy
+
+Milestone 13 makes the qualitative verdict definitions operational without introducing a hidden
+numeric score. The first v1 assessor deliberately uses only evidence whose locus-specific
+direction is already explicit in the data model:
+
+- source-locus mapping coverage (`FULL` / `PARTIAL`); and
+- reciprocal-best membership (`FULL` / `PARTIAL` / `NONE`) when the evidence tier is
+  `COMPARATIVE`.
+
+Raw chain score, net `ali`, `qDup`, net classification, and net hierarchy remain important report
+context, but they do **not** drive the v1 verdict. No validated monotonic interpretation or
+threshold has been established for those values, and treating them as additive weights would
+recreate the numeric-confidence problem the design explicitly avoids. They can be promoted into
+verdict-driving rules later only when an explicit scientific interpretation is justified and
+tested.
+
+The categorical decision policy is:
+
+- `LIFTOVER_ONLY`: exactly one candidate with `FULL` source-locus coverage is
+  `WELL_SUPPORTED`; multiple chain-derived candidates are `CONTESTED`; no candidate or a single
+  `PARTIAL` candidate is `INDETERMINATE`. With no comparative evidence, a partial alternative is
+  not silently dismissed by chain-score ranking.
+- `COMPARATIVE`: a candidate is *fully retained* only when both source-locus coverage and
+  reciprocal-best membership are `FULL`. A candidate remains *material* when it either maps the
+  full source locus or has `FULL`/`PARTIAL` reciprocal-best membership. Exactly one fully retained
+  candidate with no other material candidate is `WELL_SUPPORTED`; two or more material candidates
+  are `CONTESTED`. A sole full mapping with `NONE` reciprocal-best membership is also `CONTESTED`
+  because the mapping and exhaustive self-consistency evidence materially disagree. A sole full
+  mapping with `PARTIAL` reciprocal-best membership is `INDETERMINATE`: the state is mixed evidence,
+  but without a quantitative threshold v1 cannot promote an unspecified amount of reciprocal
+  disagreement to "material." Remaining cases are `INDETERMINATE`.
+
+Reciprocal-best evidence derived from the same upstream alignment is used as a categorical
+self-consistency observation, never as an independent vote. The v1 verdict rules do not add or
+count evidence observations at all, so they do not branch on provenance independence; provenance
+remains attached for dependency-aware reporting and any future rule that aggregates sources must
+explicitly account for shared upstream provenance. `PARTIAL` reciprocal-best membership is
+explicitly mixed evidence: some mapped geometry survives while some does not, so the same
+observation may be referenced as both supporting and contradicting context. Those evidence-role
+collections are categorical annotations, not quantities to count or subtract.
+
+Both reciprocal-best completeness values are exhaustive by contract: `COMPLETE_RESOURCE` means the
+whole resource was consumed, while `COMPLETE_CANDIDATE_SUBSET` means the supplied subset was
+complete for every generated candidate in that engine call. The assessor therefore does not weaken
+`NONE` merely because the latter basis was used; an arbitrary incomplete scan is not allowed to
+produce reciprocal-best membership evidence at all.
+
+Candidate multiplicity is defined at the level of distinct local mapping hypotheses, not raw
+source-record IDs. Two different records can project the assessed locus to the same coordinate
+mapping, so record identity alone must not manufacture ambiguity. Before verdict assignment, v1
+requires distinct candidate IDs to describe distinct **canonical local mapping geometry**.
+Adjacent collinear mapping segments are canonicalized as one continuous mapping for this
+equivalence check, so a source record's arbitrary block partitioning does not create a second
+hypothesis. Exact-equivalent hypotheses are rejected rather than silently merged or counted as
+independent candidates: merging would require explicit semantics for combining record identity,
+provenance, and evidence that v1 does not yet define. A shared target bounding span alone is not
+equivalence; candidates with genuinely different internal aligned geometry remain distinct.
+
+`preferred_candidate_id` is set only for `WELL_SUPPORTED`; contested or indeterminate assessments
+deliberately leave it unset.
+
+This policy is an evidence-support rule, not a biological truth criterion. **Well supported does
+not mean correct.**
+
 ## 5. Coordinate semantics
 
 Not addressed in earlier drafts of this design and worth getting right before any code exists.

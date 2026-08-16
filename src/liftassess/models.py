@@ -481,8 +481,12 @@ class Assessment:
 
     The model stores the verdict and references to the evidence used in the
     assessment. It does not compute a verdict, confidence score, or biological
-    truth claim. Verdict-specific semantic constraints belong to the assessor
-    logic; this container enforces only referential integrity.
+    truth claim. ``supporting_evidence`` and ``contradicting_evidence`` are
+    categorical roles, not additive quantities: one mixed observation may
+    legitimately appear in both collections, and consumers must not derive a
+    numeric score by counting or subtracting them. Verdict-specific semantic
+    constraints belong to the assessor logic; this container enforces only
+    referential integrity.
     """
 
     source_interval: GenomicInterval

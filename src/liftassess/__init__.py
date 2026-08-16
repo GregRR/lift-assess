@@ -1,5 +1,6 @@
 """liftAssess public core model."""
 
+from .assessor import assess_candidates
 from .engine import build_ucsc_candidates
 from .models import (
     AssemblyIdentifier,
@@ -112,6 +113,7 @@ __all__ = [
     "Verdict",
     "acquire_ucsc_resource",
     "acquire_ucsc_resource_bundle",
+    "assess_candidates",
     "build_ucsc_candidates",
     "build_ucsc_candidates_from_cached_bundle",
     "build_ucsc_candidates_from_files",

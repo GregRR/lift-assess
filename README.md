@@ -2,7 +2,7 @@
 
 **liftAssess** evaluates ambiguous genomic coordinate liftOver mappings using transparent, provenance- and dependency-aware evidence, reporting whether mappings are **well supported**, **contested**, or **indeterminate**.
 
-> **Status:** Active development. Core candidate-generation and evidence-extraction components are implemented and tested, but the end-to-end assessment pipeline, CLI, and final reporting layer are still under construction.
+> **Status:** Active development. Core candidate-generation and evidence-extraction components are implemented and tested, and an initial deterministic assessor is under focused review. The end-to-end assessment pipeline, CLI, and final reporting layer are still under construction.
 
 ## Why liftAssess exists
 
@@ -70,12 +70,12 @@ The current development code includes:
   `Range` + `If-Range`, while contract mismatches restart fresh rather than splicing representations;
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
 - a real `canFam3`→`canFam4` comparative mechanical fixture, replayed through the production cached-bundle path from exact externally cached UCSC resources without committing provider data to the repository.
+- an initial deterministic assessor core, currently under focused review, that assigns the three v1 verdicts from categorical mapping-coverage and reciprocal-best evidence without a numeric score.
 
 ## Not implemented yet
 
 The project is not yet an end-to-end user tool. Major v1 work still includes:
 
-- the assessor logic that deterministically converts evidence into `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE`;
 - a future CLI/user-cache default (the library currently requires an explicit caller-supplied cache root);
 - orchestration from the resulting candidate evidence into an assessment verdict and report;
 - the command-line interface;
@@ -212,5 +212,6 @@ liftAssess is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
 ## Project scope
 
 v1 is deliberately narrow. It does not attempt to perform new sequence alignment by default, build large species-support databases, assign biological orthology automatically, use machine learning, or produce numeric confidence scores.
+
 
 The objective is simpler: make ambiguous liftOver results **inspectable, evidence-based, provenance-aware, and explicit about uncertainty**.
