@@ -69,6 +69,7 @@ The current development code includes:
   support, and a strong ETag; retained partials are bound to that exact URL/size/validator and resumed with
   `Range` + `If-Range`, while contract mismatches restart fresh rather than splicing representations;
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
+- a real `canFam3`→`canFam4` comparative mechanical fixture, replayed through the production cached-bundle path from exact externally cached UCSC resources without committing provider data to the repository.
 
 ## Not implemented yet
 
@@ -79,7 +80,7 @@ The project is not yet an end-to-end user tool. Major v1 work still includes:
 - orchestration from the resulting candidate evidence into an assessment verdict and report;
 - the command-line interface;
 - human-readable summary and detailed/JSON reports;
-- end-to-end validation against real assembly/locus fixtures;
+- a future truth-bearing historical-resolution locus for the planned `canFam3.1`→`canFam6` sanity-check pedigree;
 - optional flanking-gene orthology/synteny evidence;
 - a defensible definition of candidate-rank and target-placement evidence where those concepts can be supported without inventing unsupported heuristics.
 
@@ -147,7 +148,9 @@ Two complementary validation tracks are planned.
 
 ### Mechanical evidence fixture
 
-`canFam3` ↔ `canFam4` is the planned mechanical fixture for verifying extraction of chain/net/reciprocal-best evidence. These assemblies come from different dogs, so this fixture is for **mechanical correctness of evidence extraction**, not biological ground truth.
+`canFam3` ↔ `canFam4` is now the real mechanical fixture for verifying extraction of chain/net/reciprocal-best evidence. The selected source interval is `chrUn_JH373233:1845735-1845835` in 0-based, half-open coordinates. The production cached-bundle path reproduces 170 candidate mappings across 114 target sequences, including a reverse, split, net-annotated, reciprocal-best-supported candidate and contrasting partial/reciprocal-best-absent alternatives. These assemblies come from different dogs, so the fixture establishes **mechanical correctness of evidence extraction**, not biological ground truth.
+
+The exact multi-gigabyte UCSC resources remain outside the repository. Developers with the acquired cache can replay the frozen verification with `scripts/verify_canFam3_canFam4_mechanical_fixture.py`.
 
 ### Historical-resolution fixture
 

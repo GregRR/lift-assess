@@ -480,6 +480,19 @@ a second engine exists — v1 has exactly one (§7).
     and no chain gaps. No assessment verdict was computed. This establishes real-file mechanical
     plumbing under the sparse LIFTOVER-ONLY path; it does not validate comparative evidence or
     biological support.
+  - **Full comparative mechanical fixture completed 2026-08-16.** The selected canonical
+    0-based half-open source interval is `chrUn_JH373233:1845735-1845835`. Running the exact
+    externally cached five-resource bundle through `build_ucsc_candidates_from_cached_bundle()`
+    produced 170 candidates across 114 target sequences. Chain 573 provides the primary
+    evidence-rich mechanical case: reverse orientation to `chr35:925644-925938`, two aligned
+    segments, full 100/100 source coverage, one target-side chain gap, chain score 16,617,372,
+    `ali=3603`, `qDup=4098`, `nonSyn` net classification at depth 7, and `FULL` reciprocal-best
+    membership. Chains 5170 and 2692 provide contrasting partial-coverage and reciprocal-best-
+    absent cases. The production path SHA-256-verifies the consumed resource bytes and preserves
+    one caller-declared shared upstream alignment ancestor across chain/net/reciprocal-best file
+    provenance. This fixture verifies extraction and provenance wiring only; it computes no
+    verdict and makes no biological ground-truth claim. The reproducible verifier lives at
+    `scripts/verify_canFam3_canFam4_mechanical_fixture.py`; the UCSC bulk files remain external.
 - **Historical-resolution fixture pedigree (not yet a concrete fixture)** — identifies the right
   assembly pair for proving the report behaves sensibly against a known resolution; the specific
   truth-bearing locus within that pair has not yet been identified. `canFam3.1` → `canFam6`

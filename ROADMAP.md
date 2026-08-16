@@ -4,24 +4,23 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 `DESIGN.md` remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, verdict meanings, v1 scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
 
-## Current status — 2026-08-12
+## Current status — 2026-08-16
 
 liftAssess is an active, private development repository. It is not yet a released end-to-end analysis tool.
 
-The project has moved past isolated parsers and models into an integrated UCSC evidence pipeline. The current code can:
+The project now has an integrated UCSC evidence pipeline plus a completed real comparative mechanical fixture. The current code can:
 
 - parse UCSC chain and net resources as streams;
 - project source intervals into normalized candidate mappings, including reverse-strand and split mappings;
 - extract mapping coverage, chain-gap, chain-score, net, and reciprocal-best evidence;
-- preserve provenance relationships so observations derived from the same upstream alignment are not presented as independent confirmation;
-- discover UCSC comparative and liftOver-only resource availability without silently treating transport failures as resource absence;
-- stream plain or gzip-compressed local chain/net resources into the engine without materializing whole files;
-- run a real UCSC liftOver chain through the local-file → parser → engine path;
-- and, in the current provenance batch, identify exact local resource bytes with content-addressed SHA-256 provenance, verify those bytes again as they are streamed into parsing, and optionally verify provider-published checksums.
+- preserve provenance relationships so observations derived from the same caller-declared upstream alignment are not presented as independent confirmation;
+- discover, inspect, acquire, cache, resume, and integrity-check UCSC comparative and liftOver-only resources;
+- bridge a complete cached resource bundle directly into the file-backed candidate/evidence engine;
+- and reproduce a measured `canFam3`→`canFam4` comparative fixture through that production cached-bundle path while keeping all multi-gigabyte provider resources outside the repository.
 
-The current reciprocal-best discovery tree has **132 tests** after adding an orchestration-level regression for sibling-directory transport failures. The preceding 131-test tree passed pytest, Ruff, and strict mypy locally and a direct live UCSC resolver check; the final added test is synthetic and exercises error propagation only. Resource-provenance review separately reproduced the original hash-before-parse race, verified the corrected failure behavior, stress-tested gzip/raw-byte hashing, checked handle cleanup and streaming memory behavior, and found no remaining blocking provenance issues.
+The routine automated suite contains **195 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
-What liftAssess still cannot do is the most important user-facing part: it does **not yet assign `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE` verdicts**, and it does not yet provide the planned CLI/report workflow.
+What liftAssess still cannot do is the most important user-facing part: it does **not yet assign `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE` verdicts**, and it does not yet provide the planned assessment/report/CLI workflow.
 
 ## Implementation history
 
@@ -243,7 +242,7 @@ This closes the acquisition/cache milestone itself. The future CLI's default cac
 
 **Repository note:** this implementation deliberately does **not** create a runtime/cache directory in the repository, so no `.gitignore` change is required. If a future development workflow introduces any repo-local runtime/cache path, `.gitignore` must change in the same batch.
 
-### 12. Full `canFam3` ↔ `canFam4` comparative mechanical fixture
+### 12. Full `canFam3` ↔ `canFam4` comparative mechanical fixture — complete
 
 Goal: prove real extraction of the comparative evidence families already implemented.
 
@@ -273,6 +272,20 @@ Measured fixture setup on 2026-08-14:
 The first direct parse of that real all-chain exposed a format-compatibility gap: its decompressed prefix contains UCSC `#`/`##` lastz/axtChain metadata before the first `chain` record. Direct inspection of the cached bytes confirmed gzip magic `1f8b` and the leading metadata prefix. The chain parser now ignores metadata/comment lines only while looking for the next record header and still rejects them inside a chain record, preserving strict block parsing while accepting that measured UCSC prefix. The same outside-record rule intentionally permits comments between complete records and after the final record; those placements are parser policy covered by synthetic tests, not a claim that they were observed in this real resource.
 
 After that compatibility fix, the exploratory fixture scanner streamed the complete 2,652,632,416-byte cached all-chain without another parse error, then completed its ordinary-net and reciprocal-best passes. This is end-to-end mechanical validation of reading that exact real chain resource, not biological ground truth and not evidence that every synthetically supported outside-record comment placement occurs in the provider file.
+
+Full comparative fixture verification completed 2026-08-16 through the public `build_ucsc_candidates_from_cached_bundle()` path, using the exact cached resource identities listed above and no network access. The selected source locus is `chrUn_JH373233:1845735-1845835` in canonical 0-based, half-open coordinates. Measured production-path results:
+
+- 170 chain-derived candidates across 114 distinct target sequences;
+- chain 573 maps in reverse orientation to `chr35:925644-925938`, with two aligned segments, full 100/100 source-base coverage, one target-side chain gap, chain score 16,617,372, net `ali=3603`, `qDup=4098`, `nonSyn` classification at hierarchy depth 7, and `FULL` reciprocal-best membership covering 100/100 candidate source bases;
+- chain 5170 maps to `chrUn_MU018764v1:171661-171760` with partial 99/100 source-base coverage, one gap, and `NONE` reciprocal-best membership;
+- chain 2692 maps to `chrUn_JAAHUQ010000602v1:62326-62622` with full 100/100 source-base coverage, one gap, and `NONE` reciprocal-best membership;
+- an independent preflight over the small reciprocal-best chain counted 3, 1, and 2 relevant source/target/orientation chain records for chains 573, 5170, and 2692 respectively, matching each production `chains_examined` result;
+- primary chain 573 segment geometry was measured as source `1845735-1845808` → target `925865-925938` and source `1845808-1845835` → target `925644-925671`, with a target-side gap `chr35:925671-925865` at source boundary 1845808;
+- chain, net, and reciprocal-best file provenance preserved one caller-declared shared upstream alignment ancestor. This verifies provenance wiring/dependency handling; it does not independently infer that common ancestry from the resource bytes;
+- reciprocal-best completeness remains the caller's `COMPLETE_RESOURCE` claim from the prior complete acquisition, while the production file path independently SHA-256-verifies every consumed raw stream before returning candidates;
+- no assessment verdict was computed and no biological ground-truth claim was made.
+
+The reproducible verifier is `scripts/verify_canFam3_canFam4_mechanical_fixture.py`. It requires the already-acquired external cache and deliberately does not download or commit UCSC bulk resources. This completes the mechanical comparative fixture milestone; the next implementation milestone is the assessor core and deterministic verdict logic.
 
 ### 13. Assessor core and deterministic verdict logic
 
