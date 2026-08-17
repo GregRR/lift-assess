@@ -1060,6 +1060,7 @@ def test_json_flag_emits_machine_readable_cached_assessment(
     assert payload["assessment"]["source_interval"]["start"] == 100
     assert payload["assessment"]["source_interval"]["end"] == 120
     assert payload["assessment"]["verdict"] == "WELL_SUPPORTED"
+    assert payload["assessment"]["decision_reason"] == "LIFTOVER_SINGLE_FULL_MAPPING"
     assert payload["resources"][0]["role"] == "CHAIN"
     assert payload["caveat"] == "This does not establish biological correctness."
 

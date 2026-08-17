@@ -28,6 +28,7 @@ from dataclasses import dataclass
 
 from .models import (
     Assessment,
+    AssessmentDecisionReason,
     EvidenceAvailabilityTier,
     EvidenceKind,
     EvidenceObservation,
@@ -125,6 +126,7 @@ def assess_candidates(
             source_interval=source_interval,
             verdict=Verdict.INDETERMINATE,
             evidence_tier=evidence_tier,
+            decision_reason=AssessmentDecisionReason.NO_CANDIDATES,
             candidates=(),
         )
 
@@ -153,6 +155,7 @@ def _assess_liftover_only(
             source_interval=source_interval,
             verdict=Verdict.CONTESTED,
             evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+            decision_reason=AssessmentDecisionReason.LIFTOVER_MULTIPLE_CANDIDATES,
             candidates=candidates,
             supporting_evidence=supporting,
             contradicting_evidence=contradicting,
@@ -165,6 +168,7 @@ def _assess_liftover_only(
             source_interval=source_interval,
             verdict=Verdict.WELL_SUPPORTED,
             evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+            decision_reason=AssessmentDecisionReason.LIFTOVER_SINGLE_FULL_MAPPING,
             candidates=candidates,
             preferred_candidate_id=profile.candidate.candidate_id,
             supporting_evidence=(coverage_reference,),
@@ -174,6 +178,7 @@ def _assess_liftover_only(
         source_interval=source_interval,
         verdict=Verdict.INDETERMINATE,
         evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        decision_reason=AssessmentDecisionReason.LIFTOVER_SINGLE_PARTIAL_MAPPING,
         candidates=candidates,
         contradicting_evidence=(coverage_reference,),
     )
@@ -195,6 +200,9 @@ def _assess_comparative(
             source_interval=source_interval,
             verdict=Verdict.CONTESTED,
             evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+            decision_reason=(
+                AssessmentDecisionReason.COMPARATIVE_MULTIPLE_MATERIAL_CANDIDATES
+            ),
             candidates=candidates,
             supporting_evidence=supporting,
             contradicting_evidence=contradicting,
@@ -209,6 +217,9 @@ def _assess_comparative(
             source_interval=source_interval,
             verdict=Verdict.WELL_SUPPORTED,
             evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+            decision_reason=(
+                AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_FULL
+            ),
             candidates=candidates,
             preferred_candidate_id=profile.candidate.candidate_id,
             supporting_evidence=supporting,
@@ -224,26 +235,53 @@ def _assess_comparative(
         # discrimination.
         profile = full_profiles[0]
         supporting, contradicting = _comparative_references((profile,))
-        verdict = (
-            Verdict.CONTESTED
-            if profile.reciprocal_best is not None
-            and profile.reciprocal_best.status is ReciprocalBestMembershipStatus.NONE
-            else Verdict.INDETERMINATE
-        )
+        if profile.reciprocal_best is None:
+            raise AssertionError(
+                "comparative assessment requires reciprocal-best evidence"
+            )
+        if profile.reciprocal_best.status is ReciprocalBestMembershipStatus.NONE:
+            verdict = Verdict.CONTESTED
+            decision_reason = (
+                AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_NONE
+            )
+        elif profile.reciprocal_best.status is ReciprocalBestMembershipStatus.PARTIAL:
+            verdict = Verdict.INDETERMINATE
+            decision_reason = (
+                AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_PARTIAL
+            )
+        else:
+            raise AssertionError(
+                "fully retained comparative candidate must have returned earlier"
+            )
         return Assessment(
             source_interval=source_interval,
             verdict=verdict,
             evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+            decision_reason=decision_reason,
             candidates=candidates,
             supporting_evidence=supporting,
             contradicting_evidence=contradicting,
         )
+
+    # The >=2-material branch already returned, and all remaining candidates are
+    # partial because the full-candidate branch also returned. The existing
+    # materiality predicate therefore leaves exactly two possible terminal states:
+    # one material partial candidate, or no material candidate at all.
+    if len(material_profiles) == 1:
+        decision_reason = AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_PARTIAL
+    else:
+        if material_profiles:
+            raise AssertionError(
+                "comparative fallback cannot contain multiple material candidates"
+            )
+        decision_reason = AssessmentDecisionReason.COMPARATIVE_NO_MATERIAL_CANDIDATE
 
     supporting, contradicting = _comparative_references(material_profiles)
     return Assessment(
         source_interval=source_interval,
         verdict=Verdict.INDETERMINATE,
         evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        decision_reason=decision_reason,
         candidates=candidates,
         supporting_evidence=supporting,
         contradicting_evidence=contradicting,

@@ -74,18 +74,20 @@ The current development code includes:
   `Range` + `If-Range`, while contract mismatches restart fresh rather than splicing representations;
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
 - a real `canFam3`→`canFam4` comparative mechanical fixture, replayed through the production cached-bundle path from exact externally cached UCSC resources without committing provider data to the repository.
-- a reviewed deterministic assessor core that assigns the three v1 verdicts from categorical mapping-coverage and reciprocal-best evidence without a numeric score.
+- a reviewed deterministic assessor core that assigns the three v1 verdicts and one explicit terminal `decision_reason` from categorical mapping-coverage and reciprocal-best evidence without a numeric score.
 - reviewed cached-bundle assessment orchestration that connects acquired UCSC resources to candidate/evidence generation and the assessor while preserving evidence tier, resource-consumption metadata, retrieval context, and shared provenance.
 
 ## Not implemented yet
 
-The project now implements the common-case CLI, concise summary, human-readable detail, schema-versioned JSON reporting, and measured cache-verification/assessment/transfer progress paths, and the first real comparative CLI smoke run has completed against the established external `canFam3`→`canFam4` cache. Major v1 work still includes:
+The project now implements the common-case CLI, concise summary, human-readable detail, schema-versioned JSON reporting, and measured cache-verification/assessment/transfer progress paths, and the first real comparative CLI smoke run has completed against the established external `canFam3`→`canFam4` cache. Planned work beyond the first public alpha includes:
 
 - a future truth-bearing historical-resolution locus for the planned `canFam3.1`→`canFam6` sanity-check pedigree;
 - optional flanking-gene orthology/synteny evidence;
-- a defensible definition of candidate-rank and target-placement evidence where those concepts can be supported without inventing unsupported heuristics.
+- defensible candidate-rank and target-sequence context backed by explicit evidence/metadata sources rather than naming heuristics;
+- scalable batch assessment that reuses comparative-resource work across loci;
+- reproducible case manifests and, where redistribution terms permit, portable resource packets.
 
-Until those pieces are complete, the repository should be treated as a developing scientific software project rather than a released analysis tool.
+Until the public-alpha readiness work is complete, the repository should be treated as a developing scientific software project rather than a released analysis tool.
 
 ## Evidence-availability tiers
 
@@ -106,7 +108,7 @@ NormalizedCandidate[] + provenance
         |
         v
 Assessor core
-(evidence extraction, dependency/provenance labeling, verdict)
+(evidence extraction, dependency/provenance labeling, verdict + decision reason)
         |
         v
 Assessment report
@@ -138,7 +140,7 @@ Before resource acquisition, the command displays the applicable UCSC terms and 
 
 The default cache is the platform user cache (`~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` or `~/.cache/liftassess` on other platforms).
 
-The default command emits the concise assessment summary. `--details` emits the full human-readable evidence dossier, including exact mapped segments, categorical verdict-evidence roles, resource URLs/checksums and consumed-vs-unconsumed status, and the complete provenance dependency graph. `--json` emits schema version 1 of the same report semantics using canonical 0-based, half-open interval objects, structured evidence values, exact resource metadata, and explicit provenance dependency edges. `--details` and `--json` are mutually exclusive. All report modes retain the explicit caveat that evidentiary support is not proof of biological correctness.
+The default command emits the concise assessment summary, including a plain-language rendering of the assessor-owned terminal `decision_reason`. `COMPARATIVE` summaries also state that comparative observations are not assumed to be independent and point to `--details` / `--json` for dependency provenance; `LIFTOVER_ONLY` summaries do not receive that qualification. `--details` emits the full human-readable evidence dossier, including the exact decision-reason code, mapped segments, categorical verdict-evidence roles, resource URLs/checksums and consumed-vs-unconsumed status, and the complete provenance dependency graph. `--json` emits schema version 1 of the same report semantics using canonical 0-based, half-open interval objects, the required categorical `decision_reason`, structured evidence values, exact resource metadata, and explicit provenance dependency edges. `--details` and `--json` are mutually exclusive. All report modes retain the explicit caveat that evidentiary support is not proof of biological correctness.
 
 For machine use, stdout remains the JSON document while status/progress stays on stderr, so normal shell redirection is safe:
 

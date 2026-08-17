@@ -13,18 +13,18 @@ segments rather than implying that every base inside the span aligned.
 """
 
 import json
+from typing import assert_never
 
 from .chain import chain_id_from_candidate_id
 from .models import (
     Assessment,
+    AssessmentDecisionReason,
     ChainGapSummary,
     EvidenceAvailabilityTier,
-    EvidenceKind,
     EvidenceObservation,
     EvidenceReference,
     EvidenceValue,
     GenomicInterval,
-    MappingCoverageStatus,
     MappingCoverageSummary,
     NetHierarchySummary,
     NormalizedCandidate,
@@ -78,7 +78,12 @@ def render_assessment_summary(assessment: Assessment) -> str:
     else:
         lines.append(f"Candidates assessed: {len(assessment.candidates)}")
 
-    lines.append(f"Why: {_verdict_basis_text(assessment)}")
+    lines.append(f"Why: {_decision_reason_text(assessment.decision_reason)}")
+    if assessment.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
+        lines.append(
+            "Comparative observations are not assumed to be independent; dependency "
+            "provenance is available with --details or --json."
+        )
     lines.extend(("", _BIOLOGICAL_CORRECTNESS_CAVEAT))
     return "\n".join(lines)
 
@@ -118,66 +123,42 @@ def _candidate_text(candidate: NormalizedCandidate) -> str:
     return f"{coordinate_text} ({'; '.join(details)})"
 
 
-def _verdict_basis_text(assessment: Assessment) -> str:
-    if not assessment.candidates:
-        return "no candidate mapping was generated for the requested locus"
+def _decision_reason_text(reason: AssessmentDecisionReason) -> str:
+    """Render the assessor-owned terminal decision reason without re-assessing."""
 
-    if len(assessment.candidates) > 1:
-        if assessment.verdict is Verdict.CONTESTED:
+    match reason:
+        case AssessmentDecisionReason.NO_CANDIDATES:
+            return "no candidate mapping was generated for the requested locus"
+        case AssessmentDecisionReason.LIFTOVER_MULTIPLE_CANDIDATES:
+            return "multiple chain-derived candidate mappings remain"
+        case AssessmentDecisionReason.LIFTOVER_SINGLE_FULL_MAPPING:
+            return "full source-locus mapping coverage"
+        case AssessmentDecisionReason.LIFTOVER_SINGLE_PARTIAL_MAPPING:
+            return "candidate maps only part of the requested source locus"
+        case AssessmentDecisionReason.COMPARATIVE_MULTIPLE_MATERIAL_CANDIDATES:
             return "multiple candidates retain material assessment evidence"
-        if assessment.verdict is Verdict.INDETERMINATE:
-            return (
-                "available evidence does not materially distinguish the candidate "
-                "mappings"
-            )
-
-    candidate = _preferred_candidate(assessment)
-    if candidate is None and len(assessment.candidates) == 1:
-        candidate = assessment.candidates[0]
-
-    if candidate is not None:
-        coverage = _mapping_coverage(candidate)
-        reciprocal = _reciprocal_best(candidate)
-
-        if assessment.verdict is Verdict.WELL_SUPPORTED:
-            if reciprocal is None:
-                return "full source-locus mapping coverage"
+        case AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_FULL:
             return (
                 "full source-locus mapping coverage and full reciprocal-best membership"
             )
-
-        if coverage is not None and coverage.status is MappingCoverageStatus.PARTIAL:
-            return "candidate maps only part of the requested source locus"
-
-        if reciprocal is not None:
+        case AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_NONE:
             return (
                 "full source-locus mapping coverage with reciprocal-best membership "
-                f"{reciprocal.status.value}"
+                "NONE"
             )
-
-    if assessment.verdict is Verdict.CONTESTED:
-        return "available verdict-driving evidence materially disagrees"
-    return "available verdict-driving evidence is insufficient or non-discriminating"
-
-
-def _mapping_coverage(candidate: NormalizedCandidate) -> MappingCoverageSummary | None:
-    for observation in candidate.evidence:
-        if observation.kind is EvidenceKind.MAPPING_COVERAGE and isinstance(
-            observation.value, MappingCoverageSummary
-        ):
-            return observation.value
-    return None
-
-
-def _reciprocal_best(
-    candidate: NormalizedCandidate,
-) -> ReciprocalBestMembershipSummary | None:
-    for observation in candidate.evidence:
-        if observation.kind is EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP and isinstance(
-            observation.value, ReciprocalBestMembershipSummary
-        ):
-            return observation.value
-    return None
+        case AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_PARTIAL:
+            return (
+                "full source-locus mapping coverage with reciprocal-best membership "
+                "PARTIAL"
+            )
+        case AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_PARTIAL:
+            return (
+                "one material candidate maps only part of the requested source locus; "
+                "other raw candidates are not material under the v1 comparative rule"
+            )
+        case AssessmentDecisionReason.COMPARATIVE_NO_MATERIAL_CANDIDATE:
+            return "no candidate retains material comparative evidence"
+    assert_never(reason)
 
 
 def render_assessment_details(report: UCSCAssessmentReport) -> str:
@@ -200,6 +181,7 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
         f"Source locus: {format_display_interval(assessment.source_interval)}",
         f"Evidence availability: {_evidence_tier_text(assessment.evidence_tier)}",
         f"Assessment: {_verdict_text(assessment.verdict)}",
+        f"Decision reason: {assessment.decision_reason.value}",
         f"Candidates assessed: {len(assessment.candidates)}",
     ]
 
@@ -318,6 +300,7 @@ def render_assessment_json(report: UCSCAssessmentReport) -> str:
             "source_interval": _interval_json(assessment.source_interval),
             "evidence_tier": assessment.evidence_tier.value,
             "verdict": assessment.verdict.value,
+            "decision_reason": assessment.decision_reason.value,
             "preferred_candidate_id": assessment.preferred_candidate_id,
             "supporting_evidence": [
                 _evidence_reference_json(reference)

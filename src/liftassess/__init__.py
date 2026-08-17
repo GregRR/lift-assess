@@ -5,6 +5,7 @@ from .engine import build_ucsc_candidates
 from .models import (
     AssemblyIdentifier,
     Assessment,
+    AssessmentDecisionReason,
     ChainGap,
     ChainGapSummary,
     EvidenceAvailabilityTier,
@@ -79,6 +80,7 @@ from .resources import (
 __all__ = [
     "AssemblyIdentifier",
     "Assessment",
+    "AssessmentDecisionReason",
     "CachedResource",
     "CachedUCSCResourceBundle",
     "ChainGap",

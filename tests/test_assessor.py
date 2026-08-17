@@ -6,6 +6,7 @@ import pytest
 
 from liftassess import (
     AssemblyIdentifier,
+    AssessmentDecisionReason,
     EvidenceAvailabilityTier,
     EvidenceKind,
     EvidenceObservation,
@@ -135,7 +136,99 @@ def test_no_candidates_is_indeterminate_for_either_evidence_tier() -> None:
     for tier in EvidenceAvailabilityTier:
         assessment = assess_candidates(SOURCE, (), evidence_tier=tier)
         assert assessment.verdict is Verdict.INDETERMINATE
+        assert assessment.decision_reason is AssessmentDecisionReason.NO_CANDIDATES
         assert assessment.preferred_candidate_id is None
+
+
+def test_assessor_terminal_cases_cover_complete_decision_reason_vocabulary() -> None:
+    liftover_full = _candidate("lift-full")
+    liftover_partial = _candidate("lift-partial", covered_end=199)
+    comparative_full_full = _candidate(
+        "comp-full-full",
+        reciprocal_best=ReciprocalBestMembershipStatus.FULL,
+    )
+    comparative_full_partial = _candidate(
+        "comp-full-partial",
+        reciprocal_best=ReciprocalBestMembershipStatus.PARTIAL,
+    )
+    comparative_full_none = _candidate(
+        "comp-full-none",
+        reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+    )
+    comparative_partial_full = _candidate(
+        "comp-partial-full",
+        covered_end=199,
+        reciprocal_best=ReciprocalBestMembershipStatus.FULL,
+    )
+    comparative_partial_none = _candidate(
+        "comp-partial-none",
+        covered_end=199,
+        reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+    )
+
+    assessments = (
+        assess_candidates(
+            SOURCE,
+            (),
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        ),
+        assess_candidates(
+            SOURCE,
+            (liftover_full, _candidate("lift-other", target_start=2000)),
+            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        ),
+        assess_candidates(
+            SOURCE,
+            (liftover_full,),
+            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        ),
+        assess_candidates(
+            SOURCE,
+            (liftover_partial,),
+            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        ),
+        assess_candidates(
+            SOURCE,
+            (
+                comparative_full_full,
+                _candidate(
+                    "comp-other-material",
+                    target_start=2000,
+                    reciprocal_best=ReciprocalBestMembershipStatus.PARTIAL,
+                ),
+            ),
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        ),
+        assess_candidates(
+            SOURCE,
+            (comparative_full_full,),
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        ),
+        assess_candidates(
+            SOURCE,
+            (comparative_full_none,),
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        ),
+        assess_candidates(
+            SOURCE,
+            (comparative_full_partial,),
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        ),
+        assess_candidates(
+            SOURCE,
+            (comparative_partial_full,),
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        ),
+        assess_candidates(
+            SOURCE,
+            (comparative_partial_none,),
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        ),
+    )
+
+    assert {assessment.decision_reason for assessment in assessments} == set(
+        AssessmentDecisionReason
+    )
 
 
 def test_liftover_only_single_full_candidate_is_well_supported() -> None:
@@ -148,6 +241,10 @@ def test_liftover_only_single_full_candidate_is_well_supported() -> None:
     )
 
     assert assessment.verdict is Verdict.WELL_SUPPORTED
+    assert (
+        assessment.decision_reason
+        is AssessmentDecisionReason.LIFTOVER_SINGLE_FULL_MAPPING
+    )
     assert assessment.preferred_candidate_id == "full"
     assert assessment.supporting_evidence[0].observation_id == "full:coverage"
 
@@ -162,6 +259,10 @@ def test_liftover_only_single_partial_candidate_is_indeterminate() -> None:
     )
 
     assert assessment.verdict is Verdict.INDETERMINATE
+    assert (
+        assessment.decision_reason
+        is AssessmentDecisionReason.LIFTOVER_SINGLE_PARTIAL_MAPPING
+    )
     assert assessment.preferred_candidate_id is None
     assert assessment.contradicting_evidence[0].observation_id == "partial:coverage"
 
@@ -177,6 +278,10 @@ def test_liftover_only_multiple_candidates_are_contested_without_ranking() -> No
     )
 
     assert assessment.verdict is Verdict.CONTESTED
+    assert (
+        assessment.decision_reason
+        is AssessmentDecisionReason.LIFTOVER_MULTIPLE_CANDIDATES
+    )
     assert assessment.preferred_candidate_id is None
     assert {reference.candidate_id for reference in assessment.supporting_evidence} == {
         "full"
@@ -200,6 +305,10 @@ def test_comparative_unique_full_and_full_rbest_candidate_is_well_supported() ->
     )
 
     assert assessment.verdict is Verdict.WELL_SUPPORTED
+    assert (
+        assessment.decision_reason
+        is AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_FULL
+    )
     assert assessment.preferred_candidate_id == "retained"
     supporting_ids = {
         reference.observation_id for reference in assessment.supporting_evidence
@@ -222,6 +331,10 @@ def test_comparative_single_full_mapping_with_partial_rbest_is_indeterminate() -
     )
 
     assert assessment.verdict is Verdict.INDETERMINATE
+    assert (
+        assessment.decision_reason
+        is AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_PARTIAL
+    )
     assert assessment.preferred_candidate_id is None
     assert {
         reference.observation_id for reference in assessment.supporting_evidence
@@ -243,6 +356,10 @@ def test_comparative_single_full_mapping_with_no_rbest_is_contested() -> None:
     )
 
     assert assessment.verdict is Verdict.CONTESTED
+    assert (
+        assessment.decision_reason
+        is AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_NONE
+    )
     assert assessment.preferred_candidate_id is None
     assert {
         reference.observation_id for reference in assessment.supporting_evidence
@@ -270,6 +387,10 @@ def test_comparative_two_material_candidates_are_contested() -> None:
     )
 
     assert assessment.verdict is Verdict.CONTESTED
+    assert (
+        assessment.decision_reason
+        is AssessmentDecisionReason.COMPARATIVE_MULTIPLE_MATERIAL_CANDIDATES
+    )
     assert assessment.preferred_candidate_id is None
 
 
@@ -352,6 +473,10 @@ def test_comparative_partial_only_is_indeterminate_even_with_full_rbest() -> Non
     )
 
     assert assessment.verdict is Verdict.INDETERMINATE
+    assert (
+        assessment.decision_reason
+        is AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_PARTIAL
+    )
     assert assessment.preferred_candidate_id is None
 
 
@@ -369,7 +494,31 @@ def test_comparative_partial_only_with_partial_rbest_is_indeterminate() -> None:
     )
 
     assert assessment.verdict is Verdict.INDETERMINATE
+    assert (
+        assessment.decision_reason
+        is AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_PARTIAL
+    )
     assert assessment.preferred_candidate_id is None
+
+
+def test_comparative_partial_only_with_no_rbest_is_no_material_candidate() -> None:
+    candidate = _candidate(
+        "partial",
+        covered_end=199,
+        reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+    )
+
+    assessment = assess_candidates(
+        SOURCE,
+        (candidate,),
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+    )
+
+    assert assessment.verdict is Verdict.INDETERMINATE
+    assert (
+        assessment.decision_reason
+        is AssessmentDecisionReason.COMPARATIVE_NO_MATERIAL_CANDIDATE
+    )
 
 
 def test_three_material_candidates_are_contested() -> None:

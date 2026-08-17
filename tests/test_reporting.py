@@ -5,6 +5,7 @@ from pathlib import Path
 
 from liftassess import (
     AssemblyIdentifier,
+    AssessmentDecisionReason,
     CachedResource,
     ChainGap,
     ChainGapSummary,
@@ -162,6 +163,7 @@ def test_liftover_only_well_supported_summary_is_concise_and_explicit() -> None:
         "Preferred candidate: chrA:1001-1100 (1-based inclusive; same orientation)",
     ]
     assert "Why: full source-locus mapping coverage" in summary
+    assert "Comparative observations are not assumed to be independent" not in summary
     assert summary.endswith("This does not establish biological correctness.")
 
 
@@ -182,6 +184,10 @@ def test_comparative_well_supported_summary_names_both_verdict_driving_states() 
         "Why: full source-locus mapping coverage and full reciprocal-best membership"
         in summary
     )
+    assert (
+        "Comparative observations are not assumed to be independent; dependency "
+        "provenance is available with --details or --json." in summary
+    )
 
 
 def test_contested_multi_candidate_summary_does_not_imply_candidate_ranking() -> None:
@@ -197,7 +203,7 @@ def test_contested_multi_candidate_summary_does_not_imply_candidate_ranking() ->
     assert "Candidates assessed: 2" in summary
     assert "Preferred candidate:" not in summary
     assert "chrA:1001-1100" not in summary
-    assert "Why: multiple candidates retain material assessment evidence" in summary
+    assert "Why: multiple chain-derived candidate mappings remain" in summary
 
 
 def test_indeterminate_zero_candidate_summary_states_why() -> None:
@@ -225,6 +231,37 @@ def test_indeterminate_partial_candidate_summary_reports_partial_mapping() -> No
 
     assert "Assessment: INDETERMINATE" in summary
     assert "Why: candidate maps only part of the requested source locus" in summary
+
+
+def test_summary_does_not_confuse_raw_multiplicity_with_material_multiplicity() -> None:
+    material_partial = _candidate(
+        "material-partial",
+        covered_end=190,
+        reciprocal_best=ReciprocalBestMembershipStatus.FULL,
+    )
+    rejected_partial = _candidate(
+        "rejected-partial",
+        covered_end=180,
+        target_start=2000,
+        reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+    )
+    assessment = assess_candidates(
+        SOURCE,
+        (material_partial, rejected_partial),
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+    )
+
+    summary = render_assessment_summary(assessment)
+
+    assert (
+        assessment.decision_reason
+        is AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_PARTIAL
+    )
+    assert (
+        "Why: one material candidate maps only part of the requested source locus; "
+        "other raw candidates are not material under the v1 comparative rule" in summary
+    )
+    assert "does not materially distinguish the candidate mappings" not in summary
 
 
 def test_split_candidate_summary_labels_target_interval_as_bounding_span() -> None:
@@ -354,6 +391,7 @@ def test_detailed_report_exposes_evidence_resources_and_provenance_without_ranki
     details = render_assessment_details(report)
 
     assert "Detailed evidence dossier" in details
+    assert "Decision reason: LIFTOVER_SINGLE_FULL_MAPPING" in details
     assert "Chain 42" in details
     assert "Candidate 1" not in details
     assert (
@@ -411,6 +449,7 @@ def test_json_report_preserves_assessment_resource_and_provenance_semantics() ->
     assert assessment["source_interval"]["coordinate_system"] == "0-based-half-open"
     assert assessment["evidence_tier"] == "LIFTOVER_ONLY"
     assert assessment["verdict"] == "WELL_SUPPORTED"
+    assert assessment["decision_reason"] == "LIFTOVER_SINGLE_FULL_MAPPING"
 
     candidate = assessment["candidates"][0]
     assert candidate["ucsc_chain_id"] == 42

@@ -3,6 +3,7 @@ import pytest
 from liftassess import (
     AssemblyIdentifier,
     Assessment,
+    AssessmentDecisionReason,
     EvidenceAvailabilityTier,
     EvidenceKind,
     EvidenceObservation,
@@ -161,6 +162,7 @@ def test_assessment_references_candidate_supporting_and_contradicting_evidence(
         source_interval=GenomicInterval(source_assembly, "chr16", 10, 60),
         verdict=Verdict.CONTESTED,
         evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        decision_reason=AssessmentDecisionReason.LIFTOVER_MULTIPLE_CANDIDATES,
         candidates=(candidate,),
         preferred_candidate_id="candidate-a",
         supporting_evidence=(EvidenceReference("candidate-a", "support"),),
@@ -178,6 +180,32 @@ def test_verdict_enum_contains_exactly_the_three_v1_labels() -> None:
         Verdict.CONTESTED,
         Verdict.INDETERMINATE,
     }
+
+
+def test_assessment_rejects_evidence_tier_that_disagrees_with_decision_reason(
+    source_assembly: AssemblyIdentifier,
+) -> None:
+    with pytest.raises(ValueError, match="evidence tier"):
+        Assessment(
+            source_interval=GenomicInterval(source_assembly, "chr16", 10, 60),
+            verdict=Verdict.CONTESTED,
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+            decision_reason=AssessmentDecisionReason.LIFTOVER_MULTIPLE_CANDIDATES,
+            candidates=(),
+        )
+
+
+def test_assessment_rejects_verdict_that_disagrees_with_decision_reason(
+    source_assembly: AssemblyIdentifier,
+) -> None:
+    with pytest.raises(ValueError, match="decision reason"):
+        Assessment(
+            source_interval=GenomicInterval(source_assembly, "chr16", 10, 60),
+            verdict=Verdict.CONTESTED,
+            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+            decision_reason=AssessmentDecisionReason.NO_CANDIDATES,
+            candidates=(),
+        )
 
 
 def test_well_supported_assessment_is_representable(
@@ -204,6 +232,7 @@ def test_well_supported_assessment_is_representable(
         source_interval=GenomicInterval(source_assembly, "chr16", 10, 60),
         verdict=Verdict.WELL_SUPPORTED,
         evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        decision_reason=AssessmentDecisionReason.LIFTOVER_SINGLE_FULL_MAPPING,
         candidates=(candidate,),
         preferred_candidate_id="candidate-a",
         supporting_evidence=(EvidenceReference("candidate-a", "coverage"),),
@@ -306,6 +335,7 @@ def test_dependent_evidence_can_remain_indeterminate(
         source_interval=GenomicInterval(source_assembly, "chr16", 10, 60),
         verdict=Verdict.INDETERMINATE,
         evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        decision_reason=AssessmentDecisionReason.COMPARATIVE_NO_MATERIAL_CANDIDATE,
         candidates=(candidate,),
         supporting_evidence=(
             EvidenceReference("candidate-a", "chain-score"),
