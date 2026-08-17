@@ -122,9 +122,10 @@ def test_full_membership_matches_exact_geometry_without_relying_on_chain_id() ->
     assert membership.status is ReciprocalBestMembershipStatus.FULL
     assert membership.covered_source_bases == 20
     assert membership.candidate_source_bases == 20
-    assert [(interval.start, interval.end) for interval in membership.covered_source_intervals] == [
-        (100, 120)
-    ]
+    assert [
+        (interval.start, interval.end)
+        for interval in membership.covered_source_intervals
+    ] == [(100, 120)]
     assert annotated.evidence[-1].provenance is rbest_provenance
 
 
@@ -147,12 +148,15 @@ def test_partial_membership_preserves_exact_covered_source_interval() -> None:
     membership = _membership(annotated)
     assert membership.status is ReciprocalBestMembershipStatus.PARTIAL
     assert membership.covered_source_bases == 10
-    assert [(interval.start, interval.end) for interval in membership.covered_source_intervals] == [
-        (105, 115)
-    ]
+    assert [
+        (interval.start, interval.end)
+        for interval in membership.covered_source_intervals
+    ] == [(105, 115)]
 
 
-def test_none_membership_is_explicit_when_complete_resource_has_no_matching_geometry() -> None:
+def test_none_membership_is_explicit_when_complete_resource_has_no_matching_geometry() -> (
+    None
+):
     candidate, _, rbest_provenance = _candidate()
     same_source_wrong_target = _chain(chain_id=88, query_start=700)
 
@@ -191,9 +195,10 @@ def test_two_reciprocal_best_fragments_can_combine_to_full_membership() -> None:
     membership = _membership(annotated)
     assert membership.status is ReciprocalBestMembershipStatus.FULL
     assert membership.covered_source_bases == 20
-    assert [(interval.start, interval.end) for interval in membership.covered_source_intervals] == [
-        (100, 120)
-    ]
+    assert [
+        (interval.start, interval.end)
+        for interval in membership.covered_source_intervals
+    ] == [(100, 120)]
 
 
 def test_reverse_orientation_membership_uses_forward_reference_geometry() -> None:
@@ -381,9 +386,10 @@ def test_reverse_partial_membership_matches_subinterval_geometry() -> None:
     membership = _membership(annotated)
     assert membership.status is ReciprocalBestMembershipStatus.PARTIAL
     assert membership.covered_source_bases == 10
-    assert [(interval.start, interval.end) for interval in membership.covered_source_intervals] == [
-        (105, 115)
-    ]
+    assert [
+        (interval.start, interval.end)
+        for interval in membership.covered_source_intervals
+    ] == [(105, 115)]
 
 
 def test_consumable_iterator_is_rejected_before_membership_is_computed() -> None:

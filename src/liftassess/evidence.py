@@ -80,7 +80,9 @@ def _validate_inputs(
     if source_interval.sequence_name != chain.target_name:
         raise ValueError("source locus sequence does not match chain target sequence")
     if candidate.target_interval.sequence_name != chain.query_name:
-        raise ValueError("candidate target sequence does not match chain query sequence")
+        raise ValueError(
+            "candidate target sequence does not match chain query sequence"
+        )
     if candidate.orientation is not chain.orientation:
         raise ValueError("candidate orientation does not match chain orientation")
 

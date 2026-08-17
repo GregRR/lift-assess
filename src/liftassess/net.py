@@ -184,9 +184,7 @@ def _parse_section_header(fields: list[str], line_number: int) -> _NetSection:
     return _NetSection(target_name=target_name, target_sequence_size=target_size)
 
 
-def _parse_record(
-    fields: list[str], section: _NetSection, depth: int
-) -> NetRecord:
+def _parse_record(fields: list[str], section: _NetSection, depth: int) -> NetRecord:
     if len(fields) < 7:
         raise ValueError("net record must contain at least 7 fixed fields")
     if (len(fields) - 7) % 2:

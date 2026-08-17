@@ -164,9 +164,7 @@ def test_assessment_references_candidate_supporting_and_contradicting_evidence(
         candidates=(candidate,),
         preferred_candidate_id="candidate-a",
         supporting_evidence=(EvidenceReference("candidate-a", "support"),),
-        contradicting_evidence=(
-            EvidenceReference("candidate-a", "contradiction"),
-        ),
+        contradicting_evidence=(EvidenceReference("candidate-a", "contradiction"),),
     )
 
     assert assessment.supporting_evidence[0].candidate_id == "candidate-a"

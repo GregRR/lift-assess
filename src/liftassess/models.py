@@ -160,9 +160,13 @@ class MappingCoverageSummary:
             if self.covered_source_bases != self.source_bases:
                 raise ValueError("full mapping coverage must align every source base")
             if self.uncovered_source_intervals:
-                raise ValueError("full mapping coverage cannot contain uncovered intervals")
+                raise ValueError(
+                    "full mapping coverage cannot contain uncovered intervals"
+                )
         elif self.covered_source_bases == self.source_bases:
-            raise ValueError("partial mapping coverage must leave source bases uncovered")
+            raise ValueError(
+                "partial mapping coverage must leave source bases uncovered"
+            )
 
 
 @dataclass(frozen=True)
@@ -257,10 +261,7 @@ class ChainGap:
             raise ValueError("chain gap source boundary must be non-negative")
         if self.source_gap_overlap is None and self.target_gap_interval is None:
             raise ValueError("chain gap must contain a source or target gap")
-        if (
-            self.source_gap_overlap is not None
-            and self.source_gap_overlap.length <= 0
-        ):
+        if self.source_gap_overlap is not None and self.source_gap_overlap.length <= 0:
             raise ValueError("chain source gap overlap must span at least one base")
         if (
             self.target_gap_interval is not None
@@ -458,7 +459,9 @@ class NormalizedCandidate:
 
         observation_ids = [observation.observation_id for observation in self.evidence]
         if len(observation_ids) != len(set(observation_ids)):
-            raise ValueError("evidence observation IDs must be unique within a candidate")
+            raise ValueError(
+                "evidence observation IDs must be unique within a candidate"
+            )
 
 
 @dataclass(frozen=True)
@@ -509,7 +512,9 @@ class Assessment:
             self.preferred_candidate_id is not None
             and self.preferred_candidate_id not in candidate_by_id
         ):
-            raise ValueError("preferred candidate must reference an assessment candidate")
+            raise ValueError(
+                "preferred candidate must reference an assessment candidate"
+            )
 
         for reference in (*self.supporting_evidence, *self.contradicting_evidence):
             candidate = candidate_by_id.get(reference.candidate_id)

@@ -110,9 +110,7 @@ class _HrefParser(HTMLParser):
         super().__init__()
         self.hrefs: set[str] = set()
 
-    def handle_starttag(
-        self, tag: str, attrs: list[tuple[str, str | None]]
-    ) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag.casefold() != "a":
             return
         for name, value in attrs:
@@ -149,9 +147,7 @@ def _discover_ucsc_resources(
     _validate_ucsc_db(target_db)
 
     target_title = _ucsc_title_db(target_db)
-    comparative_base = urljoin(
-        _UCSC_GOLDEN_PATH, f"{source_db}/vs{target_title}/"
-    )
+    comparative_base = urljoin(_UCSC_GOLDEN_PATH, f"{source_db}/vs{target_title}/")
     comparative_links = read_listing(comparative_base)
     if comparative_links is not None:
         chain_name = f"{source_db}.{target_db}.all.chain.gz"
@@ -183,9 +179,7 @@ def _discover_ucsc_resources(
                     reciprocal_best_chain_url=urljoin(
                         reciprocal_base, rbest_chain_name
                     ),
-                    reciprocal_best_net_url=urljoin(
-                        reciprocal_base, rbest_net_name
-                    ),
+                    reciprocal_best_net_url=urljoin(reciprocal_base, rbest_net_name),
                 )
 
     # A partial comparative directory must not be mislabeled COMPARATIVE.  The

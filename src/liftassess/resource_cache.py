@@ -220,7 +220,9 @@ class UCSCBundleTransferInspection:
     def total_content_length_bytes(self) -> int | None:
         """Return the complete identity-encoded bundle size only when fully known."""
 
-        lengths = tuple(_identity_content_length_bytes(item.metadata) for item in self.items)
+        lengths = tuple(
+            _identity_content_length_bytes(item.metadata) for item in self.items
+        )
         if any(length is None for length in lengths):
             return None
         return sum(cast(int, length) for length in lengths)
@@ -336,22 +338,18 @@ class CachedUCSCResourceBundle:
 class _BinaryResponse(Protocol):
     status: int
 
-    def read(self, size: int = -1) -> bytes:
-        ...
+    def read(self, size: int = -1) -> bytes: ...
 
-    def getheader(self, name: str, default: str | None = None) -> str | None:
-        ...
+    def getheader(self, name: str, default: str | None = None) -> str | None: ...
 
-    def __enter__(self) -> Self:
-        ...
+    def __enter__(self) -> Self: ...
 
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         tb: TracebackType | None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 URLopener = Callable[[Request], _BinaryResponse]
@@ -366,8 +364,7 @@ class _ResourceAcquirer(Protocol):
         *,
         terms_acknowledged: bool,
         refresh: bool = False,
-    ) -> CachedResource:
-        ...
+    ) -> CachedResource: ...
 
 
 def ucsc_resource_terms(url: str) -> UCSCResourceTerms:
@@ -543,8 +540,7 @@ def inspect_ucsc_bundle_transfer_plan(
 
 
 class _ResourceInspector(Protocol):
-    def __call__(self, url: str) -> UCSCRemoteResourceMetadata:
-        ...
+    def __call__(self, url: str) -> UCSCRemoteResourceMetadata: ...
 
 
 def _inspect_ucsc_bundle_transfer_plan(
@@ -667,9 +663,7 @@ def _bundle_roles_for_tier(
     )
 
 
-def _validate_resource_role_filename(
-    role: UCSCBundleResourceRole, url: str
-) -> None:
+def _validate_resource_role_filename(role: UCSCBundleResourceRole, url: str) -> None:
     """Reject a resource whose filename type does not match its declared role.
 
     This is intentionally a local filename-shape check.  Directional assembly binding
@@ -963,13 +957,7 @@ def _resumable_partial_path(
 
     url_key = hashlib.sha256(url.encode("utf-8")).hexdigest()
     etag_key = hashlib.sha256(etag.encode("utf-8")).hexdigest()
-    return (
-        root
-        / "partials"
-        / url_key[:2]
-        / url_key
-        / f"{etag_key}-{total_size}.part"
-    )
+    return root / "partials" / url_key[:2] / url_key / f"{etag_key}-{total_size}.part"
 
 
 def _download_and_cache_resumable(
@@ -1193,10 +1181,14 @@ def _validate_fresh_resumable_response(
     _require_identity_content_encoding(response, url=url)
     response_etag = _optional_response_header(response, "ETag")
     if response_etag != expected_etag:
-        raise _ResumeRestartRequired("fresh GET representation does not match HEAD ETag")
+        raise _ResumeRestartRequired(
+            "fresh GET representation does not match HEAD ETag"
+        )
     response_length = _response_content_length(response)
     if response_length is not None and response_length != total_size:
-        raise _ResumeRestartRequired("fresh GET length does not match HEAD Content-Length")
+        raise _ResumeRestartRequired(
+            "fresh GET length does not match HEAD Content-Length"
+        )
     return total_size
 
 
@@ -1225,7 +1217,9 @@ def _validate_resume_response(
         raise _ResumeRestartRequired("resume response returned malformed Content-Range")
     start, end, total = (int(value) for value in match.groups())
     if start != range_start or end < start or total != total_size or end >= total_size:
-        raise _ResumeRestartRequired("resume response Content-Range does not match request")
+        raise _ResumeRestartRequired(
+            "resume response Content-Range does not match request"
+        )
 
     expected_bytes = end - start + 1
     response_length = _response_content_length(response)
@@ -1413,7 +1407,9 @@ def _read_ucsc_provider_md5(
     filename = PurePosixPath(urlsplit(resource_url).path).name
     checksum_url = urljoin(resource_url, "md5sum.txt")
     try:
-        with open_url(Request(checksum_url, headers={"User-Agent": _USER_AGENT})) as response:
+        with open_url(
+            Request(checksum_url, headers={"User-Agent": _USER_AGENT})
+        ) as response:
             payload = response.read().decode("utf-8")
     except HTTPError as exc:
         if exc.code == 404:
@@ -1469,7 +1465,10 @@ def _read_verified_cache_entry(
     if payload.get("source_url") != source_url:
         return None
     sha256_hex = payload.get("sha256")
-    if not isinstance(sha256_hex, str) or re.fullmatch(r"[0-9a-f]{64}", sha256_hex) is None:
+    if (
+        not isinstance(sha256_hex, str)
+        or re.fullmatch(r"[0-9a-f]{64}", sha256_hex) is None
+    ):
         return None
 
     stored_provider = payload.get("provider_checksum")
@@ -1618,7 +1617,9 @@ def _directory_url(
 def _validate_ucsc_resource_url(url: str) -> SplitResult:
     parts = urlsplit(url)
     if parts.scheme != "https" or parts.hostname not in _UCSC_HOSTS:
-        raise ValueError("UCSC resource URL must use https on an approved hgdownload host")
+        raise ValueError(
+            "UCSC resource URL must use https on an approved hgdownload host"
+        )
     if parts.query or parts.fragment:
         raise ValueError("UCSC resource URL must not contain a query or fragment")
     if not parts.path.startswith("/goldenPath/") or parts.path.endswith("/"):

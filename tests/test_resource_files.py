@@ -77,10 +77,7 @@ def _write_gzip(path: Path, text: str) -> None:
 
 
 def _chain_text(*, chain_id: int = 1) -> str:
-    return (
-        f"chain 100 chr1 1000 + 100 120 chrA 2000 + 500 520 {chain_id}\n"
-        "20\n\n"
-    )
+    return f"chain 100 chr1 1000 + 100 120 chrA 2000 + 500 520 {chain_id}\n20\n\n"
 
 
 def _net_text() -> str:
@@ -119,7 +116,6 @@ def test_iter_chain_and_net_files_read_gzip(tmp_path: Path) -> None:
     assert chain.chain_id == 1
     assert net.chain_id == 1
     assert net.classification is NetClassification.SYNTENIC
-
 
 
 def test_resource_compression_is_detected_from_magic_bytes_not_suffix(
@@ -185,9 +181,7 @@ def test_file_adapter_runs_parsers_and_engine_end_to_end(
     assert _observation_value(candidate, EvidenceKind.CHAIN_SCORE) == 100.0
     assert _observation_value(candidate, EvidenceKind.NET_CLASSIFICATION) == "syn"
 
-    reciprocal = _observation_value(
-        candidate, EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP
-    )
+    reciprocal = _observation_value(candidate, EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP)
     assert isinstance(reciprocal, ReciprocalBestMembershipSummary)
     assert reciprocal.status is ReciprocalBestMembershipStatus.FULL
     assert reciprocal.covered_source_bases == 10
@@ -373,20 +367,15 @@ def _comparative_cached_bundle(tmp_path: Path) -> CachedUCSCResourceBundle:
     rbest_net_path.write_bytes(b"not a parseable reciprocal-best net")
     _write_gzip(rbest_chain_path, _chain_text(chain_id=101))
 
-    forward = (
-        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
-    )
+    forward = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
     reciprocal = (
-        "https://hgdownload.soe.ucsc.edu/goldenPath/"
-        "canFam4/vsCanFam3/reciprocalBest/"
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/reciprocalBest/"
     )
     return CachedUCSCResourceBundle(
         source_db="canFam3",
         target_db="canFam4",
         evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
-        chain=_cached_resource(
-            chain_path, f"{forward}canFam3.canFam4.all.chain.gz"
-        ),
+        chain=_cached_resource(chain_path, f"{forward}canFam3.canFam4.all.chain.gz"),
         net=_cached_resource(net_path, f"{forward}canFam3.canFam4.net.gz"),
         syntenic_net=_cached_resource(
             syn_net_path, f"{forward}canFam3.canFam4.syn.net.gz"
@@ -449,9 +438,7 @@ def test_cached_comparative_bundle_bridges_only_engine_input_resources(
     )
 
     assert _observation_value(candidate, EvidenceKind.NET_CLASSIFICATION) == "syn"
-    reciprocal = _observation_value(
-        candidate, EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP
-    )
+    reciprocal = _observation_value(candidate, EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP)
     assert isinstance(reciprocal, ReciprocalBestMembershipSummary)
     assert reciprocal.status is ReciprocalBestMembershipStatus.FULL
     assert (
@@ -519,9 +506,7 @@ def test_cached_bundle_bridge_rejects_assembly_pair_mismatch(
             GenomicInterval(source, "chr1", 105, 115),
             bundle,
             target_assembly=target,
-            alignment_provenance=ProvenanceSource(
-                "alignment", "upstream alignment"
-            ),
+            alignment_provenance=ProvenanceSource("alignment", "upstream alignment"),
         )
 
 
@@ -542,9 +527,7 @@ def test_cached_bundle_bridge_rejects_consumed_file_changed_after_acquisition(
             GenomicInterval(source_assembly, "chr1", 105, 115),
             bundle,
             target_assembly=target_assembly,
-            alignment_provenance=ProvenanceSource(
-                "alignment", "upstream alignment"
-            ),
+            alignment_provenance=ProvenanceSource("alignment", "upstream alignment"),
         )
 
 
@@ -580,7 +563,5 @@ def test_cached_bundle_bridge_rejects_malformed_cached_sha256_before_parsing(
             GenomicInterval(source_assembly, "chr1", 105, 115),
             malformed_bundle,
             target_assembly=target_assembly,
-            alignment_provenance=ProvenanceSource(
-                "alignment", "upstream alignment"
-            ),
+            alignment_provenance=ProvenanceSource("alignment", "upstream alignment"),
         )

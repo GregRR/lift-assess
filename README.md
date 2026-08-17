@@ -163,10 +163,11 @@ The historical fixture will be a sanity check, not a calibration set. v1 has no 
 The project currently uses `uv` for environment and dependency management.
 
 ```bash
-uv sync --extra test
+uv sync
 uv run pytest
-uvx ruff check src tests
-uv run --extra test --with mypy mypy --strict src tests
+uv run ruff check src tests
+uv run ruff format --check src tests
+uv run mypy --strict src tests
 git diff --check
 ```
 

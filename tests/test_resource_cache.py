@@ -134,7 +134,9 @@ def test_liftover_terms_are_distinguished_from_comparative_terms() -> None:
     assert reciprocal.directory_terms_url.endswith("/canFam4/vsCanFam3/")
 
 
-def test_terms_acknowledgement_is_required_before_network_access(tmp_path: Path) -> None:
+def test_terms_acknowledgement_is_required_before_network_access(
+    tmp_path: Path,
+) -> None:
     url = (
         "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/"
         "canFam3ToCanFam4.over.chain.gz"
@@ -203,7 +205,9 @@ def test_download_verifies_provider_md5_and_writes_content_addressed_cache(
     assert index["terms"]["directory_terms_url"].endswith("/canFam3/vsCanFam4/")
 
 
-def test_verified_cache_hit_is_offline_and_retains_original_provider_md5(tmp_path: Path) -> None:
+def test_verified_cache_hit_is_offline_and_retains_original_provider_md5(
+    tmp_path: Path,
+) -> None:
     url = (
         "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
         "canFam3.canFam4.net.gz"
@@ -284,7 +288,6 @@ def test_same_bytes_from_two_urls_converge_on_one_artifact(tmp_path: Path) -> No
     assert len(list((tmp_path / "by-url").glob("*.json"))) == 2
 
 
-
 def test_cached_extensionless_gzip_artifact_integrates_with_file_provenance_and_parser(
     tmp_path: Path,
 ) -> None:
@@ -295,10 +298,7 @@ def test_cached_extensionless_gzip_artifact_integrates_with_file_provenance_and_
     checksum_url = (
         "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/md5sum.txt"
     )
-    chain_text = (
-        b"chain 100 chr1 1000 + 10 20 chrA 1000 + 30 40 1\n"
-        b"10\n\n"
-    )
+    chain_text = b"chain 100 chr1 1000 + 10 20 chrA 1000 + 30 40 1\n10\n\n"
     data = gzip.compress(chain_text, mtime=0)
 
     acquired = _acquire_ucsc_resource(
@@ -326,7 +326,9 @@ def test_cached_extensionless_gzip_artifact_integrates_with_file_provenance_and_
     assert records[0].chain_id == 1
 
 
-def test_provider_md5_mismatch_does_not_publish_partial_artifact(tmp_path: Path) -> None:
+def test_provider_md5_mismatch_does_not_publish_partial_artifact(
+    tmp_path: Path,
+) -> None:
     url = (
         "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
         "canFam3.canFam4.net.gz"
@@ -351,7 +353,9 @@ def test_provider_md5_mismatch_does_not_publish_partial_artifact(tmp_path: Path)
 
     artifacts = tmp_path / "artifacts"
     indexes = tmp_path / "by-url"
-    assert not artifacts.exists() or not any(path.is_file() for path in artifacts.rglob("*"))
+    assert not artifacts.exists() or not any(
+        path.is_file() for path in artifacts.rglob("*")
+    )
     assert not indexes.exists() or not list(indexes.glob("*.json"))
     assert not list((tmp_path / "tmp").glob("*.part"))
 
@@ -469,7 +473,6 @@ def test_corrupt_cached_artifact_is_replaced_from_provider(tmp_path: Path) -> No
     assert second.sha256 == first.sha256
 
 
-
 def test_existing_md5sum_without_exact_filename_entry_is_checksum_unavailable(
     tmp_path: Path,
 ) -> None:
@@ -534,7 +537,6 @@ def test_refresh_forces_new_transfer_when_provider_checksum_is_unavailable(
     assert second.cache_hit is False
     assert first.path != second.path
     assert second.path.read_bytes() == second_data
-
 
 
 def test_truncated_download_fails_when_content_length_is_known(tmp_path: Path) -> None:
@@ -648,7 +650,9 @@ def test_interrupted_resumable_download_retains_prefix_and_resumes_with_if_range
             return _HeadResponse(_resumable_head_headers(data, etag))
         return _InterruptingResponse(prefix, total_size=len(data), etag=etag)
 
-    with pytest.raises(UCSCResourceAcquisitionError, match="partial state was retained"):
+    with pytest.raises(
+        UCSCResourceAcquisitionError, match="partial state was retained"
+    ):
         _acquire_ucsc_resource(
             url,
             tmp_path,
@@ -719,7 +723,9 @@ def test_completed_partial_is_published_on_retry_without_another_resource_get(
             return _HeadResponse(_resumable_head_headers(data, etag))
         return _InterruptingResponse(data, total_size=len(data), etag=etag)
 
-    with pytest.raises(UCSCResourceAcquisitionError, match="partial state was retained"):
+    with pytest.raises(
+        UCSCResourceAcquisitionError, match="partial state was retained"
+    ):
         _acquire_ucsc_resource(
             url,
             tmp_path,
@@ -738,7 +744,9 @@ def test_completed_partial_is_published_on_retry_without_another_resource_get(
             return _Response(_md5_line(data, "canFam3.canFam4.net.gz"))
         if request.get_method() == "HEAD":
             return _HeadResponse(_resumable_head_headers(data, etag))
-        raise AssertionError("a complete verified partial must not GET the resource again")
+        raise AssertionError(
+            "a complete verified partial must not GET the resource again"
+        )
 
     result = _acquire_ucsc_resource(
         url,
@@ -771,7 +779,9 @@ def test_changed_etag_starts_fresh_instead_of_splicing_stale_partial(
             return _Response(_md5_line(old_data, "canFam3.canFam4.net.gz"))
         if request.get_method() == "HEAD":
             return _HeadResponse(_resumable_head_headers(old_data, '"v1"'))
-        return _InterruptingResponse(old_data[:5], total_size=len(old_data), etag='"v1"')
+        return _InterruptingResponse(
+            old_data[:5], total_size=len(old_data), etag='"v1"'
+        )
 
     with pytest.raises(UCSCResourceAcquisitionError):
         _acquire_ucsc_resource(
@@ -809,13 +819,17 @@ def test_changed_etag_starts_fresh_instead_of_splicing_stale_partial(
 
     assert result.path.read_bytes() == new_data
     resource_gets = [
-        request for request in requests if request.full_url == url and request.get_method() == "GET"
+        request
+        for request in requests
+        if request.full_url == url and request.get_method() == "GET"
     ]
     assert len(resource_gets) == 1
     assert resource_gets[0].get_header("Range") is None
 
 
-def test_resume_returning_200_is_not_appended_and_restarts_fresh(tmp_path: Path) -> None:
+def test_resume_returning_200_is_not_appended_and_restarts_fresh(
+    tmp_path: Path,
+) -> None:
     url = (
         "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
         "canFam3.canFam4.net.gz"
@@ -862,7 +876,9 @@ def test_resume_returning_200_is_not_appended_and_restarts_fresh(tmp_path: Path)
 
     assert result.path.read_bytes() == data
     resource_gets = [
-        request for request in requests if request.full_url == url and request.get_method() == "GET"
+        request
+        for request in requests
+        if request.full_url == url and request.get_method() == "GET"
     ]
     assert len(resource_gets) == 2
     assert resource_gets[0].get_header("Range") == f"bytes={len(prefix)}-"
@@ -870,7 +886,9 @@ def test_resume_returning_200_is_not_appended_and_restarts_fresh(tmp_path: Path)
     assert resource_gets[1].get_header("Range") is None
 
 
-def test_bad_resume_content_range_restarts_fresh_without_splicing(tmp_path: Path) -> None:
+def test_bad_resume_content_range_restarts_fresh_without_splicing(
+    tmp_path: Path,
+) -> None:
     url = (
         "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
         "canFam3.canFam4.net.gz"
@@ -921,7 +939,9 @@ def test_bad_resume_content_range_restarts_fresh_without_splicing(tmp_path: Path
 
     assert result.path.read_bytes() == data
     resource_gets = [
-        request for request in requests if request.full_url == url and request.get_method() == "GET"
+        request
+        for request in requests
+        if request.full_url == url and request.get_method() == "GET"
     ]
     assert len(resource_gets) == 2
     assert resource_gets[0].get_header("Range") is not None
@@ -950,7 +970,9 @@ def test_concurrent_resumable_writer_cannot_mutate_published_artifact(
             return _HeadResponse(_resumable_head_headers(good_data, etag))
         return _InterruptingResponse(prefix, total_size=len(good_data), etag=etag)
 
-    with pytest.raises(UCSCResourceAcquisitionError, match="partial state was retained"):
+    with pytest.raises(
+        UCSCResourceAcquisitionError, match="partial state was retained"
+    ):
         _acquire_ucsc_resource(
             url,
             tmp_path,
@@ -1069,6 +1091,7 @@ def test_missing_provider_checksum_does_not_enable_persistent_resume_state(
     checksum_url = (
         "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/md5sum.txt"
     )
+
     def open_url(request: Request) -> _Response:
         if request.full_url == checksum_url:
             return _Response(b"")
@@ -1117,7 +1140,9 @@ def test_weak_etag_does_not_enable_persistent_resume_state(tmp_path: Path) -> No
     assert not list((tmp_path / "tmp").glob("*.part"))
 
 
-def test_head_failure_falls_back_to_existing_fresh_streaming_download(tmp_path: Path) -> None:
+def test_head_failure_falls_back_to_existing_fresh_streaming_download(
+    tmp_path: Path,
+) -> None:
     url = (
         "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
         "canFam3.canFam4.net.gz"
@@ -1182,7 +1207,6 @@ def test_public_acquisition_signature_requires_explicit_acknowledgement(
 
     with pytest.raises(UCSCResourceTermsAcknowledgementRequired):
         acquire_ucsc_resource(url, tmp_path, terms_acknowledged=False)
-
 
 
 def _comparative_bundle() -> UCSCResourceBundle:
@@ -1372,7 +1396,9 @@ def test_liftover_bundle_acquisition_returns_chain_only(tmp_path: Path) -> None:
     assert result.reciprocal_best_net is None
 
 
-def test_bundle_failure_propagates_without_returning_partial_bundle(tmp_path: Path) -> None:
+def test_bundle_failure_propagates_without_returning_partial_bundle(
+    tmp_path: Path,
+) -> None:
     plan = plan_ucsc_bundle_acquisition(_comparative_bundle())
     acquired_urls: list[str] = []
 
@@ -1415,7 +1441,6 @@ def test_public_bundle_acquisition_signature_requires_explicit_plan_acknowledgem
         )
 
 
-
 def test_bundle_plan_item_rejects_terms_that_do_not_match_url() -> None:
     comparative_url = (
         "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
@@ -1446,7 +1471,6 @@ def test_bundle_terms_acknowledgement_still_precedes_provider_network(
             transfer_plan_acknowledged=True,
             terms_acknowledged=False,
         )
-
 
 
 def test_comparative_bundle_plan_rejects_partial_role_set() -> None:
@@ -1705,7 +1729,9 @@ def test_bundle_transfer_inspection_requires_terms_before_any_item_inspection() 
 
     def inspect(url: str) -> UCSCRemoteResourceMetadata:
         calls.append(url)
-        raise AssertionError("bundle inspection must fail before contacting the provider")
+        raise AssertionError(
+            "bundle inspection must fail before contacting the provider"
+        )
 
     with pytest.raises(UCSCResourceTermsAcknowledgementRequired):
         _inspect_ucsc_bundle_transfer_plan(
@@ -1812,7 +1838,9 @@ def test_bundle_transfer_inspection_rejects_wrong_pair_metadata() -> None:
         UCSCBundleTransferInspectionItem(
             role=item.role,
             metadata=UCSCRemoteResourceMetadata(
-                url=(wrong_url if item.role is UCSCBundleResourceRole.NET else item.url),
+                url=(
+                    wrong_url if item.role is UCSCBundleResourceRole.NET else item.url
+                ),
                 terms=ucsc_resource_terms(
                     wrong_url if item.role is UCSCBundleResourceRole.NET else item.url
                 ),

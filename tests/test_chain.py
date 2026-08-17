@@ -138,31 +138,21 @@ chain 100 chrSource 1000 + 100 130 chrTarget 2000 + 500 530 7
 
 
 def test_parser_rejects_eof_before_terminal_block() -> None:
-    text = (
-        "chain 100 chrSource 1000 + 100 120 chrTarget 2000 + 500 520 7\n"
-        "10 5 8\n"
-    )
+    text = "chain 100 chrSource 1000 + 100 120 chrTarget 2000 + 500 520 7\n10 5 8\n"
 
     with pytest.raises(ChainFormatError, match="ended before terminal block"):
         tuple(iter_chain_records(StringIO(text)))
 
 
 def test_parser_rejects_malformed_block_field_count() -> None:
-    text = (
-        "chain 100 chrSource 1000 + 100 120 chrTarget 2000 + 500 520 7\n"
-        "10 5\n"
-        "20\n\n"
-    )
+    text = "chain 100 chrSource 1000 + 100 120 chrTarget 2000 + 500 520 7\n10 5\n20\n\n"
 
     with pytest.raises(ChainFormatError, match="must contain 1 or 3 fields"):
         tuple(iter_chain_records(StringIO(text)))
 
 
 def test_parser_accepts_terminal_block_at_eof_without_blank_line() -> None:
-    text = (
-        "chain 100 chrSource 1000 + 100 120 chrTarget 2000 + 500 520 7\n"
-        "20"
-    )
+    text = "chain 100 chrSource 1000 + 100 120 chrTarget 2000 + 500 520 7\n20"
 
     (record,) = tuple(iter_chain_records(StringIO(text)))
 

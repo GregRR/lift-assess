@@ -104,8 +104,7 @@ def test_projects_single_same_orientation_block(
     ]
     assert candidate.evidence[0].value == 1000
     assert all(
-        observation.provenance is chain_provenance
-        for observation in candidate.evidence
+        observation.provenance is chain_provenance for observation in candidate.evidence
     )
 
 

@@ -133,9 +133,7 @@ def test_source_side_gap_makes_coverage_partial_and_records_exact_overlap(
     assert len(gap_summary.gaps) == 1
     gap = gap_summary.gaps[0]
     assert gap.source_boundary == 110
-    assert gap.source_gap_overlap == GenomicInterval(
-        source_assembly, "chr1", 110, 120
-    )
+    assert gap.source_gap_overlap == GenomicInterval(source_assembly, "chr1", 110, 120)
     assert gap.target_gap_interval is None
 
 
@@ -165,9 +163,7 @@ def test_destination_only_gap_does_not_make_source_coverage_partial(
     gap = gap_summary.gaps[0]
     assert gap.source_boundary == 110
     assert gap.source_gap_overlap is None
-    assert gap.target_gap_interval == GenomicInterval(
-        target_assembly, "chrA", 510, 525
-    )
+    assert gap.target_gap_interval == GenomicInterval(target_assembly, "chrA", 510, 525)
 
 
 def test_double_sided_gap_preserves_both_sides_without_interpretation(

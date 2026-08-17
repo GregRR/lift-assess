@@ -56,9 +56,7 @@ def test_discovers_complete_comparative_resource_set() -> None:
         chain_url=f"{comparative}canFam3.canFam4.all.chain.gz",
         net_url=f"{comparative}canFam3.canFam4.net.gz",
         syntenic_net_url=f"{comparative}canFam3.canFam4.syn.net.gz",
-        reciprocal_best_chain_url=(
-            f"{reciprocal}canFam3.canFam4.rbest.chain.gz"
-        ),
+        reciprocal_best_chain_url=(f"{reciprocal}canFam3.canFam4.rbest.chain.gz"),
         reciprocal_best_net_url=f"{reciprocal}canFam3.canFam4.rbest.net.gz",
     )
 
@@ -143,9 +141,7 @@ def test_discovers_reciprocal_best_from_reverse_pair_directory() -> None:
         reciprocal_best_chain_url=(
             f"{reverse_reciprocal}canFam3.canFam4.rbest.chain.gz"
         ),
-        reciprocal_best_net_url=(
-            f"{reverse_reciprocal}canFam3.canFam4.rbest.net.gz"
-        ),
+        reciprocal_best_net_url=(f"{reverse_reciprocal}canFam3.canFam4.rbest.net.gz"),
     )
 
 
@@ -408,13 +404,13 @@ def test_rejects_unsafe_or_empty_ucsc_database_identifiers(db: str) -> None:
 def test_directory_listing_parser_preserves_exact_href_entries() -> None:
     from liftassess.resources import _parse_directory_links
 
-    html = '''
+    html = """
     <html><body>
       <a href="../">Parent Directory</a>
       <a href="canFam3.canFam4.all.chain.gz">chain</a>
       <a href="reciprocalBest/">reciprocalBest</a>
     </body></html>
-    '''
+    """
 
     assert _parse_directory_links(html) == frozenset(
         {"../", "canFam3.canFam4.all.chain.gz", "reciprocalBest/"}

@@ -110,7 +110,8 @@ def test_chain_only_engine_builds_all_candidates_without_comparative_evidence(
         "chrB",
     ]
     assert all(
-        EvidenceKind.NET_CLASSIFICATION not in {item.kind for item in candidate.evidence}
+        EvidenceKind.NET_CLASSIFICATION
+        not in {item.kind for item in candidate.evidence}
         for candidate in candidates
     )
     assert all(
@@ -181,9 +182,7 @@ def test_one_shot_reciprocal_best_stream_annotates_multiple_candidates(
 
     assert len(candidates) == 2
     for candidate in candidates:
-        summary = _observation_value(
-            candidate, EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP
-        )
+        summary = _observation_value(candidate, EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP)
         assert isinstance(summary, ReciprocalBestMembershipSummary)
         assert summary.status is ReciprocalBestMembershipStatus.FULL
         assert (
@@ -330,7 +329,9 @@ def test_net_stream_retains_repeated_chain_id_fills_for_candidate(
     )
 
     net_classes = [
-        item for item in candidate.evidence if item.kind is EvidenceKind.NET_CLASSIFICATION
+        item
+        for item in candidate.evidence
+        if item.kind is EvidenceKind.NET_CLASSIFICATION
     ]
     hierarchy = [
         item for item in candidate.evidence if item.kind is EvidenceKind.NET_HIERARCHY

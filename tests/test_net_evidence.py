@@ -291,7 +291,9 @@ def test_one_candidate_can_preserve_multiple_relevant_fills_for_same_chain(
         for observation in hierarchy_observations
         if isinstance(observation.value, NetHierarchySummary)
     ] == [3, 1]
-    assert hierarchy_observations[0].provenance is not hierarchy_observations[1].provenance
+    assert (
+        hierarchy_observations[0].provenance is not hierarchy_observations[1].provenance
+    )
     assert (
         hierarchy_observations[0].provenance.derived_from
         == hierarchy_observations[1].provenance.derived_from

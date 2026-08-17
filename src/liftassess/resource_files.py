@@ -48,11 +48,9 @@ _CHUNK_SIZE = 1024 * 1024
 
 
 class _Digest(Protocol):
-    def update(self, data: bytes) -> None:
-        ...
+    def update(self, data: bytes) -> None: ...
 
-    def hexdigest(self) -> str:
-        ...
+    def hexdigest(self) -> str: ...
 
 
 class _HashingRawReader(io.RawIOBase):
@@ -136,7 +134,9 @@ def build_ucsc_candidates_from_files(
     net_records = (
         _iter_net_file_with_provenance(net_path, net_provenance)
         if net_path is not None and net_provenance is not None
-        else iter_net_file(net_path) if net_path is not None else None
+        else iter_net_file(net_path)
+        if net_path is not None
+        else None
     )
     reciprocal_best_chains = (
         _iter_chain_file_with_provenance(
@@ -234,8 +234,7 @@ def build_ucsc_candidates_from_cached_bundle(
     reciprocal_best_provenance = _provenance_for_cached_resource(
         bundle.reciprocal_best_chain,
         label=(
-            f"UCSC {bundle.source_db}→{bundle.target_db} "
-            "reciprocal-best chain resource"
+            f"UCSC {bundle.source_db}→{bundle.target_db} reciprocal-best chain resource"
         ),
         derived_from=(alignment_provenance,),
     )

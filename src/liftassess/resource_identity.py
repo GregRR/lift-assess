@@ -51,11 +51,9 @@ class ResourceIdentityMismatchError(ValueError):
 
 
 class _Digest(Protocol):
-    def update(self, data: bytes) -> None:
-        ...
+    def update(self, data: bytes) -> None: ...
 
-    def hexdigest(self) -> str:
-        ...
+    def hexdigest(self) -> str: ...
 
 
 def compute_resource_checksum(
