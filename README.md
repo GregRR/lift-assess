@@ -2,7 +2,7 @@
 
 **liftAssess** evaluates ambiguous genomic coordinate liftOver mappings using transparent, provenance- and dependency-aware evidence, reporting whether mappings are **well supported**, **contested**, or **indeterminate**.
 
-> **Status:** Active development. Core candidate-generation, evidence-extraction, and deterministic assessor components are implemented, reviewed, and tested. The end-to-end assessment pipeline, CLI, and final reporting layer are still under construction.
+> **Status:** Active development. Core candidate-generation, evidence-extraction, deterministic assessor, and cached-bundle assessment orchestration are implemented, reviewed, and tested. The CLI and final user-facing reporting layer are still under construction.
 
 ## Why liftAssess exists
 
@@ -71,13 +71,13 @@ The current development code includes:
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
 - a real `canFam3`→`canFam4` comparative mechanical fixture, replayed through the production cached-bundle path from exact externally cached UCSC resources without committing provider data to the repository.
 - a reviewed deterministic assessor core that assigns the three v1 verdicts from categorical mapping-coverage and reciprocal-best evidence without a numeric score.
+- reviewed cached-bundle assessment orchestration that connects acquired UCSC resources to candidate/evidence generation and the assessor while preserving evidence tier, resource-consumption metadata, retrieval context, and shared provenance.
 
 ## Not implemented yet
 
 The project is not yet an end-to-end user tool. Major v1 work still includes:
 
 - a future CLI/user-cache default (the library currently requires an explicit caller-supplied cache root);
-- orchestration from the resulting candidate evidence into an assessment verdict and report;
 - the command-line interface;
 - human-readable summary and detailed/JSON reports;
 - a future truth-bearing historical-resolution locus for the planned `canFam3.1`→`canFam6` sanity-check pedigree;

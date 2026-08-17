@@ -17,11 +17,12 @@ The project now has an integrated UCSC evidence pipeline plus a completed real c
 - discover, inspect, acquire, cache, resume, and integrity-check UCSC comparative and liftOver-only resources;
 - bridge a complete cached resource bundle directly into the file-backed candidate/evidence engine;
 - reproduce a measured `canFam3`→`canFam4` comparative fixture through that production cached-bundle path while keeping all multi-gigabyte provider resources outside the repository;
-- and run a reviewed deterministic assessor over normalized coverage and reciprocal-best evidence without a numeric score.
+- run a reviewed deterministic assessor over normalized coverage and reciprocal-best evidence without a numeric score;
+- and compose a complete cached UCSC bundle through candidate/evidence generation and the assessor into an auditable assessment report.
 
-The routine automated suite contains **226 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
+The routine automated suite contains **234 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
-The deterministic assessor milestone is complete and reviewed. liftAssess still does not provide the planned assessment/report/CLI workflow, so verdict assignment remains development behavior rather than a released scientific interface.
+The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. liftAssess still does not provide the planned CLI and user-facing report workflow, so verdict assignment remains development behavior rather than a released scientific interface.
 
 ## Implementation history
 
@@ -333,9 +334,9 @@ provenance/evidence or manufacturing a `CONTESTED` verdict. Adjacent collinear s
 are canonicalized for this check; equal target bounds with genuinely different internal mapping
 geometry remain distinct candidates.
 
-### 14. Assessment/report orchestration
+### 14. Assessment/report orchestration — complete
 
-Once verdict logic exists:
+Implemented and reviewed:
 
 - build the full source + target + locus → resources → candidates → evidence → verdict path;
 - create the final `Assessment` object from real engine output;
