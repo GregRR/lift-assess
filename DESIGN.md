@@ -128,8 +128,8 @@ be reinvented case by case. `CONTESTED` does not require multiple candidates: th
 above explicitly allows a single candidate to be contested when informative evidence sources
 materially disagree. The raw `Assessment` data container therefore does not enforce candidate-count
 or preferred-candidate rules by verdict; those semantic construction rules belong to the assessor
-core when verdict assignment is implemented. Container permissiveness is not a claim that every
-representable verdict/candidate combination is semantically valid.
+core, which now implements the deterministic v1 policy below. Container permissiveness is not a
+claim that every representable verdict/candidate combination is semantically valid.
 
 ### Deterministic v1 assessor policy
 
@@ -163,6 +163,44 @@ The categorical decision policy is:
   mapping with `PARTIAL` reciprocal-best membership is `INDETERMINATE`: the state is mixed evidence,
   but without a quantitative threshold v1 cannot promote an unspecified amount of reciprocal
   disagreement to "material." Remaining cases are `INDETERMINATE`.
+
+Before the first public alpha, every `Assessment` must also record one categorical
+`decision_reason` naming the **terminal v1 assessor rule** that produced its verdict. This is not a
+biological-cause label, evidence weight, confidence score, or independence claim; coverage,
+reciprocal-best state, and other observations remain separately structured evidence. The required
+v1 decision-reason vocabulary is:
+
+| Decision reason | Evidence tier | Terminal condition | Verdict |
+| --- | --- | --- | --- |
+| `NO_CANDIDATES` | either | no candidate mapping was generated | `INDETERMINATE` |
+| `LIFTOVER_MULTIPLE_CANDIDATES` | `LIFTOVER_ONLY` | more than one chain-derived candidate remains | `CONTESTED` |
+| `LIFTOVER_SINGLE_FULL_MAPPING` | `LIFTOVER_ONLY` | exactly one candidate with `FULL` source-locus coverage | `WELL_SUPPORTED` |
+| `LIFTOVER_SINGLE_PARTIAL_MAPPING` | `LIFTOVER_ONLY` | exactly one candidate with `PARTIAL` source-locus coverage | `INDETERMINATE` |
+| `COMPARATIVE_MULTIPLE_MATERIAL_CANDIDATES` | `COMPARATIVE` | two or more candidates satisfy the v1 materiality rule | `CONTESTED` |
+| `COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_FULL` | `COMPARATIVE` | the sole material candidate has `FULL` coverage and `FULL` reciprocal-best membership | `WELL_SUPPORTED` |
+| `COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_NONE` | `COMPARATIVE` | the sole material candidate has `FULL` coverage and `NONE` reciprocal-best membership | `CONTESTED` |
+| `COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_PARTIAL` | `COMPARATIVE` | the sole material candidate has `FULL` coverage and `PARTIAL` reciprocal-best membership | `INDETERMINATE` |
+| `COMPARATIVE_SOLE_MATERIAL_PARTIAL` | `COMPARATIVE` | no full candidate remains and exactly one partial candidate satisfies the v1 materiality rule | `INDETERMINATE` |
+| `COMPARATIVE_NO_MATERIAL_CANDIDATE` | `COMPARATIVE` | no candidate satisfies the v1 materiality rule | `INDETERMINATE` |
+
+These ten cases are exhaustive and mutually exclusive for the v1 categorical policy above. In the
+comparative fallback, the implementation must distinguish the final two cases using the same
+material-candidate predicate already used by the verdict logic: a partial candidate is material
+only when its reciprocal-best state is `FULL` or `PARTIAL`; a partial candidate with `NONE` is not
+material. That boundary must be regression-tested directly rather than inferred from the resulting
+verdict.
+
+The decision reason is assessor-owned state. Reporting code must render it rather than reconstructing
+the assessor's logic from raw candidate count plus verdict. This prevents presentation code from
+claiming, for example, that multiple raw candidates were not materially distinguished when the
+assessor actually reduced them to one material-but-partial candidate and returned `INDETERMINATE`
+because source-locus coverage remained incomplete. The implementation must make omission difficult
+at the type/test boundary: every `Assessment` construction must supply a decision reason; every
+declared decision-reason enum member must be handled explicitly by the reason-to-verdict and
+reporting mappings without a wildcard fallback; and the assessor tests must exercise the complete
+declared decision-reason vocabulary. These structural guards detect missing taxonomy plumbing when
+a reason is added, but they do not prove that a future semantic branch selected the correct existing
+reason, so branch-specific regression tests remain required.
 
 Reciprocal-best evidence derived from the same upstream alignment is used as a categorical
 self-consistency observation, never as an independent vote. The v1 verdict rules do not add or
@@ -401,7 +439,11 @@ Assessment report (summary + detailed dossier)
   exists.
 - If multiple engines are ever run against the same locus, report their agreement/disagreement
   explicitly, and if they share an underlying data source, label that agreement as methodological
-  consistency, not independent evidence — same provenance discipline as everywhere else.
+  consistency, not independent evidence — same provenance discipline as everywhere else. A future
+  second mapping-evidence source counts as genuinely independent only after its upstream
+  mapping/alignment lineage has been verified as independent of the first source and the project has
+  defined how equivalent local mapping hypotheses from different engines are recognized; provider
+  plurality alone is not evidence independence.
 - **Assembly identifiers**: v1's CLI and resource resolver accept UCSC database identifiers for
   automatic discovery (e.g. `canFam3`, `canFam4`). The internal assembly representation should
   still be structured to record provider, accession, and known aliases (e.g. the UCSC db name
@@ -443,6 +485,24 @@ Assessment report (summary + detailed dossier)
   validator/size/range metadata are available; otherwise it uses the fresh streaming path.
 - **Call these "evidence-availability tiers," not "confidence tiers."** How much evidence exists
   and how strong the resulting verdict is are orthogonal (see invariant 3, §3).
+- **Target-sequence role/context must come from a defined metadata source.** Prefer authoritative
+  per-sequence assembly metadata when available. For assemblies represented by NCBI, the genome
+  sequence report exposes sequence role, assembly unit, chromosome name, GenBank/RefSeq accessions,
+  and UCSC-style sequence name, providing an explicit bridge from assembly metadata to UCSC names.
+  Provider-specific naming patterns may be used only as an explicitly labeled fallback when such
+  metadata is unavailable. Sequence role/context is descriptive evidence and must not silently
+  become a verdict rule or a claim that ambiguity was biologically caused by duplication or an
+  alternate sequence.
+- **Batch assessment must reuse resource work across loci.** A batch interface must not be a naive
+  outer loop that reparses multi-gigabyte comparative resources once per locus. It should either
+  evaluate many intervals during shared resource traversal or use an indexed/preprocessed local
+  representation while preserving the same single-locus assessor semantics and per-locus
+  provenance.
+- **Portable case packets are constrained by redistribution terms.** A reproducible case manifest
+  may record the schema-versioned assessment, exact resource SHA-256 identities, source URLs,
+  retrieval/checksum/terms metadata, and provenance graph. An archive may embed byte-identical
+  cached resource files only when their applicable redistribution terms permit it; local cache
+  possession alone does not authorize rebundling provider data.
 
 ## 8. Licensing constraints
 
@@ -499,28 +559,43 @@ Primary UCSC terms/checksum behavior checked through 2026-08-13:
 
 Two layers, so rigor and glanceability aren't in tension:
 
-**Summary (default, ~5 lines):**
-```
-Assessment: WELL SUPPORTED
-Preferred candidate: chr16:...
-Alternative: chrUn_...
+**Summary (default, ~5 lines):** concise evidence availability, verdict, candidate context,
+and a plain-language rendering of the assessor-owned `decision_reason`. The summary must not
+re-derive verdict semantics from candidate count or evidence values. For `COMPARATIVE` assessments
+only, it also states that comparative observations are not assumed to be independent and points to
+`--details` / `--json` for dependency provenance. `LIFTOVER_ONLY` summaries do not receive that
+comparative-evidence qualification. The biological-correctness caveat is always retained.
 
-Why:
-  + stronger UCSC alignment placement
-  + syntenic net context
-  + no duplication-associated placement detected
+**Detail (`--details`):** full human-readable dossier with the exact verdict and
+`decision_reason`, chain IDs, exact mapped segments, every evidence observation, categorical
+supporting/contradicting/context roles, net hierarchy, resource retrieval/checksum context,
+consumed-vs-unconsumed resource status, and the complete provenance dependency graph. Candidate
+encounter order is preserved for reproducibility but is not presented as rank. Provenance edges
+state dependence, not independent confirmation.
 
-This does not establish biological correctness.
-```
+**JSON (`--json`):** versioned machine-readable representation of the same completed
+`UCSCAssessmentReport`, not a second assessment path. Before the first public alpha, schema version
+1 must include the assessor-owned `decision_reason` alongside the exact verdict/evidence tier,
+preferred-candidate reference when one exists, supporting and contradicting evidence references,
+candidate encounter order, exact mapped segments, structured evidence values, resource
+consumption, retrieval/checksum/terms metadata, and a flattened provenance dependency graph. Every
+genomic interval is emitted in canonical 0-based, half-open coordinates with an explicit
+`coordinate_system` field; chain gap boundaries are named `source_boundary_0_based`. Candidate
+target spans are named `target_bounding_interval` so split mappings cannot be mistaken for
+continuously aligned spans. Per-observation `assessment_role` is one of `SUPPORTING`,
+`CONTRADICTING`, `SUPPORTING_AND_CONTRADICTING`, or `CONTEXT`; these remain categorical and
+non-additive. Provenance parents are source-ID edges and record dependence, not independent
+confirmation. The unconditional biological-correctness caveat is retained as a top-level field.
+`--json` and `--details` are mutually exclusive.
 
-**Detail (`--details`):** full human-readable dossier with chain IDs, exact mapped segments, every evidence observation, categorical supporting/contradicting/context roles, net hierarchy, resource retrieval/checksum context, consumed-vs-unconsumed resource status, and the complete provenance dependency graph. Candidate encounter order is preserved for reproducibility but is not presented as rank. Provenance edges state dependence, not independent confirmation.
-
-**JSON (`--json`):** versioned machine-readable representation of the same completed `UCSCAssessmentReport`, not a second assessment path. Schema version 1 preserves the exact verdict/evidence tier, preferred-candidate reference when one exists, supporting and contradicting evidence references, candidate encounter order, exact mapped segments, structured evidence values, resource consumption, retrieval/checksum/terms metadata, and a flattened provenance dependency graph. Every genomic interval is emitted in canonical 0-based, half-open coordinates with an explicit `coordinate_system` field; chain gap boundaries are named `source_boundary_0_based`. Candidate target spans are named `target_bounding_interval` so split mappings cannot be mistaken for continuously aligned spans. Per-observation `assessment_role` is one of `SUPPORTING`, `CONTRADICTING`, `SUPPORTING_AND_CONTRADICTING`, or `CONTEXT`; these remain categorical and non-additive. Provenance parents are source-ID edges and record dependence, not independent confirmation. The unconditional biological-correctness caveat is retained as a top-level field. `--json` and `--details` are mutually exclusive.
-
-Schema version 1 has these fixed structural boundaries:
+Schema version 1 remains mutable only during private pre-alpha development. The first public alpha
+freezes schema v1 as an external compatibility surface. After that boundary, any proposed addition
+must be reviewed explicitly for compatibility with strict consumers; an incompatible structural or
+semantic change requires a new schema version rather than silently redefining v1. The intended
+frozen v1 structural boundaries are:
 - top level: `schema_version`, `report_type`, `semantics`, `ucsc_database_pair`, `assessment`, `resources`, `provenance`, `caveat`;
 - every interval: `assembly` (`name`, `provider`, optional `accession`, `aliases`), `sequence_name`, `start`, `end`, `coordinate_system`;
-- assessment: source interval, evidence tier, verdict, optional preferred candidate ID, exact supporting/contradicting evidence-reference arrays, and ordered candidates;
+- assessment: source interval, evidence tier, verdict, required categorical `decision_reason`, optional preferred candidate ID, exact supporting/contradicting evidence-reference arrays, and ordered candidates;
 - candidate: candidate ID, UCSC chain ID when encoded by the v1 engine, orientation, target bounding interval, mapping-provenance source ID, exact segment array, and evidence array;
 - observation: observation ID, evidence kind, categorical assessment role, typed value payload, and provenance source ID;
 - structured value payload types: `MAPPING_COVERAGE_SUMMARY`, `CHAIN_GAP_SUMMARY`, `NET_HIERARCHY_SUMMARY`, and `RECIPROCAL_BEST_MEMBERSHIP_SUMMARY`; primitive evidence values use `SCALAR`;
@@ -608,24 +683,39 @@ Expert users can still use the library boundaries with explicitly supplied resou
 |---|---|---|
 | 1 | Is this needed? | **Yes.** Two independent peer-reviewed benchmarks + a dedicated tool (Liftoff) exist because this class of problem is real and unresolved by conversion accuracy alone. |
 | 2 | Are people asking questions it answers? | **Yes.** Recurring across years, species (human, dog), and use cases (variant, annotation, epigenomic interval), in both Q&A forums and tool support threads. |
-| 3 | Can it be extremely helpful and easy to use? | **Plausibly yes**, via automatic resource discovery, visible evidence tiers, and the two-layer summary/detail report. Untested until built. |
+| 3 | Can it be extremely helpful and easy to use? | **Plausibly yes; implementation now exists and has been exercised end to end**, via automatic resource discovery, visible evidence tiers, and summary/detail/JSON reporting. How easy and useful the workflow is for an outside researcher remains to be tested at public alpha. |
 
 ## 12. Sequencing
 
 
 **LiftOver ambiguity assessor** — need and demand are now considered validated rather
-than merely plausible. Remaining uncertainty is implementation, not justification.
+than merely plausible. The core implementation now exists; remaining pre-alpha uncertainty is
+user-facing semantic/compatibility hardening and how well the workflow serves outside researchers,
+not whether the underlying problem is justified.
 
 v1 should not be shaped around any hypothetical downstream adopter or integration partner — the
 pluggable engine boundary (§7) already preserves that flexibility for later without costing
 anything now.
 
-## 13. Open items for whenever this is picked back up
+## 13. Open and deferred design items
 
-- Build the `canFam3`/`vsCanFam4` mechanical fixture end to end.
+- Complete the pre-alpha semantic/output hardening specified in §4 and §9 before the first public
+  alpha: assessor-owned `decision_reason`, the confirmed concise-summary correctness fix,
+  exhaustive taxonomy plumbing/tests, COMPARATIVE-only dependency qualification, and the finalized
+  schema-v1 compatibility boundary.
 - Identify and document at least one concrete CanFam3.1 locus whose later placement in canFam6
   is independently established (e.g. traceable via the Dog10K assembly paper's gap-closure or
   SNV-array mapping data), turning the historical-resolution pedigree in §10 into an actual
   fixture.
 - Decide the source for optional flanking-gene synteny context (e.g. Ensembl Compara) and its
   fallback behavior when no ortholog table exists for a species pair.
+- Add target-sequence role/ambiguity context only under the metadata-source rules in §7; prefer
+  authoritative per-sequence assembly metadata and keep naming-pattern inference explicitly
+  labeled as fallback evidence.
+- Add scalable batch assessment only under the shared-traversal/indexing constraint in §7 so batch
+  throughput does not multiply whole-resource parsing by locus count.
+- Define reproducible case manifests and any later byte-containing portable packets under the
+  provenance and redistribution-term constraints in §7 and §8.
+- Add a genuinely independent mapping-evidence source only after verifying independent upstream
+  mapping/alignment lineage and defining cross-engine local-hypothesis equivalence; do not treat a
+  second provider or adapter as independent confirmation by default.

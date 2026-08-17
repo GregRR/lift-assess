@@ -23,7 +23,7 @@ The project now has an integrated UCSC evidence pipeline plus a completed real c
 
 The routine automated suite contains **311 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
-The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, human-readable and JSON detailed reporting, measured cache-verification progress, measured transfer progress, and measured assessment-read progress are implemented; the real comparative assessment path has completed a smoke run. Milestone 15 is complete and reviewed. A real-provider transfer-progress smoke check remains desirable but non-gating, so liftAssess remains a pre-release development tool.
+The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, human-readable and JSON detailed reporting, measured cache-verification progress, measured transfer progress, and measured assessment-read progress are implemented; the real comparative assessment path has completed a smoke run. Milestone 15 is complete and reviewed. A real-provider transfer-progress smoke check remains desirable but non-gating. Before Milestone 16/public alpha, one focused semantic/output-hardening slice will correct a confirmed concise-summary misstatement, make the assessor's terminal decision reason explicit and machine-readable, and finalize the schema-v1 compatibility boundary.
 
 ## Implementation history
 
@@ -292,7 +292,7 @@ The reproducible verifier is `scripts/verify_canFam3_canFam4_mechanical_fixture.
 
 ### 13. Assessor core and deterministic verdict logic — complete
 
-This is the largest remaining scientific implementation milestone.
+This was the largest scientific implementation milestone remaining at that stage.
 
 The deterministic assessor core is implemented and reviewed. It transforms normalized
 candidates plus provenance-aware evidence into exactly one of `WELL_SUPPORTED`, `CONTESTED`, or
@@ -345,9 +345,9 @@ Implemented and reviewed:
 - expose provenance/dependency detail sufficient for scientific audit;
 - surface cached retrieval metadata (source URLs, retrieval timestamps, provider checksum metadata, and terms references) alongside file/evidence provenance without claiming that unconsumed bundle resources were assessed.
 
-### 15. CLI and user-facing reports — in progress
+### 15. CLI and user-facing reports — complete
 
-Implement the planned common-case workflow:
+Implemented the planned common-case workflow:
 
 ```text
 assess-liftover canFam3 canFam4 chr16:12345-12400
@@ -372,6 +372,22 @@ Implemented so far:
 Milestone 15 closure review completed:
 - transfer-progress implementation and terminal semantics were reviewed against the code/tests with no confirmed defects; automated coverage now includes a fresh transfer whose real response omits `Content-Length`, proving the acquisition callback preserves an unknown total end to end rather than inventing a percentage;
 - a real-provider transfer-progress smoke check remains desirable but non-gating and should not force a multi-gigabyte reacquisition solely for UI validation.
+
+### 15.5. Pre-alpha semantic and output hardening — next
+
+This is a focused correctness/compatibility slice discovered during the final project-level review of Milestone 15. It does not reopen transfer-progress work.
+
+Required before the first public alpha:
+
+- fix the confirmed concise-summary bug in which an `INDETERMINATE` comparative assessment with multiple raw candidates but only one material partial candidate can be described as though the evidence failed to distinguish the candidates; the remaining uncertainty is incomplete source-locus coverage, not unresolved material multiplicity;
+- add one required assessor-owned categorical `decision_reason` to every `Assessment`, using the ten exhaustive/mutually-exclusive terminal conditions specified in `DESIGN.md` rather than mixing biological findings with evidence-rule names;
+- split the current final comparative fallback into `COMPARATIVE_SOLE_MATERIAL_PARTIAL` versus `COMPARATIVE_NO_MATERIAL_CANDIDATE` using the already-defined material-candidate predicate, and regression-test the exact boundary (`PARTIAL` coverage with reciprocal-best `FULL`/`PARTIAL` is material; reciprocal-best `NONE` is not);
+- make reporting consume the recorded decision reason instead of reconstructing assessor semantics from candidate count, verdict, or evidence values;
+- require every `Assessment` construction to supply a decision reason, handle every declared decision-reason enum member explicitly in reason/verdict/reporting mappings without wildcard fallback, and test that assessor coverage reaches the complete declared reason vocabulary; branch-specific regression tests must still verify that each semantic boundary selects the correct reason;
+- include the required decision reason in human detail and JSON output, and finalize schema v1 before alpha; private pre-alpha schema v1 remains mutable, while the first public alpha freezes it as an external compatibility surface and later incompatible structural/semantic changes require a new schema version;
+- add a concise dependence qualification only for `COMPARATIVE` summaries: comparative observations are not assumed to be independent, with dependency provenance available in `--details` / `--json`. `LIFTOVER_ONLY` output should not receive that context-free qualification.
+
+This slice must preserve the existing three verdicts, two evidence tiers, no-score policy, and assessor-not-resolver boundary.
 
 ### 16. First public alpha milestone
 
@@ -398,17 +414,29 @@ Milestone 15 defines the first external-identifier construction rule narrowly: a
 
 `AssemblyIdentifier` structural equality therefore remains an internal consistency check rather than a speculative general alias resolver. The cached-bundle bridge continues to validate a UCSC db against an explicitly recorded name/alias when callers supply richer assembly metadata. General cross-provider identity resolution remains outside v1 scope and should only be added against a concrete requirement.
 
-### Candidate-rank and target-placement evidence
+### Candidate-rank evidence
 
-These remain intentionally deferred until a defensible locus-scoped definition exists. Raw chain-score ordering is not an acceptable substitute for a scientifically justified candidate-rank concept.
+Candidate rank remains intentionally deferred until a defensible locus-scoped definition exists. Raw chain-score ordering is not an acceptable substitute for a scientifically justified candidate-rank concept.
+
+### Target-sequence role and ambiguity context
+
+Add categorical target-sequence context only from a defined evidence source rather than treating sequence-name patterns as biological truth. Prefer authoritative per-sequence assembly metadata when available. NCBI's genome sequence report exposes sequence role, assembly unit, chromosome name, GenBank/RefSeq sequence accessions, and UCSC-style sequence name, providing an explicit bridge from assembly metadata to UCSC names (`https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/using-dataformat/genome-data-reports/`). Provider-specific naming conventions may be used only as an explicitly labeled fallback when authoritative metadata is unavailable. Keep this context descriptive; it must not silently become a verdict rule or claim that ambiguity was biologically caused by duplication/alternate sequence.
+
+### Scalable batch assessment
+
+Add BED/simple interval-table batch assessment only with an architecture that reuses work across loci. Do not implement batch mode as a naive outer loop that reparses multi-gigabyte comparative resources once per locus. The design should either evaluate many intervals during shared resource traversal or introduce an indexed/preprocessed local representation while preserving the same single-locus assessor semantics and per-locus provenance.
+
+### Reproducible case manifests and portable packets
+
+Define a portable case manifest containing the schema-versioned assessment, exact resource SHA-256 identities, source URLs, retrieval/checksum/terms metadata, and provenance graph. A later archive/packet form may embed byte-identical cached resources only when their applicable redistribution terms permit it; resource bytes must not be bundled merely because they are already cached locally.
 
 ### Optional flanking-gene synteny context
 
 Select and verify a real source, likely an external orthology/synteny provider, and model its provenance/dependencies explicitly. Do not assume orthology calls are independent merely because they come from a different API or file.
 
-### Detailed/JSON schema stabilization
+### Schema-v1 compatibility after alpha
 
-The human-readable `--details` dossier and schema-versioned `--json` representation are implemented against the same validated assessment/report model. JSON schema version 1 uses canonical 0-based, half-open interval objects; explicit categorical assessment roles; structured evidence payloads; complete resource consumption/retrieval/checksum/terms metadata; and source-ID provenance dependency edges. Candidate array order is reproducibility-only, not rank, and the biological-correctness caveat remains explicit.
+The pre-alpha hardening slice finalizes schema v1, including the assessor-owned decision reason. The first public alpha is the compatibility boundary: after that release, v1 must not receive incompatible structural or semantic redefinitions. Proposed additions still require explicit compatibility review rather than being assumed safe merely because they are additive. Candidate array order remains reproducibility-only, not rank, and the biological-correctness caveat remains explicit.
 
 ## Deliberately deferred beyond v1
 
@@ -416,6 +444,7 @@ The following should not distract from making the first version scientifically u
 
 - plugin registry, entry-point discovery, or general engine configuration framework;
 - automatic support for many candidate-generation engines before a real second engine exists;
+- a second mapping-evidence source/provider until a concrete source is verified to come from a genuinely independent upstream mapping/alignment process and the cross-engine hypothesis-equivalence semantics are defined; when that exists, independent agreement/disagreement becomes an evidence capability rather than a reason to add speculative plugin infrastructure;
 - fresh minimap2/lastz alignment by default;
 - machine-learning confidence models;
 - composite numeric confidence scores;
