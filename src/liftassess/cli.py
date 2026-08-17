@@ -35,6 +35,7 @@ from .resource_cache import (
     UCSCBundleAcquisitionPlan,
     UCSCBundleResourceRole,
     UCSCBundleTransferInspection,
+    UCSCBundleTransferProgressCallback,
     UCSCResourceAcquisitionError,
     acquire_ucsc_resource_bundle,
     inspect_ucsc_bundle_transfer_plan,
@@ -286,12 +287,23 @@ def _discover_and_acquire_bundle(
         return None
 
     _status("Acquiring/verifying UCSC resources...", quiet=args.quiet, stderr=stderr)
+    transfer_progress_display = _TransferProgressDisplay(
+        plan,
+        inspection,
+        stderr=stderr,
+    )
+    transfer_progress_callback: UCSCBundleTransferProgressCallback | None = None
+    if not args.quiet and _is_interactive_terminal(stderr):
+        transfer_progress_display.start()
+        transfer_progress_callback = transfer_progress_display.update
+
     return acquire_ucsc_resource_bundle(
         plan,
         cache_root,
         transfer_plan_acknowledged=True,
         terms_acknowledged=True,
         refresh=args.refresh,
+        progress_callback=transfer_progress_callback,
     )
 
 
@@ -345,11 +357,84 @@ def _ucsc_pair_lineage_provenance(source_db: str, target_db: str) -> ProvenanceS
 
 
 _PROGRESS_BAR_WIDTH = 20
-_PROGRESS_LABELS = {
+_ASSESSMENT_PROGRESS_LABELS = {
     UCSCBundleResourceRole.CHAIN: "Chain",
     UCSCBundleResourceRole.NET: "Net",
     UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN: "Reciprocal-best",
 }
+_TRANSFER_PROGRESS_LABELS = {
+    UCSCBundleResourceRole.CHAIN: "Chain",
+    UCSCBundleResourceRole.NET: "Net",
+    UCSCBundleResourceRole.SYNTENIC_NET: "Syntenic net",
+    UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN: "Rbest chain",
+    UCSCBundleResourceRole.RECIPROCAL_BEST_NET: "Rbest net",
+}
+
+
+class _TransferProgressDisplay:
+    """Render measured, resume-aware acquisition progress for each bundle resource."""
+
+    def __init__(
+        self,
+        plan: UCSCBundleAcquisitionPlan,
+        inspection: UCSCBundleTransferInspection,
+        *,
+        stderr: TextIO,
+    ) -> None:
+        self._stderr = stderr
+        self._roles = tuple(item.role for item in plan.items)
+        self._bytes_complete = {role: 0 for role in self._roles}
+        self._total_bytes = {
+            item.role: item.identity_content_length_bytes for item in inspection.items
+        }
+        self._cache_hit = {role: False for role in self._roles}
+        self._last_rows = {role: "" for role in self._roles}
+        self._started = False
+
+    def start(self) -> None:
+        self._started = True
+        self._render(initial=True)
+
+    def update(
+        self,
+        role: UCSCBundleResourceRole,
+        bytes_complete: int,
+        total_bytes: int | None,
+        cache_hit: bool,
+    ) -> None:
+        if role not in self._bytes_complete:
+            return
+        bounded = max(bytes_complete, 0)
+        if total_bytes is not None:
+            total_bytes = max(total_bytes, 0)
+            bounded = min(bounded, total_bytes)
+            self._total_bytes[role] = total_bytes
+        self._bytes_complete[role] = bounded
+        self._cache_hit[role] = cache_hit
+        self._render()
+
+    def _row(self, role: UCSCBundleResourceRole) -> str:
+        return _progress_row(
+            _TRANSFER_PROGRESS_LABELS[role],
+            bytes_read=self._bytes_complete[role],
+            total_bytes=self._total_bytes[role],
+            cached=self._cache_hit[role],
+        )
+
+    def _render(self, *, initial: bool = False) -> None:
+        if not self._started:
+            return
+        rows = {role: self._row(role) for role in self._roles}
+        if not initial and rows == self._last_rows:
+            return
+        if not initial:
+            self._stderr.write(f"\x1b[{len(self._roles)}A")
+        for role in self._roles:
+            self._stderr.write("\x1b[2K")
+            self._stderr.write(rows[role])
+            self._stderr.write("\n")
+        self._stderr.flush()
+        self._last_rows = rows
 
 
 class _CacheVerificationProgressDisplay:
@@ -462,7 +547,7 @@ class _AssessmentProgressDisplay:
             self._stderr.write("\x1b[2K")
             self._stderr.write(
                 _progress_row(
-                    _PROGRESS_LABELS[role],
+                    _ASSESSMENT_PROGRESS_LABELS[role],
                     bytes_read=self._bytes_read[role],
                     total_bytes=resource.size_bytes,
                     not_used=(self._finished and self._last_percent[role] == -2),
@@ -476,12 +561,23 @@ def _progress_row(
     label: str,
     *,
     bytes_read: int,
-    total_bytes: int,
+    total_bytes: int | None,
     not_used: bool = False,
+    cached: bool = False,
     percent_override: int | None = None,
 ) -> str:
     if not_used:
         return f"  {label:<18} [{'—' * _PROGRESS_BAR_WIDTH}]  --   not used"
+    if cached:
+        amount = _format_progress_bytes(bytes_read)
+        return f"  {label:<18} [{'█' * _PROGRESS_BAR_WIDTH}]  --   cached ({amount})"
+    if total_bytes is None:
+        amount = (
+            "pending"
+            if bytes_read == 0
+            else f"{_format_progress_bytes(bytes_read)} complete"
+        )
+        return f"  {label:<18} [{'—' * _PROGRESS_BAR_WIDTH}]  --   {amount}"
     percent = (
         _progress_percent(bytes_read, total_bytes)
         if percent_override is None

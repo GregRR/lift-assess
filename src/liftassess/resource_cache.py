@@ -57,6 +57,7 @@ from .resources import UCSCResourceBundle
 
 ResourcePath: TypeAlias = str | os.PathLike[str]
 CacheVerificationProgressCallback: TypeAlias = Callable[[int, int, bool], None]
+ResourceTransferProgressCallback: TypeAlias = Callable[[int, int | None], None]
 
 _UCSC_HOSTS = frozenset({"hgdownload.soe.ucsc.edu", "hgdownload.gi.ucsc.edu"})
 _UCSC_LICENSE_URL = "https://genome.ucsc.edu/license/"
@@ -98,6 +99,11 @@ class UCSCBundleResourceRole(str, Enum):
     SYNTENIC_NET = "SYNTENIC_NET"
     RECIPROCAL_BEST_CHAIN = "RECIPROCAL_BEST_CHAIN"
     RECIPROCAL_BEST_NET = "RECIPROCAL_BEST_NET"
+
+
+UCSCBundleTransferProgressCallback: TypeAlias = Callable[
+    [UCSCBundleResourceRole, int, int | None, bool], None
+]
 
 
 @dataclass(frozen=True)
@@ -191,6 +197,12 @@ class UCSCBundleTransferInspectionItem:
 
     def __post_init__(self) -> None:
         _validate_resource_role_filename(self.role, self.metadata.url)
+
+    @property
+    def identity_content_length_bytes(self) -> int | None:
+        """Return the usable exact-byte size advertised for this resource, if any."""
+
+        return _identity_content_length_bytes(self.metadata)
 
 
 @dataclass(frozen=True)
@@ -376,6 +388,7 @@ class _ResourceAcquirer(Protocol):
         *,
         terms_acknowledged: bool,
         refresh: bool = False,
+        progress_callback: ResourceTransferProgressCallback | None = None,
     ) -> CachedResource: ...
 
 
@@ -874,6 +887,7 @@ def acquire_ucsc_resource_bundle(
     transfer_plan_acknowledged: bool,
     terms_acknowledged: bool,
     refresh: bool = False,
+    progress_callback: UCSCBundleTransferProgressCallback | None = None,
 ) -> CachedUCSCResourceBundle:
     """Acquire every resource in an explicitly acknowledged bundle plan.
 
@@ -888,6 +902,12 @@ def acquire_ucsc_resource_bundle(
     function that silently starts several transfers, including potentially very large
     UCSC resources.  The single-resource layer can now resume checksum-verifiable HTTPS
     transfers when the provider advertises the required strong validator/range metadata.
+
+    ``progress_callback`` reports resource bytes complete toward the exact representation
+    size when known.  A resumable resource may therefore begin above zero when a
+    validator-bound partial is retained.  The final boolean distinguishes a verified
+    cache hit from body-transfer progress so callers do not mislabel reused bytes as
+    downloaded during the current run.
     """
 
     return _acquire_ucsc_resource_bundle(
@@ -896,6 +916,7 @@ def acquire_ucsc_resource_bundle(
         transfer_plan_acknowledged=transfer_plan_acknowledged,
         terms_acknowledged=terms_acknowledged,
         refresh=refresh,
+        progress_callback=progress_callback,
         acquire_resource=acquire_ucsc_resource,
     )
 
@@ -907,6 +928,7 @@ def _acquire_ucsc_resource_bundle(
     transfer_plan_acknowledged: bool,
     terms_acknowledged: bool,
     refresh: bool,
+    progress_callback: UCSCBundleTransferProgressCallback | None = None,
     acquire_resource: _ResourceAcquirer,
 ) -> CachedUCSCResourceBundle:
     if not transfer_plan_acknowledged:
@@ -917,12 +939,31 @@ def _acquire_ucsc_resource_bundle(
 
     acquired: dict[UCSCBundleResourceRole, CachedResource] = {}
     for item in plan.items:
-        acquired[item.role] = acquire_resource(
+        resource_progress = (
+            None
+            if progress_callback is None
+            else _resource_transfer_progress_for_role(progress_callback, item.role)
+        )
+        resource = acquire_resource(
             item.url,
             cache_root,
             terms_acknowledged=terms_acknowledged,
             refresh=refresh,
+            progress_callback=resource_progress,
         )
+        acquired[item.role] = resource
+        if progress_callback is not None:
+            # Body-transfer callbacks deliberately do not fire for a cache hit.  Emit
+            # a distinct terminal event so the CLI can say "cached" rather than
+            # misleadingly presenting those bytes as downloaded this run.  A final
+            # event also gives unknown-length fresh transfers an exact denominator
+            # once the complete resource has been acquired and verified.
+            progress_callback(
+                item.role,
+                resource.size_bytes,
+                resource.size_bytes,
+                resource.cache_hit,
+            )
 
     chain = acquired[UCSCBundleResourceRole.CHAIN]
     if plan.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
@@ -943,6 +984,18 @@ def _acquire_ucsc_resource_bundle(
         reciprocal_best_chain=acquired[UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN],
         reciprocal_best_net=acquired[UCSCBundleResourceRole.RECIPROCAL_BEST_NET],
     )
+
+
+def _resource_transfer_progress_for_role(
+    progress_callback: UCSCBundleTransferProgressCallback,
+    role: UCSCBundleResourceRole,
+) -> ResourceTransferProgressCallback:
+    """Bind one single-resource transfer stream to its bundle resource role."""
+
+    def update(bytes_complete: int, total_bytes: int | None) -> None:
+        progress_callback(role, bytes_complete, total_bytes, False)
+
+    return update
 
 
 def _bundle_roles_for_tier(
@@ -1050,6 +1103,7 @@ def acquire_ucsc_resource(
     *,
     terms_acknowledged: bool,
     refresh: bool = False,
+    progress_callback: ResourceTransferProgressCallback | None = None,
 ) -> CachedResource:
     """Acquire one UCSC resource into a caller-selected content-addressed cache.
 
@@ -1067,6 +1121,13 @@ def acquire_ucsc_resource(
     reacquire current bytes.  When UCSC also publishes an exact provider checksum and
     HEAD supplies a strong ETag, exact identity-encoded size, and byte-range support, an
     interrupted transfer may retain a validator-bound partial and resume it safely.
+
+    ``progress_callback`` is body-transfer progress, expressed as exact resource bytes
+    complete toward the known representation size (or ``None`` when the body length is
+    unavailable).  On resume, its first event can be nonzero because a retained prefix
+    is already validated against the same URL/size/strong-ETag representation.  Verified
+    cache hits do not emit body-transfer events.  Reaching the reported byte total means
+    the response body is complete; checksum/final publication can still be in progress.
     """
 
     return _acquire_ucsc_resource(
@@ -1074,6 +1135,7 @@ def acquire_ucsc_resource(
         cache_root,
         terms_acknowledged=terms_acknowledged,
         refresh=refresh,
+        progress_callback=progress_callback,
         open_url=_open_url,
         now=lambda: datetime.now(UTC),
     )
@@ -1085,6 +1147,7 @@ def _acquire_ucsc_resource(
     *,
     terms_acknowledged: bool,
     refresh: bool = False,
+    progress_callback: ResourceTransferProgressCallback | None = None,
     open_url: URLopener,
     now: Clock,
 ) -> CachedResource:
@@ -1123,6 +1186,7 @@ def _acquire_ucsc_resource(
             provider_checksum=provider_checksum,
             terms=terms,
             remote_metadata=remote_metadata,
+            progress_callback=progress_callback,
             open_url=open_url,
             now=now,
         )
@@ -1133,6 +1197,7 @@ def _acquire_ucsc_resource(
         index_path=index_path,
         provider_checksum=provider_checksum,
         terms=terms,
+        progress_callback=progress_callback,
         open_url=open_url,
         now=now,
     )
@@ -1264,6 +1329,7 @@ def _download_and_cache_resumable(
     provider_checksum: ProviderChecksum,
     terms: UCSCResourceTerms,
     remote_metadata: UCSCRemoteResourceMetadata,
+    progress_callback: ResourceTransferProgressCallback | None,
     open_url: URLopener,
     now: Clock,
 ) -> CachedResource:
@@ -1295,6 +1361,13 @@ def _download_and_cache_resumable(
                 f"failed to reset invalid UCSC partial download {partial_path}: {exc}"
             ) from exc
         size_on_disk = 0
+
+    if progress_callback is not None:
+        # A retained validator-bound prefix is already complete acquisition state for
+        # this exact representation, so resumable progress may legitimately start
+        # above zero.  Subsequent events are emitted only after newly received bytes
+        # have been written to the partial.
+        progress_callback(size_on_disk, total_size)
 
     snapshot_path: Path | None = None
     snapshot_sha256: str | None = None
@@ -1328,10 +1401,19 @@ def _download_and_cache_resumable(
                                 expected_etag=etag,
                             )
 
+                        bytes_before_response = size_on_disk
                         received = _stream_expected_response_bytes(
                             response,
                             output,
                             expected_bytes=response_bytes,
+                            progress_callback=(
+                                None
+                                if progress_callback is None
+                                else lambda response_bytes_received: progress_callback(
+                                    bytes_before_response + response_bytes_received,
+                                    total_size,
+                                )
+                            ),
                         )
                         size_on_disk += received
                 except _ResumeRestartRequired:
@@ -1369,6 +1451,7 @@ def _download_and_cache_resumable(
             index_path=index_path,
             provider_checksum=provider_checksum,
             terms=terms,
+            progress_callback=progress_callback,
             open_url=open_url,
             now=now,
         )
@@ -1531,6 +1614,7 @@ def _stream_expected_response_bytes(
     output: BinaryIO,
     *,
     expected_bytes: int,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> int:
     remaining = expected_bytes
     received = 0
@@ -1541,6 +1625,8 @@ def _stream_expected_response_bytes(
         output.write(chunk)
         received += len(chunk)
         remaining -= len(chunk)
+        if progress_callback is not None:
+            progress_callback(received)
 
     if remaining:
         return received
@@ -1574,6 +1660,7 @@ def _download_and_cache(
     index_path: Path,
     provider_checksum: ProviderChecksum | None,
     terms: UCSCResourceTerms,
+    progress_callback: ResourceTransferProgressCallback | None,
     open_url: URLopener,
     now: Clock,
 ) -> CachedResource:
@@ -1591,12 +1678,16 @@ def _download_and_cache(
                     _require_identity_content_encoding(response, url=url)
                     expected_size = _response_content_length(response)
                     size_bytes = 0
+                    if progress_callback is not None:
+                        progress_callback(0, expected_size)
                     while chunk := response.read(_CHUNK_SIZE):
                         output.write(chunk)
                         size_bytes += len(chunk)
                         sha256.update(chunk)
                         if md5 is not None:
                             md5.update(chunk)
+                        if progress_callback is not None:
+                            progress_callback(size_bytes, expected_size)
                     if expected_size is not None and size_bytes != expected_size:
                         raise UCSCResourceAcquisitionError(
                             f"incomplete UCSC resource download {url}: expected "

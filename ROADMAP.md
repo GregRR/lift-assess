@@ -19,11 +19,11 @@ The project now has an integrated UCSC evidence pipeline plus a completed real c
 - reproduce a measured `canFam3`→`canFam4` comparative fixture through that production cached-bundle path while keeping all multi-gigabyte provider resources outside the repository;
 - run a reviewed deterministic assessor over normalized coverage and reciprocal-best evidence without a numeric score;
 - compose a complete cached UCSC bundle through candidate/evidence generation and the assessor into an auditable assessment report;
-- and run the `assess-liftover` CLI cache-first or fully offline with measured assessment-read progress.
+- and run the `assess-liftover` CLI cache-first or fully offline with measured cache-verification, transfer, and assessment-read progress.
 
-The routine automated suite contains **304 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
+The routine automated suite contains **311 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
-The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, human-readable and JSON detailed reporting, measured cache-verification progress, and measured assessment-read progress are implemented; the real comparative assessment path has completed a smoke run. Milestone 15 remains in progress while transfer-progress reporting is still unfinished, so liftAssess remains a pre-release development tool.
+The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, human-readable and JSON detailed reporting, measured cache-verification progress, measured transfer progress, and measured assessment-read progress are implemented; the real comparative assessment path has completed a smoke run. Milestone 15 is complete and reviewed. A real-provider transfer-progress smoke check remains desirable but non-gating, so liftAssess remains a pre-release development tool.
 
 ## Implementation history
 
@@ -361,6 +361,7 @@ Implemented so far:
 - the CLI chooses a platform user-cache default while preserving `--cache-dir`; complete verified bundles are reused cache-first without provider access, `--offline` guarantees zero network access, and `--refresh` explicitly forces a fresh provider check/acquisition;
 - interactive assessment progress reports measured compressed bytes consumed for Chain, Net, and Reciprocal-best inputs with a visual bar, numeric percentage, and byte counts; `--quiet` suppresses it;
 - interactive cache verification reports one measured aggregate SHA-256 row across the required cached bundle, reusing the same progress rendering primitives and withholding 100% until every required artifact passes integrity; `--quiet` suppresses it;
+- interactive UCSC acquisition reports measured per-resource transfer progress, starts resumable resources at their retained validator-bound prefix, labels verified cache hits as cache reuse rather than downloaded bytes, and avoids invented percentages when exact transfer size is unavailable; `--quiet` and non-TTY stderr suppress the display;
 - interactive acknowledgements are the default, with explicit `--acknowledge-ucsc-terms` and `--accept-transfer-plan` flags for non-interactive use;
 - automatic UCSC runs use a conservative pair-level shared lineage node only for provenance dependency grouping, while exact consumed-file identity remains SHA-256-addressed beneath it;
 - the first real CLI smoke run completed 2026-08-16 against the established external `canFam3`→`canFam4` comparative fixture, reporting `COMPARATIVE`, 170 candidates, and `CONTESTED` for display locus `chrUn_JH373233:1845736-1845835`;
@@ -368,8 +369,9 @@ Implemented so far:
 - `--details` emits the full human-readable evidence dossier: exact mapped segments, categorical verdict-evidence roles, every observation, resource retrieval/checksum context, consumed-vs-unconsumed status, and the complete provenance dependency graph without implying candidate rank or independent confirmation;
 - `--json` emits schema version 1 from the same assessment/report model, preserving canonical 0-based half-open coordinates, structured evidence roles/values, candidate order without ranking semantics, resource consumption/checksums/terms, provenance dependency edges, and the biological-correctness caveat.
 
-Remaining:
-- download/transfer-progress reporting suitable for large/resumable acquisitions (assessment-read progress is implemented).
+Milestone 15 closure review completed:
+- transfer-progress implementation and terminal semantics were reviewed against the code/tests with no confirmed defects; automated coverage now includes a fresh transfer whose real response omits `Content-Length`, proving the acquisition callback preserves an unknown total end to end rather than inventing a percentage;
+- a real-provider transfer-progress smoke check remains desirable but non-gating and should not force a multi-gigabyte reacquisition solely for UI validation.
 
 ### 16. First public alpha milestone
 

@@ -62,6 +62,7 @@ The current development code includes:
 - cache-first CLI reuse of complete verified bundles with zero provider access, plus explicit `--offline` and `--refresh` modes so offline analysis and freshness checks are never conflated;
 - interactive assessment progress based on exact compressed bytes consumed during SHA-256-verified parsing, with Chain/Net/Reciprocal-best progress bars and numeric byte percentages;
 - interactive cache-verification progress based on exact artifact bytes hashed across the required cached bundle, with one aggregate row that reaches 100% only after all required SHA-256 checks pass;
+- interactive resource-transfer progress for fresh and resumable UCSC acquisition, using measured exact bytes, retained-prefix-aware resume state, explicit cache-hit labeling, and byte-only display rather than invented percentages when the provider size is unknown;
 - explicit bundle transfer planning and complete-or-error bundle acquisition for discovered
   `COMPARATIVE` and `LIFTOVER_ONLY` resource sets, with a separate transfer-plan acknowledgement before
   any planned resource acquisition begins;
@@ -78,9 +79,8 @@ The current development code includes:
 
 ## Not implemented yet
 
-The project now implements the common-case CLI, concise summary, human-readable detail, and schema-versioned JSON reporting paths, and the first real comparative CLI smoke run has completed against the established external `canFam3`→`canFam4` cache. Major v1 work still includes:
+The project now implements the common-case CLI, concise summary, human-readable detail, schema-versioned JSON reporting, and measured cache-verification/assessment/transfer progress paths, and the first real comparative CLI smoke run has completed against the established external `canFam3`→`canFam4` cache. Major v1 work still includes:
 
-- download/transfer-progress reporting appropriate for large/resumable comparative acquisitions (assessment-read progress is implemented);
 - a future truth-bearing historical-resolution locus for the planned `canFam3.1`→`canFam6` sanity-check pedigree;
 - optional flanking-gene orthology/synteny evidence;
 - a defensible definition of candidate-rank and target-placement evidence where those concepts can be supported without inventing unsupported heuristics.

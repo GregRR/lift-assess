@@ -59,6 +59,7 @@ class _Response(BytesIO):
         data: bytes,
         *,
         content_length: int | None = None,
+        include_content_length: bool = True,
         headers: Mapping[str, str] | None = None,
         status: int = 200,
     ) -> None:
@@ -67,7 +68,7 @@ class _Response(BytesIO):
         self._headers = {
             key.casefold(): value for key, value in (headers or {}).items()
         }
-        if "content-length" not in self._headers:
+        if include_content_length and "content-length" not in self._headers:
             length = len(data) if content_length is None else content_length
             self._headers["content-length"] = str(length)
 
@@ -205,6 +206,76 @@ def test_download_verifies_provider_md5_and_writes_content_addressed_cache(
     assert index["sha256"] == expected_sha256
     assert index["size_bytes"] == len(data)
     assert index["terms"]["directory_terms_url"].endswith("/canFam3/vsCanFam4/")
+
+
+def test_fresh_download_reports_measured_transfer_progress(tmp_path: Path) -> None:
+    url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+        "canFam3.canFam4.net.gz"
+    )
+    checksum_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/md5sum.txt"
+    )
+    data = b"x" * (1024 * 1024 + 17)
+    events: list[tuple[int, int | None]] = []
+
+    result = _acquire_ucsc_resource(
+        url,
+        tmp_path,
+        terms_acknowledged=True,
+        progress_callback=lambda complete, total: events.append((complete, total)),
+        open_url=_opener(
+            {
+                checksum_url: _md5_line(data, "canFam3.canFam4.net.gz"),
+                url: data,
+            }
+        ),
+        now=_fixed_now,
+    )
+
+    assert result.size_bytes == len(data)
+    assert events[0] == (0, len(data))
+    assert events[-1] == (len(data), len(data))
+    assert [complete for complete, _ in events] == sorted(
+        complete for complete, _ in events
+    )
+
+
+def test_fresh_download_progress_preserves_unknown_content_length(
+    tmp_path: Path,
+) -> None:
+    url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+        "canFam3.canFam4.net.gz"
+    )
+    checksum_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/md5sum.txt"
+    )
+    data = b"response body with no content length"
+    events: list[tuple[int, int | None]] = []
+
+    def open_url(request: Request) -> _Response:
+        if request.full_url == checksum_url:
+            return _Response(_md5_line(data, "canFam3.canFam4.net.gz"))
+        if request.full_url != url:
+            raise HTTPError(request.full_url, 404, "not found", hdrs=Message(), fp=None)
+        if request.get_method() == "HEAD":
+            return _Response(b"", include_content_length=False)
+        return _Response(data, include_content_length=False)
+
+    result = _acquire_ucsc_resource(
+        url,
+        tmp_path,
+        terms_acknowledged=True,
+        progress_callback=lambda complete, total: events.append((complete, total)),
+        open_url=open_url,
+        now=_fixed_now,
+    )
+
+    assert result.size_bytes == len(data)
+    assert events[0] == (0, None)
+    assert events[-1] == (len(data), None)
+    assert all(total is None for _, total in events)
 
 
 def test_verified_cache_hit_is_offline_and_retains_original_provider_md5(
@@ -691,14 +762,20 @@ def test_interrupted_resumable_download_retains_prefix_and_resumes_with_if_range
             },
         )
 
+    progress_events: list[tuple[int, int | None]] = []
     result = _acquire_ucsc_resource(
         url,
         tmp_path,
         terms_acknowledged=True,
+        progress_callback=lambda complete, total: progress_events.append(
+            (complete, total)
+        ),
         open_url=second_open,
         now=_fixed_now,
     )
 
+    assert progress_events[0] == (len(prefix), len(data))
+    assert progress_events[-1] == (len(data), len(data))
     assert result.path.read_bytes() == data
     assert result.sha256 == f"sha256:{hashlib.sha256(data).hexdigest()}"
     assert not list((tmp_path / "partials").rglob("*.part"))
@@ -1530,7 +1607,9 @@ def test_bundle_transfer_plan_acknowledgement_precedes_any_resource_acquisition(
         *,
         terms_acknowledged: bool,
         refresh: bool = False,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> CachedResource:
+        del progress_callback
         raise AssertionError(
             f"resource acquisition must not start before plan acknowledgement: {url}"
         )
@@ -1560,7 +1639,9 @@ def test_comparative_bundle_acquisition_returns_only_after_all_roles_complete(
         *,
         terms_acknowledged: bool,
         refresh: bool = False,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> CachedResource:
+        del progress_callback
         calls.append((url, terms_acknowledged, refresh))
         return _cached_for_url(url, Path(cache_root), cache_hit=False)
 
@@ -1586,6 +1667,52 @@ def test_comparative_bundle_acquisition_returns_only_after_all_roles_complete(
     assert calls == [(item.url, True, True) for item in plan.items]
 
 
+def test_bundle_transfer_progress_binds_roles_and_marks_cache_hits(
+    tmp_path: Path,
+) -> None:
+    plan = plan_ucsc_bundle_acquisition(_comparative_bundle())
+    events: list[tuple[UCSCBundleResourceRole, int, int | None, bool]] = []
+    calls = 0
+
+    def acquire(
+        url: str,
+        cache_root: str | PathLike[str],
+        *,
+        terms_acknowledged: bool,
+        refresh: bool = False,
+        progress_callback: Callable[[int, int | None], None] | None = None,
+    ) -> CachedResource:
+        nonlocal calls
+        del terms_acknowledged, refresh
+        calls += 1
+        resource = _cached_for_url(url, Path(cache_root), cache_hit=calls == 1)
+        if not resource.cache_hit:
+            assert progress_callback is not None
+            progress_callback(0, resource.size_bytes)
+            progress_callback(resource.size_bytes, resource.size_bytes)
+        return resource
+
+    _acquire_ucsc_resource_bundle(
+        plan,
+        tmp_path,
+        transfer_plan_acknowledged=True,
+        terms_acknowledged=True,
+        refresh=False,
+        progress_callback=lambda role, complete, total, cache_hit: events.append(
+            (role, complete, total, cache_hit)
+        ),
+        acquire_resource=acquire,
+    )
+
+    assert events[0][0] is UCSCBundleResourceRole.CHAIN
+    assert events[0][3] is True
+    assert any(
+        role is UCSCBundleResourceRole.NET and complete == total and not cache_hit
+        for role, complete, total, cache_hit in events
+    )
+    assert {role for role, *_ in events} == {item.role for item in plan.items}
+
+
 def test_liftover_bundle_acquisition_returns_chain_only(tmp_path: Path) -> None:
     plan = plan_ucsc_bundle_acquisition(_liftover_bundle())
 
@@ -1595,7 +1722,9 @@ def test_liftover_bundle_acquisition_returns_chain_only(tmp_path: Path) -> None:
         *,
         terms_acknowledged: bool,
         refresh: bool = False,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> CachedResource:
+        del terms_acknowledged, refresh, progress_callback
         return _cached_for_url(url, Path(cache_root), cache_hit=True)
 
     result = _acquire_ucsc_resource_bundle(
@@ -1627,7 +1756,9 @@ def test_bundle_failure_propagates_without_returning_partial_bundle(
         *,
         terms_acknowledged: bool,
         refresh: bool = False,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> CachedResource:
+        del terms_acknowledged, refresh, progress_callback
         acquired_urls.append(url)
         if len(acquired_urls) == 3:
             raise UCSCResourceAcquisitionError("simulated third-resource failure")

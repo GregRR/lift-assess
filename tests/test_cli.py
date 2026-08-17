@@ -677,6 +677,160 @@ class _TTYStringIO(StringIO):
         return True
 
 
+def test_transfer_progress_display_is_resume_aware_and_marks_cache_hits() -> None:
+    plan = plan_ucsc_bundle_acquisition(_discovered_bundle())
+    stderr = _TTYStringIO()
+    display = cli._TransferProgressDisplay(plan, _inspection(), stderr=stderr)
+
+    display.start()
+    display.update(UCSCBundleResourceRole.CHAIN, 1024, 2048, False)
+    resumed = stderr.getvalue()
+    display.update(UCSCBundleResourceRole.CHAIN, 2048, 2048, True)
+
+    assert "50%" in resumed
+    assert "1.00 KiB / 2.00 KiB" in resumed
+    assert "cached (2.00 KiB)" in stderr.getvalue()
+
+
+def test_transfer_progress_display_handles_unknown_size_without_fake_percentage() -> (
+    None
+):
+    plan = plan_ucsc_bundle_acquisition(_discovered_bundle())
+    stderr = _TTYStringIO()
+    display = cli._TransferProgressDisplay(
+        plan,
+        _inspection(content_length_bytes=None),
+        stderr=stderr,
+    )
+
+    display.start()
+    display.update(UCSCBundleResourceRole.CHAIN, 512, None, False)
+
+    text = stderr.getvalue()
+    assert "512 B complete" in text
+    assert "100%" not in text
+
+
+def test_run_wires_measured_transfer_progress_on_tty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "discover_ucsc_resources",
+        lambda source, target: _discovered_bundle(),
+    )
+    monkeypatch.setattr(
+        cli,
+        "inspect_ucsc_bundle_transfer_plan",
+        lambda plan, *, terms_acknowledged: _inspection(),
+    )
+    cached = _cached_bundle(tmp_path)
+
+    def acquire(
+        plan: object,
+        cache_root: object,
+        **kwargs: object,
+    ) -> CachedUCSCResourceBundle:
+        del plan, cache_root
+        progress_callback = kwargs["progress_callback"]
+        assert callable(progress_callback)
+        progress_callback(UCSCBundleResourceRole.CHAIN, 0, 2048, False)
+        progress_callback(UCSCBundleResourceRole.CHAIN, 1024, 2048, False)
+        progress_callback(UCSCBundleResourceRole.CHAIN, 2048, 2048, False)
+        return cached
+
+    monkeypatch.setattr(cli, "acquire_ucsc_resource_bundle", acquire)
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--refresh",
+            "--acknowledge-ucsc-terms",
+            "--accept-transfer-plan",
+        ]
+    )
+    stderr = _TTYStringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    text = stderr.getvalue()
+    assert "Acquiring/verifying UCSC resources..." in text
+    assert "50%" in text
+    assert "1.00 KiB / 2.00 KiB" in text
+
+
+def test_transfer_progress_callback_is_suppressed_for_quiet_and_non_tty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "discover_ucsc_resources",
+        lambda source, target: _discovered_bundle(),
+    )
+    monkeypatch.setattr(
+        cli,
+        "inspect_ucsc_bundle_transfer_plan",
+        lambda plan, *, terms_acknowledged: _inspection(),
+    )
+    cached = _cached_bundle(tmp_path)
+    callbacks: list[object] = []
+
+    def acquire(
+        plan: object,
+        cache_root: object,
+        **kwargs: object,
+    ) -> CachedUCSCResourceBundle:
+        del plan, cache_root
+        callbacks.append(kwargs["progress_callback"])
+        return cached
+
+    monkeypatch.setattr(cli, "acquire_ucsc_resource_bundle", acquire)
+    base = [
+        _SOURCE_DB,
+        _TARGET_DB,
+        "chr1:101-120",
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--refresh",
+        "--acknowledge-ucsc-terms",
+        "--accept-transfer-plan",
+    ]
+
+    quiet_args = cli._build_parser().parse_args([*base, "--quiet"])
+    assert (
+        cli._run(
+            quiet_args,
+            stdin=StringIO(""),
+            stdout=StringIO(),
+            stderr=_TTYStringIO(),
+        )
+        == 0
+    )
+    non_tty_args = cli._build_parser().parse_args(base)
+    assert (
+        cli._run(
+            non_tty_args,
+            stdin=StringIO(""),
+            stdout=StringIO(),
+            stderr=StringIO(),
+        )
+        == 0
+    )
+
+    assert callbacks == [None, None]
+
+
 def test_cache_verification_progress_display_waits_for_integrity_success() -> None:
     stderr = _TTYStringIO()
     display = cli._CacheVerificationProgressDisplay(stderr=stderr)

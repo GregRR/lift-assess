@@ -543,7 +543,7 @@ For automatic UCSC runs, the CLI supplies one conservative source/target-pair li
 
 The first real CLI smoke run completed 2026-08-16 against the external `canFam3`→`canFam4` comparative cache at source display locus `chrUn_JH373233:1845736-1845835` (canonical internal interval `1845735-1845835`). The command reported `COMPARATIVE`, 170 candidates, and `CONTESTED`, matching the established candidate count from the mechanical fixture. This is an end-to-end software result, not biological ground truth; the independent verifier cross-check of the deterministic verdict is maintained separately.
 
-Expert users can still use the library boundaries with explicitly supplied resources/provenance. Engine selection becomes a real option only once a second engine exists — v1 has exactly one (§7). Human-readable `--details` output and schema-versioned `--json` output are implemented against the same report model.
+Expert users can still use the library boundaries with explicitly supplied resources/provenance. Engine selection becomes a real option only once a second engine exists — v1 has exactly one (§7). Human-readable `--details` output and schema-versioned `--json` output are implemented against the same report model. Interactive CLI acquisition progress is measured from exact resource bytes: fresh downloads begin at zero, validator-bound resumptions begin at the retained prefix, verified cache hits are labeled as cache reuse rather than transfer, and unknown-length bodies remain byte-only instead of receiving a fabricated percentage. The transfer display reuses the same progress-row/byte-formatting primitives as cache-verification and assessment progress and is suppressed by `--quiet` or non-TTY stderr. Transfer 100% means the provider response bytes are complete; checksum verification/private-snapshot finalization can still continue before the resource is published into the immutable cache.
 
 ## 10. Validation strategy — two fixtures, different jobs
 
@@ -629,4 +629,3 @@ anything now.
   fixture.
 - Decide the source for optional flanking-gene synteny context (e.g. Ensembl Compara) and its
   fallback behavior when no ortholog table exists for a species pair.
-- Add **download/transfer** progress reporting suitable for large/resumable comparative acquisitions. Assessment-read progress is now measured from exact compressed bytes consumed during parsing, but byte-level/resume-aware progress while downloading remains open.
