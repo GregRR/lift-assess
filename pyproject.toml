@@ -8,6 +8,9 @@ version = "0.0.0"
 description = "Evidence-based assessment of ambiguous genomic coordinate liftover candidates"
 requires-python = ">=3.11"
 
+[project.scripts]
+assess-liftover = "liftassess.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

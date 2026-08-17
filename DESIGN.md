@@ -520,9 +520,11 @@ CLI target for the common case:
 ```
 assess-liftover canFam3 canFam4 chr16:12345-12400
 ```
-Everything else (resource discovery, evidence tier, candidate generation) happens automatically.
-Expert users can override resources explicitly. Engine selection becomes a real option only once
-a second engine exists — v1 has exactly one (§7).
+The common-case command now composes resource discovery, explicit UCSC-terms review, body-free HEAD inspection of the exact transfer plan, a separate transfer-plan acknowledgement, cached acquisition, candidate/evidence generation, assessment, and concise rendering. Interactive acknowledgements are the default; explicit acknowledgement flags support non-interactive runs without weakening the two separate gates. `--refresh` forces provider reacquisition, `--cache-dir` overrides the user cache, and `--quiet` suppresses nonessential high-level progress. The platform defaults are `~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` (falling back to `~/.cache/liftassess`) elsewhere.
+
+For automatic UCSC runs, the CLI supplies one conservative source/target-pair lineage node as the shared upstream dependency of consumed UCSC files. This is intentionally a dependency-grouping statement, not a reconstruction of the provider's exact alignment/process history from downloaded bytes. Exact consumed-file identity remains represented by the SHA-256-addressed child provenance nodes. This conservative grouping prevents chain/net/reciprocal-best observations from being presented as independent confirmation without claiming more process knowledge than the CLI has.
+
+Expert users can still use the library boundaries with explicitly supplied resources/provenance. Engine selection becomes a real option only once a second engine exists — v1 has exactly one (§7). Detailed `--details`/JSON output remains unresolved below.
 
 ## 10. Validation strategy — two fixtures, different jobs
 
@@ -606,7 +608,6 @@ anything now.
 - Decide the exact `--details` / JSON schema.
 - Decide the source for optional flanking-gene synteny context (e.g. Ensembl Compara) and its
   fallback behavior when no ortholog table exists for a species pair.
-- Choose the future CLI's default cache location, refresh/progress controls, and user-facing transfer
-  confirmation around large comparative bundles. Measured HEAD preflight, restart-safe resumable HTTPS
-  acquisition, and a cached-bundle-to-engine bridge now exist; final retrieval metadata presentation belongs
-  with the assessment/report orchestration rather than the acquisition layer.
+- Add transfer-progress reporting suitable for large/resumable comparative downloads. The CLI now has
+  platform user-cache defaults, `--cache-dir`, `--refresh`, suppressible high-level status, terms-gated HEAD
+  preflight, and separate transfer-plan confirmation; detailed byte-level/resume-aware progress remains open.

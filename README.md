@@ -75,11 +75,11 @@ The current development code includes:
 
 ## Not implemented yet
 
-The project is not yet an end-to-end user tool. Major v1 work still includes:
+The project now implements the common-case CLI and concise summary path, but the full real comparative CLI smoke verification is still pending. Major v1 work still includes:
 
-- a future CLI/user-cache default (the library currently requires an explicit caller-supplied cache root);
-- the command-line interface;
-- human-readable summary and detailed/JSON reports;
+- a real end-to-end CLI smoke verification against the established external `canFam3`→`canFam4` comparative fixture;
+- detailed/JSON evidence dossiers with full provenance and resource metadata;
+- transfer-progress reporting appropriate for large/resumable comparative downloads;
 - a future truth-bearing historical-resolution locus for the planned `canFam3.1`→`canFam6` sanity-check pedigree;
 - optional flanking-gene orthology/synteny evidence;
 - a defensible definition of candidate-rank and target-placement evidence where those concepts can be supported without inventing unsupported heuristics.
@@ -123,24 +123,21 @@ Chains and nets have different responsibilities:
 
 Net availability is therefore not required for basic chain-backed candidate generation.
 
-## Planned user workflow
+## CLI workflow
 
-The intended common-case interface is approximately:
+From a development checkout, the common-case command is:
 
 ```text
-assess-liftover canFam3 canFam4 chr16:12345-12400
+uv run assess-liftover canFam3 canFam4 chr16:12345-12400
 ```
 
-This is a **planned interface**, not a currently released command.
+CLI loci use the familiar UCSC-style 1-based, inclusive display convention and are converted immediately to liftAssess's canonical 0-based, half-open internal representation.
 
-CLI-typed loci are intended to use the familiar UCSC-style 1-based, inclusive display convention and be converted immediately to liftAssess's canonical 0-based, half-open internal representation.
+Before resource acquisition, the command displays the applicable UCSC terms and requires explicit acknowledgement. It then performs body-free HEAD inspection of the exact transfer plan, displays provider-advertised resource sizes and the cache destination, and requires a separate transfer-plan acknowledgement before downloading or verifying cached resources. The displayed size is the provider resource-set size, not a promise that all bytes will be transferred: verified cache hits can avoid body transfer unless `--refresh` is used. `--acknowledge-ucsc-terms` and `--accept-transfer-plan` provide explicit non-interactive acknowledgements; `--cache-dir`, `--refresh`, and `--quiet` control cache placement, refresh behavior, and high-level progress output.
 
-The final report is intended to provide two levels of output:
+The default cache is the platform user cache (`~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` or `~/.cache/liftassess` on other platforms).
 
-1. a concise summary with the verdict, candidates, and major evidence;
-2. a detailed dossier/JSON representation with provenance, dependencies, chain/net details, checksums, and coordinate conventions.
-
-Every report should make clear that evidentiary support is not proof of biological correctness.
+The current command emits the concise assessment summary. Detailed dossier/JSON output remains planned. Every summary makes clear that evidentiary support is not proof of biological correctness.
 
 ## Validation strategy
 

@@ -20,7 +20,7 @@ The project now has an integrated UCSC evidence pipeline plus a completed real c
 - run a reviewed deterministic assessor over normalized coverage and reciprocal-best evidence without a numeric score;
 - and compose a complete cached UCSC bundle through candidate/evidence generation and the assessor into an auditable assessment report.
 
-The routine automated suite contains **234 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
+The routine automated suite contains **265 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
 The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. liftAssess still does not provide the planned CLI and user-facing report workflow, so verdict assignment remains development behavior rather than a released scientific interface.
 
@@ -344,7 +344,7 @@ Implemented and reviewed:
 - expose provenance/dependency detail sufficient for scientific audit;
 - surface cached retrieval metadata (source URLs, retrieval timestamps, provider checksum metadata, and terms references) alongside file/evidence provenance without claiming that unconsumed bundle resources were assessed.
 
-### 15. CLI and user-facing reports
+### 15. CLI and user-facing reports — in progress
 
 Implement the planned common-case workflow:
 
@@ -352,17 +352,21 @@ Implement the planned common-case workflow:
 assess-liftover canFam3 canFam4 chr16:12345-12400
 ```
 
-Required behavior:
+Implemented so far:
 
-- CLI locus strings use UCSC-style 1-based, inclusive display coordinates;
-- conversion to 0-based, half-open occurs explicitly at the boundary;
-- plain-language evidence-availability tier is shown before interpretation;
-- default output is concise;
-- `--details` exposes the evidence dossier;
-- JSON output preserves coordinates, provenance, dependencies, resource hashes, and verdict semantics;
-- choose the OS/user cache default plus refresh/progress controls and explicit confirmation for large comparative transfers, while retaining caller-supplied cache roots in the library API.
+- UCSC database identifiers and CLI loci are parsed at an explicit boundary, with 1-based inclusive display coordinates converted immediately to canonical 0-based half-open intervals;
+- concise human-readable summaries show evidence availability before verdict interpretation and always retain the biological-correctness caveat;
+- the `assess-liftover` console entry point now composes discovery, terms review, HEAD transfer inspection, separate transfer-plan acknowledgement, cached acquisition, assessment orchestration, and summary rendering;
+- the CLI chooses a platform user-cache default while preserving `--cache-dir`, supports `--refresh`, and provides suppressible high-level progress with `--quiet`;
+- interactive acknowledgements are the default, with explicit `--acknowledge-ucsc-terms` and `--accept-transfer-plan` flags for non-interactive use;
+- automatic UCSC runs use a conservative pair-level shared lineage node only for provenance dependency grouping, while exact consumed-file identity remains SHA-256-addressed beneath it.
 
-The README should gain real installation/usage examples only when these commands actually work.
+Remaining:
+
+- `--details` evidence-dossier output;
+- JSON output preserving coordinates, provenance, dependencies, resource hashes, and verdict semantics;
+- transfer-progress reporting suitable for large/resumable downloads;
+- a real CLI smoke verification against the established external `canFam3`→`canFam4` comparative fixture before the milestone is marked complete.
 
 ### 16. First public alpha milestone
 
