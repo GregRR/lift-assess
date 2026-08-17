@@ -26,6 +26,11 @@ from .models import (
     ReciprocalBestResourceCompleteness,
     Verdict,
 )
+from .orchestration import (
+    UCSCAssessmentReport,
+    UCSCAssessmentResource,
+    assess_ucsc_cached_bundle,
+)
 from .resource_cache import (
     CachedResource,
     CachedUCSCResourceBundle,
@@ -97,6 +102,8 @@ __all__ = [
     "ResourceChecksumAlgorithm",
     "ResourceChecksumMismatchError",
     "ResourceIdentityMismatchError",
+    "UCSCAssessmentReport",
+    "UCSCAssessmentResource",
     "UCSCBundleAcquisitionItem",
     "UCSCBundleAcquisitionPlan",
     "UCSCBundleAcquisitionPlanAcknowledgementRequired",
@@ -114,6 +121,7 @@ __all__ = [
     "acquire_ucsc_resource",
     "acquire_ucsc_resource_bundle",
     "assess_candidates",
+    "assess_ucsc_cached_bundle",
     "build_ucsc_candidates",
     "build_ucsc_candidates_from_cached_bundle",
     "build_ucsc_candidates_from_files",

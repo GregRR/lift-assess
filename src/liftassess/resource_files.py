@@ -36,7 +36,11 @@ from .models import (
     ReciprocalBestResourceCompleteness,
 )
 from .net import NetRecord, iter_net_records
-from .resource_cache import CachedResource, CachedUCSCResourceBundle
+from .resource_cache import (
+    CachedResource,
+    CachedUCSCResourceBundle,
+    UCSCBundleResourceRole,
+)
 from .resource_identity import (
     ResourceIdentityMismatchError,
     _sha256_checksum_from_file_provenance,
@@ -206,10 +210,11 @@ def build_ucsc_candidates_from_cached_bundle(
         target_assembly=target_assembly,
     )
 
-    chain_provenance = _provenance_for_cached_resource(
+    chain_provenance = _cached_bundle_resource_provenance(
+        bundle,
+        UCSCBundleResourceRole.CHAIN,
         bundle.chain,
-        label=f"UCSC {bundle.source_db}→{bundle.target_db} chain resource",
-        derived_from=(alignment_provenance,),
+        alignment_provenance=alignment_provenance,
     )
 
     if bundle.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
@@ -226,17 +231,17 @@ def build_ucsc_candidates_from_cached_bundle(
     assert bundle.net is not None
     assert bundle.reciprocal_best_chain is not None
 
-    net_provenance = _provenance_for_cached_resource(
+    net_provenance = _cached_bundle_resource_provenance(
+        bundle,
+        UCSCBundleResourceRole.NET,
         bundle.net,
-        label=f"UCSC {bundle.source_db}→{bundle.target_db} net resource",
-        derived_from=(alignment_provenance,),
+        alignment_provenance=alignment_provenance,
     )
-    reciprocal_best_provenance = _provenance_for_cached_resource(
+    reciprocal_best_provenance = _cached_bundle_resource_provenance(
+        bundle,
+        UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN,
         bundle.reciprocal_best_chain,
-        label=(
-            f"UCSC {bundle.source_db}→{bundle.target_db} reciprocal-best chain resource"
-        ),
-        derived_from=(alignment_provenance,),
+        alignment_provenance=alignment_provenance,
     )
 
     # Passing a CachedUCSCResourceBundle is the caller's claim that these cache
@@ -284,6 +289,38 @@ def _assembly_represents_ucsc_db(
     """Match only an explicitly recorded UCSC db name/alias; do no alias resolution."""
 
     return db == assembly.name or db in assembly.aliases
+
+
+def _cached_bundle_resource_provenance(
+    bundle: CachedUCSCResourceBundle,
+    role: UCSCBundleResourceRole,
+    resource: CachedResource,
+    *,
+    alignment_provenance: ProvenanceSource,
+) -> ProvenanceSource:
+    """Build the canonical file-provenance node for one consumed bundle resource.
+
+    Candidate evidence and assessment reporting must refer to the same structural
+    provenance node for the same cached bytes. Keeping the role-specific labels here
+    prevents the two boundaries from silently drifting apart.
+    """
+
+    if role is UCSCBundleResourceRole.CHAIN:
+        label = f"UCSC {bundle.source_db}→{bundle.target_db} chain resource"
+    elif role is UCSCBundleResourceRole.NET:
+        label = f"UCSC {bundle.source_db}→{bundle.target_db} net resource"
+    elif role is UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN:
+        label = (
+            f"UCSC {bundle.source_db}→{bundle.target_db} reciprocal-best chain resource"
+        )
+    else:
+        raise ValueError("bundle resource role is not consumed by the v1 engine")
+
+    return _provenance_for_cached_resource(
+        resource,
+        label=label,
+        derived_from=(alignment_provenance,),
+    )
 
 
 def _provenance_for_cached_resource(
