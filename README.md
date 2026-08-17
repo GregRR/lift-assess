@@ -2,7 +2,7 @@
 
 **liftAssess** evaluates ambiguous genomic coordinate liftOver mappings using transparent, provenance- and dependency-aware evidence, reporting whether mappings are **well supported**, **contested**, or **indeterminate**.
 
-> **Status:** Active development. Core candidate-generation and evidence-extraction components are implemented and tested, and an initial deterministic assessor is under focused review. The end-to-end assessment pipeline, CLI, and final reporting layer are still under construction.
+> **Status:** Active development. Core candidate-generation, evidence-extraction, and deterministic assessor components are implemented, reviewed, and tested. The end-to-end assessment pipeline, CLI, and final reporting layer are still under construction.
 
 ## Why liftAssess exists
 
@@ -70,7 +70,7 @@ The current development code includes:
   `Range` + `If-Range`, while contract mismatches restart fresh rather than splicing representations;
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
 - a real `canFam3`→`canFam4` comparative mechanical fixture, replayed through the production cached-bundle path from exact externally cached UCSC resources without committing provider data to the repository.
-- an initial deterministic assessor core, currently under focused review, that assigns the three v1 verdicts from categorical mapping-coverage and reciprocal-best evidence without a numeric score.
+- a reviewed deterministic assessor core that assigns the three v1 verdicts from categorical mapping-coverage and reciprocal-best evidence without a numeric score.
 
 ## Not implemented yet
 

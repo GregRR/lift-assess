@@ -17,11 +17,11 @@ The project now has an integrated UCSC evidence pipeline plus a completed real c
 - discover, inspect, acquire, cache, resume, and integrity-check UCSC comparative and liftOver-only resources;
 - bridge a complete cached resource bundle directly into the file-backed candidate/evidence engine;
 - reproduce a measured `canFam3`→`canFam4` comparative fixture through that production cached-bundle path while keeping all multi-gigabyte provider resources outside the repository;
-- and run an initial deterministic assessor implementation, currently under focused review, over normalized coverage and reciprocal-best evidence without a numeric score.
+- and run a reviewed deterministic assessor over normalized coverage and reciprocal-best evidence without a numeric score.
 
-The routine automated suite contains **216 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
+The routine automated suite contains **226 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
-The deterministic assessor semantics are still under focused review, and liftAssess does not yet provide the planned assessment/report/CLI workflow. Verdict assignment should therefore still be treated as development behavior rather than a released scientific interface.
+The deterministic assessor milestone is complete and reviewed. liftAssess still does not provide the planned assessment/report/CLI workflow, so verdict assignment remains development behavior rather than a released scientific interface.
 
 ## Implementation history
 
@@ -288,11 +288,11 @@ Full comparative fixture verification completed 2026-08-16 through the public `b
 
 The reproducible verifier is `scripts/verify_canFam3_canFam4_mechanical_fixture.py`. It requires the already-acquired external cache and deliberately does not download or commit UCSC bulk resources. This completes the mechanical comparative fixture milestone; the next implementation milestone is the assessor core and deterministic verdict logic.
 
-### 13. Assessor core and deterministic verdict logic — implementation in review
+### 13. Assessor core and deterministic verdict logic — complete
 
 This is the largest remaining scientific implementation milestone.
 
-The first deterministic assessor slice is now implemented for review. It transforms normalized
+The deterministic assessor core is implemented and reviewed. It transforms normalized
 candidates plus provenance-aware evidence into exactly one of `WELL_SUPPORTED`, `CONTESTED`, or
 `INDETERMINATE` without a numeric score or biological-correctness claim.
 
