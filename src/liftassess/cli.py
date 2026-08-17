@@ -24,9 +24,10 @@ from typing import TextIO
 from .cli_input import parse_ucsc_locus, ucsc_assembly_identifier
 from .models import EvidenceAvailabilityTier, ProvenanceSource
 from .orchestration import assess_ucsc_cached_bundle
-from .reporting import render_assessment_summary
+from .reporting import render_assessment_details, render_assessment_summary
 from .resource_cache import (
     CachedUCSCResourceBundle,
+    CacheVerificationProgressCallback,
     UCSCBundleAcquisitionPlan,
     UCSCBundleResourceRole,
     UCSCBundleTransferInspection,
@@ -114,6 +115,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--details",
+        action="store_true",
+        help="emit the full evidence, resource, and provenance dossier",
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help=(
@@ -143,11 +149,24 @@ def _run(
             quiet=args.quiet,
             stderr=stderr,
         )
-        cached_bundle = load_cached_ucsc_resource_bundle(
-            cache_root,
-            args.source_db,
-            args.target_db,
-        )
+        cache_progress_display = _CacheVerificationProgressDisplay(stderr=stderr)
+        cache_progress_callback: CacheVerificationProgressCallback | None = None
+        if not args.quiet and _is_interactive_terminal(stderr):
+            cache_progress_callback = cache_progress_display.update
+
+        if cache_progress_callback is None:
+            cached_bundle = load_cached_ucsc_resource_bundle(
+                cache_root,
+                args.source_db,
+                args.target_db,
+            )
+        else:
+            cached_bundle = load_cached_ucsc_resource_bundle(
+                cache_root,
+                args.source_db,
+                args.target_db,
+                progress_callback=cache_progress_callback,
+            )
         if cached_bundle is not None:
             _status(
                 "Using verified cached "
@@ -195,7 +214,12 @@ def _run(
         progress_display.finish(
             candidates_exist=bool(report.assessment.candidates),
         )
-    print(render_assessment_summary(report.assessment), file=stdout)
+    rendered = (
+        render_assessment_details(report)
+        if args.details
+        else render_assessment_summary(report.assessment)
+    )
+    print(rendered, file=stdout)
     return 0
 
 
@@ -316,6 +340,50 @@ _PROGRESS_LABELS = {
 }
 
 
+class _CacheVerificationProgressDisplay:
+    """Render one aggregate row for measured cached-artifact SHA-256 work."""
+
+    def __init__(self, *, stderr: TextIO) -> None:
+        self._stderr = stderr
+        self._started = False
+        self._last_percent = -1
+        self._last_complete = False
+
+    def update(
+        self,
+        bytes_hashed: int,
+        total_bytes: int,
+        complete: bool,
+    ) -> None:
+        bounded_total = max(total_bytes, 0)
+        bounded_hashed = min(max(bytes_hashed, 0), bounded_total)
+        percent = _progress_percent(bounded_hashed, bounded_total)
+        if not complete and percent == 100:
+            # Reading the final byte is not the same as validating the expected digest.
+            # Hold the visual completion state until the cache loader confirms that
+            # every required artifact passed its SHA-256 identity check.
+            percent = 99
+        if percent == self._last_percent and complete == self._last_complete:
+            return
+
+        if self._started:
+            self._stderr.write("\x1b[1A")
+        self._stderr.write("\x1b[2K")
+        self._stderr.write(
+            _progress_row(
+                "Cache verification",
+                bytes_read=bounded_hashed,
+                total_bytes=bounded_total,
+                percent_override=percent,
+            )
+        )
+        self._stderr.write("\n")
+        self._stderr.flush()
+        self._started = True
+        self._last_percent = percent
+        self._last_complete = complete
+
+
 class _AssessmentProgressDisplay:
     """Render measured raw-byte progress for resources consumed by assessment."""
 
@@ -398,10 +466,15 @@ def _progress_row(
     bytes_read: int,
     total_bytes: int,
     not_used: bool = False,
+    percent_override: int | None = None,
 ) -> str:
     if not_used:
         return f"  {label:<18} [{'—' * _PROGRESS_BAR_WIDTH}]  --   not used"
-    percent = _progress_percent(bytes_read, total_bytes)
+    percent = (
+        _progress_percent(bytes_read, total_bytes)
+        if percent_override is None
+        else min(100, max(0, percent_override))
+    )
     filled = min(_PROGRESS_BAR_WIDTH, percent * _PROGRESS_BAR_WIDTH // 100)
     bar = "█" * filled + "-" * (_PROGRESS_BAR_WIDTH - filled)
     if bytes_read == 0:

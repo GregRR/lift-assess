@@ -513,8 +513,7 @@ Why:
 This does not establish biological correctness.
 ```
 
-**Detail (via `--details` or JSON):** full provenance, chain IDs, net hierarchy, evidence
-dependency notes (what shares a source with what), checksums.
+**Detail (`--details`):** full human-readable dossier with chain IDs, exact mapped segments, every evidence observation, categorical supporting/contradicting/context roles, net hierarchy, resource retrieval/checksum context, consumed-vs-unconsumed resource status, and the complete provenance dependency graph. Candidate encounter order is preserved for reproducibility but is not presented as rank. Provenance edges state dependence, not independent confirmation. JSON must preserve the same distinctions when added.
 
 CLI target for the common case:
 ```
@@ -524,11 +523,13 @@ The common-case command is cache-first. A complete locally indexed bundle is re-
 
 Interactive assessment progress is measured from the exact compressed artifact bytes simultaneously streamed through SHA-256 verification into parsing. The CLI displays separate Chain, Net, and Reciprocal-best rows with a visual bar, numeric percentage, and measured bytes; pending resources remain visibly pending until consumed. The display is terminal-only and is suppressed by `--quiet`, so redirected output is not flooded with progress updates. This is assessment-read progress, not an estimate of biological or algorithmic completion.
 
+Interactive cache verification likewise exposes measured work rather than leaving a multi-gigabyte SHA-256 pass behind a static status line. While validating a candidate cached bundle, the CLI displays one aggregate verification row based on the actual artifact bytes hashed across the required bundle, with a visual bar, numeric percentage, and verified/total bytes. It reuses the same progress-row rendering and byte-formatting primitives as assessment progress, is terminal-only, is suppressed by `--quiet`, has no ETA, and reaches 100% only after every required cached artifact has passed integrity verification.
+
 For automatic UCSC runs, the CLI supplies one conservative source/target-pair lineage node as the shared upstream dependency of consumed UCSC files. This is intentionally a dependency-grouping statement, not a reconstruction of the provider's exact alignment/process history from downloaded bytes. Exact consumed-file identity remains represented by the SHA-256-addressed child provenance nodes. This conservative grouping prevents chain/net/reciprocal-best observations from being presented as independent confirmation without claiming more process knowledge than the CLI has.
 
 The first real CLI smoke run completed 2026-08-16 against the external `canFam3`→`canFam4` comparative cache at source display locus `chrUn_JH373233:1845736-1845835` (canonical internal interval `1845735-1845835`). The command reported `COMPARATIVE`, 170 candidates, and `CONTESTED`, matching the established candidate count from the mechanical fixture. This is an end-to-end software result, not biological ground truth; the independent verifier cross-check of the deterministic verdict is maintained separately.
 
-Expert users can still use the library boundaries with explicitly supplied resources/provenance. Engine selection becomes a real option only once a second engine exists — v1 has exactly one (§7). Detailed `--details`/JSON output remains unresolved below.
+Expert users can still use the library boundaries with explicitly supplied resources/provenance. Engine selection becomes a real option only once a second engine exists — v1 has exactly one (§7). Human-readable `--details` output is implemented; stable JSON output remains unresolved below.
 
 ## 10. Validation strategy — two fixtures, different jobs
 

@@ -128,6 +128,27 @@ def test_compute_sha256_returns_raw_lowercase_hex(tmp_path: Path) -> None:
     assert not checksum.startswith("sha256:")
 
 
+def test_compute_checksum_reports_exact_bytes_hashed(tmp_path: Path) -> None:
+    path = tmp_path / "resource.net"
+    data = b"abcdef" * 10
+    path.write_bytes(data)
+    progress: list[tuple[int, int]] = []
+
+    checksum = compute_resource_checksum(
+        path,
+        ResourceChecksumAlgorithm.SHA256,
+        progress_callback=lambda hashed, total: progress.append((hashed, total)),
+    )
+
+    assert checksum == hashlib.sha256(data).hexdigest()
+    assert progress[0] == (0, len(data))
+    assert progress[-1] == (len(data), len(data))
+    assert all(total == len(data) for _, total in progress)
+    assert [hashed for hashed, _ in progress] == sorted(
+        hashed for hashed, _ in progress
+    )
+
+
 def test_sha256_provenance_identifier_requires_canonical_form() -> None:
     with pytest.raises(ValueError, match="canonical"):
         ProvenanceIdentifier(ProvenanceIdentifierKind.SHA256, "a" * 64)

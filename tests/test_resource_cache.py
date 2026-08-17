@@ -1343,6 +1343,116 @@ def test_cached_bundle_loader_prefers_complete_comparative_bundle(
     assert result.reciprocal_best_net.cache_hit is True
 
 
+def test_cached_bundle_loader_reports_aggregate_sha256_verification_progress(
+    tmp_path: Path,
+) -> None:
+    bundle = _comparative_bundle()
+    resources = tuple(
+        (url, f"resource-{index}".encode())
+        for index, url in enumerate(
+            (
+                bundle.chain_url,
+                bundle.net_url,
+                bundle.syntenic_net_url,
+                bundle.reciprocal_best_chain_url,
+                bundle.reciprocal_best_net_url,
+            )
+        )
+        if url is not None
+    )
+    for url, data in resources:
+        _publish_cached_index_entry(tmp_path, url, data)
+    expected_total = sum(len(data) for _, data in resources)
+    progress: list[tuple[int, int, bool]] = []
+
+    result = load_cached_ucsc_resource_bundle(
+        tmp_path,
+        "canFam3",
+        "canFam4",
+        progress_callback=lambda hashed, total, complete: progress.append(
+            (hashed, total, complete)
+        ),
+    )
+
+    assert result is not None
+    assert result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+    assert progress[0] == (0, expected_total, False)
+    assert progress[-1] == (expected_total, expected_total, True)
+    assert all(not complete for _, _, complete in progress[:-1])
+    assert all(total == expected_total for _, total, _ in progress)
+    assert [hashed for hashed, _, _ in progress] == sorted(
+        hashed for hashed, _, _ in progress
+    )
+
+
+def test_incomplete_cached_bundle_reports_hashing_before_missing_role(
+    tmp_path: Path,
+) -> None:
+    bundle = _comparative_bundle()
+    urls = (
+        bundle.chain_url,
+        bundle.net_url,
+        bundle.syntenic_net_url,
+        bundle.reciprocal_best_chain_url,
+    )
+    resources = tuple(
+        (url, f"resource-{index}".encode())
+        for index, url in enumerate(urls)
+        if url is not None
+    )
+    for url, data in resources:
+        _publish_cached_index_entry(tmp_path, url, data)
+    expected_total = sum(len(data) for _, data in resources)
+    progress: list[tuple[int, int, bool]] = []
+
+    result = load_cached_ucsc_resource_bundle(
+        tmp_path,
+        "canFam3",
+        "canFam4",
+        progress_callback=lambda hashed, total, complete: progress.append(
+            (hashed, total, complete)
+        ),
+    )
+
+    assert result is None
+    assert progress[0] == (0, expected_total, False)
+    assert progress[-1] == (expected_total, expected_total, False)
+    assert all(not complete for _, _, complete in progress)
+    assert all(total == expected_total for _, total, _ in progress)
+
+
+def test_cached_bundle_loader_never_marks_corrupt_cache_verification_complete(
+    tmp_path: Path,
+) -> None:
+    liftover = _liftover_bundle()
+    data = b"liftover chain"
+    _publish_cached_index_entry(tmp_path, liftover.chain_url, data)
+    index_path = next((tmp_path / "by-url").glob("*.json"))
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    digest = payload["sha256"]
+    artifact = tmp_path / "artifacts" / "sha256" / digest[:2] / digest
+    artifact.write_bytes(b"changed bytes")
+    # Preserve the indexed size so the SHA-256 check, rather than the cheap size check,
+    # is what rejects the candidate.
+    payload["size_bytes"] = len(b"changed bytes")
+    index_path.write_text(json.dumps(payload), encoding="utf-8")
+    progress: list[tuple[int, int, bool]] = []
+
+    result = load_cached_ucsc_resource_bundle(
+        tmp_path,
+        "canFam3",
+        "canFam4",
+        progress_callback=lambda hashed, total, complete: progress.append(
+            (hashed, total, complete)
+        ),
+    )
+
+    assert result is None
+    assert progress
+    assert progress[-1][0] == progress[-1][1]
+    assert progress[-1][2] is False
+
+
 def test_cached_bundle_loader_falls_back_to_complete_liftover_bundle(
     tmp_path: Path,
 ) -> None:

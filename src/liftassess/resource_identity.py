@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from enum import Enum
 from os import PathLike
 from pathlib import Path
@@ -30,6 +30,7 @@ from .models import (
 )
 
 ResourcePath: TypeAlias = str | PathLike[str]
+ResourceChecksumProgressCallback: TypeAlias = Callable[[int, int], None]
 
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 _CHUNK_SIZE = 1024 * 1024
@@ -59,13 +60,30 @@ class _Digest(Protocol):
 def compute_resource_checksum(
     path: ResourcePath,
     algorithm: ResourceChecksumAlgorithm,
+    *,
+    progress_callback: ResourceChecksumProgressCallback | None = None,
 ) -> str:
-    """Return a lowercase hexadecimal checksum of the exact local file bytes."""
+    """Return a lowercase hexadecimal checksum of the exact local file bytes.
+
+    When supplied, ``progress_callback`` receives the cumulative raw bytes hashed and
+    the exact on-disk file size.  The callback reports checksum work only; callers that
+    compare the resulting digest with an expected identity remain responsible for
+    deciding when integrity verification has actually succeeded.
+    """
+
+    resource_path = Path(path)
+    total_bytes = resource_path.stat().st_size
+    bytes_hashed = 0
+    if progress_callback is not None:
+        progress_callback(0, total_bytes)
 
     digest = _new_digest(algorithm)
-    with Path(path).open("rb") as handle:
+    with resource_path.open("rb") as handle:
         while chunk := handle.read(_CHUNK_SIZE):
             digest.update(chunk)
+            bytes_hashed += len(chunk)
+            if progress_callback is not None:
+                progress_callback(bytes_hashed, total_bytes)
     return digest.hexdigest()
 
 

@@ -56,6 +56,7 @@ from .resource_identity import (
 from .resources import UCSCResourceBundle
 
 ResourcePath: TypeAlias = str | os.PathLike[str]
+CacheVerificationProgressCallback: TypeAlias = Callable[[int, int, bool], None]
 
 _UCSC_HOSTS = frozenset({"hgdownload.soe.ucsc.edu", "hgdownload.gi.ucsc.edu"})
 _UCSC_LICENSE_URL = "https://genome.ucsc.edu/license/"
@@ -137,6 +138,17 @@ class CachedResource:
     provider_checksum: ProviderChecksum | None
     terms: UCSCResourceTerms
     cache_hit: bool
+
+
+@dataclass(frozen=True)
+class _CachedResourceIndexEntry:
+    """Structurally valid cache-index metadata awaiting SHA-256 verification."""
+
+    artifact_path: Path
+    retrieved_at: str
+    sha256_hex: str
+    size_bytes: int
+    provider_checksum: ProviderChecksum | None
 
 
 @dataclass(frozen=True)
@@ -575,6 +587,8 @@ def load_cached_ucsc_resource_bundle(
     cache_root: ResourcePath,
     source_db: str,
     target_db: str,
+    *,
+    progress_callback: CacheVerificationProgressCallback | None = None,
 ) -> CachedUCSCResourceBundle | None:
     """Load the best complete verified bundle already present in a local cache.
 
@@ -582,6 +596,12 @@ def load_cached_ucsc_resource_bundle(
     the URL indexes written at acquisition time, re-verifies each selected artifact's
     size and SHA-256, and prefers a complete ``COMPARATIVE`` bundle over a
     ``LIFTOVER_ONLY`` chain when both are present.
+
+    When supplied, ``progress_callback`` reports aggregate SHA-256 verification work as
+    ``(bytes_hashed, total_bytes, complete)``. ``complete`` becomes true only after all
+    required artifacts in the returned bundle have passed their expected SHA-256
+    identity checks; hashing the last byte alone is therefore not reported as successful
+    bundle verification.
 
     The returned evidence tier describes the exact cached resources available for
     assessment. It is deliberately not a claim that UCSC still publishes the same
@@ -611,17 +631,28 @@ def load_cached_ucsc_resource_bundle(
             continue
         candidates.setdefault(binding, []).append((index_path, source_url))
 
+    verification = _CacheVerificationTracker(progress_callback)
+    comparative_plan = _cache_verification_plan(
+        root,
+        candidates,
+        EvidenceAvailabilityTier.COMPARATIVE,
+    )
+    comparative_verification = verification if comparative_plan else None
+    if comparative_verification is not None:
+        comparative_verification.start_attempt(comparative_plan)
+
     comparative: dict[UCSCBundleResourceRole, CachedResource] = {}
     for role in _bundle_roles_for_tier(EvidenceAvailabilityTier.COMPARATIVE):
         resource = _first_verified_cached_candidate(
             root,
             candidates.get((EvidenceAvailabilityTier.COMPARATIVE, role), []),
+            verification=comparative_verification,
         )
         if resource is None:
             break
         comparative[role] = resource
     else:
-        return CachedUCSCResourceBundle(
+        bundle = CachedUCSCResourceBundle(
             source_db=source_db,
             target_db=target_db,
             evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
@@ -633,6 +664,17 @@ def load_cached_ucsc_resource_bundle(
             ],
             reciprocal_best_net=comparative[UCSCBundleResourceRole.RECIPROCAL_BEST_NET],
         )
+        verification.complete()
+        return bundle
+
+    liftover_plan = _cache_verification_plan(
+        root,
+        candidates,
+        EvidenceAvailabilityTier.LIFTOVER_ONLY,
+    )
+    liftover_verification = verification if liftover_plan else None
+    if liftover_verification is not None:
+        liftover_verification.start_attempt(liftover_plan)
 
     liftover = _first_verified_cached_candidate(
         root,
@@ -640,15 +682,123 @@ def load_cached_ucsc_resource_bundle(
             (EvidenceAvailabilityTier.LIFTOVER_ONLY, UCSCBundleResourceRole.CHAIN),
             [],
         ),
+        verification=liftover_verification,
     )
     if liftover is None:
         return None
-    return CachedUCSCResourceBundle(
+    bundle = CachedUCSCResourceBundle(
         source_db=source_db,
         target_db=target_db,
         evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
         chain=liftover,
     )
+    verification.complete()
+    return bundle
+
+
+class _CacheVerificationTracker:
+    """Aggregate exact checksum-read work without declaring integrity too early."""
+
+    def __init__(
+        self,
+        callback: CacheVerificationProgressCallback | None,
+    ) -> None:
+        self._callback = callback
+        self._planned_paths: set[Path] = set()
+        self._total_bytes = 0
+        self._bytes_hashed = 0
+        self._candidate_base = 0
+
+    def start_attempt(self, plan: Sequence[tuple[Path, int]]) -> None:
+        self._planned_paths = {index_path for index_path, _ in plan}
+        self._total_bytes = sum(size_bytes for _, size_bytes in plan)
+        self._bytes_hashed = 0
+        self._candidate_base = 0
+        self._emit(complete=False)
+
+    def checksum_callback(
+        self,
+        index_path: Path,
+        *,
+        size_bytes: int,
+    ) -> Callable[[int, int], None]:
+        if index_path not in self._planned_paths:
+            # A structurally valid first candidate can still fail its digest.  If the
+            # loader then checks an alternate URL for the same role, include that extra
+            # real hashing work rather than pretending the original denominator still
+            # describes what is being verified.
+            self._planned_paths.add(index_path)
+            self._total_bytes += size_bytes
+            self._emit(complete=False)
+
+        self._candidate_base = self._bytes_hashed
+
+        def update(bytes_hashed: int, total_bytes: int) -> None:
+            if total_bytes != size_bytes:
+                raise ValueError(
+                    "cache verification progress total does not match indexed artifact size"
+                )
+            bounded = min(max(bytes_hashed, 0), total_bytes)
+            if self._callback is not None:
+                self._callback(
+                    self._candidate_base + bounded,
+                    self._total_bytes,
+                    False,
+                )
+
+        return update
+
+    def candidate_hashed(self, size_bytes: int) -> None:
+        self._bytes_hashed = self._candidate_base + size_bytes
+
+    def complete(self) -> None:
+        if self._callback is not None and self._total_bytes >= 0:
+            self._callback(self._total_bytes, self._total_bytes, True)
+
+    def _emit(self, *, complete: bool) -> None:
+        if self._callback is not None:
+            self._callback(self._bytes_hashed, self._total_bytes, complete)
+
+
+def _cache_verification_plan(
+    root: Path,
+    candidates: dict[
+        tuple[EvidenceAvailabilityTier, UCSCBundleResourceRole],
+        list[tuple[Path, str]],
+    ],
+    evidence_tier: EvidenceAvailabilityTier,
+) -> tuple[tuple[Path, int], ...]:
+    """Return the structurally viable artifact prefix the loader will hash.
+
+    Planning reads cache metadata and checks exact artifact presence/size but deliberately
+    does not hash bytes. The returned prefix stops at the first required role with no
+    structurally viable candidate, matching the loader's own fail-closed role order. This
+    lets progress describe real SHA-256 work even for an incomplete bundle without
+    inventing bytes for roles that will never be hashed. The normal loader path remains
+    authoritative for SHA-256 verification and can still try an alternate candidate if a
+    planned artifact fails its digest.
+    """
+
+    plan: list[tuple[Path, int]] = []
+    for role in _bundle_roles_for_tier(evidence_tier):
+        selected: tuple[Path, int] | None = None
+        for index_path, source_url in candidates.get((evidence_tier, role), []):
+            try:
+                ucsc_resource_terms(source_url)
+            except ValueError:
+                continue
+            entry = _load_cached_resource_index_entry(
+                root,
+                index_path,
+                source_url=source_url,
+            )
+            if entry is not None:
+                selected = (index_path, entry.size_bytes)
+                break
+        if selected is None:
+            break
+        plan.append(selected)
+    return tuple(plan)
 
 
 def _cache_index_source_url(index_path: Path) -> str | None:
@@ -697,6 +847,8 @@ def _cached_bundle_binding_for_url(
 def _first_verified_cached_candidate(
     root: Path,
     candidates: Sequence[tuple[Path, str]],
+    *,
+    verification: _CacheVerificationTracker | None = None,
 ) -> CachedResource | None:
     for index_path, source_url in candidates:
         try:
@@ -708,6 +860,7 @@ def _first_verified_cached_candidate(
             index_path,
             source_url=source_url,
             terms=terms,
+            verification=verification,
         )
         if resource is not None:
             return resource
@@ -1586,13 +1739,14 @@ def _read_ucsc_provider_md5(
     return None
 
 
-def _read_verified_cache_entry(
+def _load_cached_resource_index_entry(
     root: Path,
     index_path: Path,
     *,
     source_url: str,
-    terms: UCSCResourceTerms,
-) -> CachedResource | None:
+) -> _CachedResourceIndexEntry | None:
+    """Validate cache metadata and exact artifact size without hashing its bytes."""
+
     if not index_path.exists():
         return None
 
@@ -1626,23 +1780,58 @@ def _read_verified_cache_entry(
     artifact_path = _artifact_path(root, sha256_hex)
     if not artifact_path.is_file() or artifact_path.stat().st_size != size_bytes:
         return None
-    actual_sha256 = compute_resource_checksum(
-        artifact_path, ResourceChecksumAlgorithm.SHA256
-    )
-    if actual_sha256 != sha256_hex:
-        return None
 
     retrieved_at = payload.get("retrieved_at")
     if not isinstance(retrieved_at, str) or not retrieved_at:
         return None
 
-    return CachedResource(
-        path=artifact_path,
-        source_url=source_url,
+    return _CachedResourceIndexEntry(
+        artifact_path=artifact_path,
         retrieved_at=retrieved_at,
-        sha256=f"sha256:{sha256_hex}",
+        sha256_hex=sha256_hex,
         size_bytes=size_bytes,
         provider_checksum=provider_checksum,
+    )
+
+
+def _read_verified_cache_entry(
+    root: Path,
+    index_path: Path,
+    *,
+    source_url: str,
+    terms: UCSCResourceTerms,
+    verification: _CacheVerificationTracker | None = None,
+) -> CachedResource | None:
+    entry = _load_cached_resource_index_entry(
+        root,
+        index_path,
+        source_url=source_url,
+    )
+    if entry is None:
+        return None
+
+    checksum_progress = (
+        verification.checksum_callback(index_path, size_bytes=entry.size_bytes)
+        if verification is not None
+        else None
+    )
+    actual_sha256 = compute_resource_checksum(
+        entry.artifact_path,
+        ResourceChecksumAlgorithm.SHA256,
+        progress_callback=checksum_progress,
+    )
+    if verification is not None:
+        verification.candidate_hashed(entry.size_bytes)
+    if actual_sha256 != entry.sha256_hex:
+        return None
+
+    return CachedResource(
+        path=entry.artifact_path,
+        source_url=source_url,
+        retrieved_at=entry.retrieved_at,
+        sha256=f"sha256:{entry.sha256_hex}",
+        size_bytes=entry.size_bytes,
+        provider_checksum=entry.provider_checksum,
         terms=terms,
         cache_hit=True,
     )

@@ -676,6 +676,115 @@ class _TTYStringIO(StringIO):
         return True
 
 
+def test_cache_verification_progress_display_waits_for_integrity_success() -> None:
+    stderr = _TTYStringIO()
+    display = cli._CacheVerificationProgressDisplay(stderr=stderr)
+    total = 4096
+
+    display.update(0, total, False)
+    display.update(total // 2, total, False)
+    display.update(total, total, False)
+    before_success = stderr.getvalue()
+    display.update(total, total, True)
+
+    assert "Cache verification" in before_success
+    assert "50%" in before_success
+    assert "99%" in before_success
+    assert "100%" not in before_success
+    assert "100%" in stderr.getvalue()
+    assert cli._format_progress_bytes(total) in stderr.getvalue()
+
+
+def test_run_wires_measured_cache_verification_progress_on_tty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cached = _cached_bundle(tmp_path)
+
+    def load_cached(
+        cache_root: Path,
+        source: str,
+        target: str,
+        *,
+        progress_callback: object,
+    ) -> CachedUCSCResourceBundle:
+        del cache_root, source, target
+        assert callable(progress_callback)
+        progress_callback(0, 4096, False)
+        progress_callback(2048, 4096, False)
+        progress_callback(4096, 4096, False)
+        progress_callback(4096, 4096, True)
+        return cached
+
+    monkeypatch.setattr(cli, "load_cached_ucsc_resource_bundle", load_cached)
+
+    def forbidden_discovery(source: str, target: str) -> UCSCResourceBundle | None:
+        raise AssertionError("provider discovery must not run for a complete cache hit")
+
+    monkeypatch.setattr(cli, "discover_ucsc_resources", forbidden_discovery)
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+        ]
+    )
+    stderr = _TTYStringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    progress = stderr.getvalue()
+    assert "Checking/verifying local UCSC cache..." in progress
+    assert "Cache verification" in progress
+    assert "50%" in progress
+    assert "99%" in progress
+    assert "100%" in progress
+
+
+def test_quiet_suppresses_cache_verification_progress_callback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cached = _cached_bundle(tmp_path)
+
+    def load_cached(
+        cache_root: Path, source: str, target: str
+    ) -> CachedUCSCResourceBundle:
+        del cache_root, source, target
+        return cached
+
+    monkeypatch.setattr(cli, "load_cached_ucsc_resource_bundle", load_cached)
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--quiet",
+        ]
+    )
+    stderr = _TTYStringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert "Cache verification" not in stderr.getvalue()
+
+
 def test_cli_reuses_complete_verified_cache_without_provider_access(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -709,6 +818,49 @@ def test_cli_reuses_complete_verified_cache_without_provider_access(
     assert "Evidence availability: LIFTOVER-ONLY" in stdout.getvalue()
     assert "UCSC was not contacted" in stderr.getvalue()
     assert "UCSC terms to review" not in stderr.getvalue()
+
+
+def test_details_flag_emits_full_dossier_from_cached_assessment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cached = _cached_bundle(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target: cached,
+    )
+
+    def forbidden_discovery(source: str, target: str) -> UCSCResourceBundle | None:
+        raise AssertionError("provider discovery must not run for a complete cache hit")
+
+    monkeypatch.setattr(cli, "discover_ucsc_resources", forbidden_discovery)
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--details",
+        ]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    output = stdout.getvalue()
+    assert "Detailed evidence dossier" in output
+    assert "Chain 1" in output
+    assert "Resources" in output
+    assert "Provenance dependencies" in output
+    assert "Source locus: chr1:101-120 (1-based inclusive)" in output
 
 
 def test_offline_requires_complete_cached_bundle_without_provider_access(
@@ -773,7 +925,7 @@ def test_run_integrates_zero_candidate_progress_without_consuming_comparative_ev
     monkeypatch.setattr(
         cli,
         "load_cached_ucsc_resource_bundle",
-        lambda cache_root, source, target: cached,
+        lambda cache_root, source, target, **kwargs: cached,
     )
 
     def forbidden_discovery(source: str, target: str) -> UCSCResourceBundle | None:

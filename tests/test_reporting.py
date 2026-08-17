@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from liftassess import (
     AssemblyIdentifier,
+    CachedResource,
+    ChainGap,
+    ChainGapSummary,
     EvidenceAvailabilityTier,
     EvidenceKind,
     EvidenceObservation,
@@ -10,14 +15,28 @@ from liftassess import (
     MappingCoverageSummary,
     MappingOrientation,
     MappingSegment,
+    NetHierarchySummary,
     NormalizedCandidate,
+    ProvenanceIdentifier,
+    ProvenanceIdentifierKind,
     ProvenanceSource,
+    ProviderChecksum,
     ReciprocalBestMembershipStatus,
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
+    ResourceChecksumAlgorithm,
+    UCSCAssessmentReport,
+    UCSCAssessmentResource,
+    UCSCBundleResourceRole,
     assess_candidates,
+    reporting,
+    ucsc_resource_terms,
 )
-from liftassess.reporting import format_display_interval, render_assessment_summary
+from liftassess.reporting import (
+    format_display_interval,
+    render_assessment_details,
+    render_assessment_summary,
+)
 
 SOURCE_ASSEMBLY = AssemblyIdentifier("sourceAsm", "test")
 TARGET_ASSEMBLY = AssemblyIdentifier("targetAsm", "test")
@@ -244,4 +263,180 @@ def test_split_candidate_summary_labels_target_interval_as_bounding_span() -> No
     assert (
         "Preferred candidate: chrA:1001-1150 (1-based inclusive; same orientation; "
         "bounding span of 2 mapped segments)" in summary
+    )
+
+
+def test_detailed_report_exposes_evidence_resources_and_provenance_without_ranking() -> (
+    None
+):
+    sha256 = f"sha256:{'a' * 64}"
+    alignment = ProvenanceSource("alignment", "shared test alignment")
+    chain_provenance = ProvenanceSource(
+        f"file:{sha256}",
+        "test UCSC chain resource",
+        identifiers=(ProvenanceIdentifier(ProvenanceIdentifierKind.SHA256, sha256),),
+        derived_from=(alignment,),
+    )
+    candidate_id = f"{chain_provenance.source_id}:chain:42"
+    coverage = EvidenceObservation(
+        observation_id=f"{candidate_id}:coverage",
+        kind=EvidenceKind.MAPPING_COVERAGE,
+        value=MappingCoverageSummary(
+            status=MappingCoverageStatus.FULL,
+            covered_source_bases=SOURCE.length,
+            source_bases=SOURCE.length,
+        ),
+        provenance=chain_provenance,
+    )
+    chain_score = EvidenceObservation(
+        observation_id=f"{candidate_id}:score",
+        kind=EvidenceKind.CHAIN_SCORE,
+        value=12345,
+        provenance=chain_provenance,
+    )
+    candidate = NormalizedCandidate(
+        candidate_id=candidate_id,
+        target_interval=GenomicInterval(TARGET_ASSEMBLY, "chrA", 1000, 1100),
+        orientation=MappingOrientation.SAME,
+        mapping_provenance=chain_provenance,
+        segments=(
+            MappingSegment(
+                source_interval=SOURCE,
+                target_interval=GenomicInterval(TARGET_ASSEMBLY, "chrA", 1000, 1100),
+            ),
+        ),
+        evidence=(chain_score, coverage),
+    )
+    assessment = assess_candidates(
+        SOURCE,
+        (candidate,),
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+    )
+    url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/sourceAsm/liftOver/"
+        "sourceAsmToTargetAsm.over.chain.gz"
+    )
+    resource = CachedResource(
+        path=Path("/cache/chain.gz"),
+        source_url=url,
+        retrieved_at="2026-08-17T00:00:00Z",
+        sha256=sha256,
+        size_bytes=321,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(url),
+        cache_hit=True,
+    )
+    report = UCSCAssessmentReport(
+        assessment=assessment,
+        source_db="sourceAsm",
+        target_db="targetAsm",
+        alignment_provenance=alignment,
+        resources=(
+            UCSCAssessmentResource(
+                role=UCSCBundleResourceRole.CHAIN,
+                resource=resource,
+                consumed_by_engine=True,
+                file_provenance=chain_provenance,
+            ),
+        ),
+    )
+
+    details = render_assessment_details(report)
+
+    assert "Detailed evidence dossier" in details
+    assert "Chain 42" in details
+    assert "Candidate 1" not in details
+    assert (
+        "Candidate order is preserved for reproducibility and does not indicate rank "
+        "or preference." in details
+    )
+    assert f"Candidate ID: {candidate_id}" in details
+    assert (
+        "MAPPING_COVERAGE [supporting]: FULL; 100/100 source bases covered" in details
+    )
+    assert "CHAIN_SCORE [context]: 12345" in details
+    assert "CHAIN [consumed]" in details
+    assert f"SHA-256: {sha256}" in details
+    assert f"Derived from: {alignment.source_id}" in details
+    assert "categorical roles, not additive scores" in details
+    assert details.endswith("This does not establish biological correctness.")
+
+
+def test_structured_comparative_evidence_and_provider_checksum_rendering() -> None:
+    gap_observation = EvidenceObservation(
+        observation_id="gap",
+        kind=EvidenceKind.CHAIN_GAPS,
+        value=ChainGapSummary(
+            gaps=(
+                ChainGap(
+                    source_boundary=150,
+                    target_gap_interval=GenomicInterval(
+                        TARGET_ASSEMBLY, "chrA", 1050, 1060
+                    ),
+                ),
+            )
+        ),
+        provenance=CHAIN,
+    )
+    net_observation = EvidenceObservation(
+        observation_id="net",
+        kind=EvidenceKind.NET_HIERARCHY,
+        value=NetHierarchySummary(
+            depth=3,
+            source_fill_interval=GenomicInterval(SOURCE_ASSEMBLY, "chr1", 90, 210),
+        ),
+        provenance=CHAIN,
+    )
+    reciprocal_observation = EvidenceObservation(
+        observation_id="rbest",
+        kind=EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP,
+        value=ReciprocalBestMembershipSummary(
+            status=ReciprocalBestMembershipStatus.FULL,
+            resource_completeness=ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE,
+            chains_examined=3,
+            covered_source_bases=100,
+            candidate_source_bases=100,
+            covered_source_intervals=(SOURCE,),
+        ),
+        provenance=RBEST,
+    )
+
+    assert reporting._evidence_value_lines(gap_observation) == [
+        "1 chain gap(s) through the requested locus",
+        (
+            "source boundary=150 (0-based boundary); source gap=none; "
+            "target gap=chrA:1051-1060 (1-based inclusive)"
+        ),
+    ]
+    assert reporting._evidence_value_lines(net_observation) == [
+        "depth=3; fill span=chr1:91-210 (1-based inclusive)"
+    ]
+    assert reporting._evidence_value_lines(reciprocal_observation) == [
+        (
+            "FULL; 100/100 candidate mapped source bases covered; "
+            "completeness=COMPLETE_RESOURCE; chains examined=3"
+        ),
+        "covered source intervals: chr1:101-200 (1-based inclusive)",
+    ]
+
+    checksum_url = "https://example.test/md5sum.txt"
+    resource = CachedResource(
+        path=Path("/cache/chain.gz"),
+        source_url="https://example.test/chain.gz",
+        retrieved_at="2026-08-17T00:00:00Z",
+        sha256=f"sha256:{'b' * 64}",
+        size_bytes=321,
+        provider_checksum=ProviderChecksum(
+            algorithm=ResourceChecksumAlgorithm.MD5,
+            value="c" * 32,
+            source_url=checksum_url,
+        ),
+        terms=ucsc_resource_terms(
+            "https://hgdownload.soe.ucsc.edu/goldenPath/sourceAsm/liftOver/"
+            "sourceAsmToTargetAsm.over.chain.gz"
+        ),
+        cache_hit=True,
+    )
+    assert reporting._provider_checksum_text(resource) == (
+        f"md5:{'c' * 32} (from {checksum_url})"
     )

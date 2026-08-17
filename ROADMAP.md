@@ -21,9 +21,9 @@ The project now has an integrated UCSC evidence pipeline plus a completed real c
 - compose a complete cached UCSC bundle through candidate/evidence generation and the assessor into an auditable assessment report;
 - and run the `assess-liftover` CLI cache-first or fully offline with measured assessment-read progress.
 
-The routine automated suite contains **288 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
+The routine automated suite contains **298 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
-The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, and measured assessment-read progress are implemented and have completed a real comparative smoke run. Milestone 15 remains in progress while detailed evidence-dossier/JSON output and transfer-progress reporting are still unfinished, so liftAssess remains a pre-release development tool.
+The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, measured cache-verification progress, and measured assessment-read progress are implemented; the real comparative assessment path has completed a smoke run. Milestone 15 remains in progress while JSON output and transfer-progress reporting are still unfinished, so liftAssess remains a pre-release development tool.
 
 ## Implementation history
 
@@ -360,14 +360,15 @@ Implemented so far:
 - the `assess-liftover` console entry point now composes discovery, terms review, HEAD transfer inspection, separate transfer-plan acknowledgement, cached acquisition, assessment orchestration, and summary rendering;
 - the CLI chooses a platform user-cache default while preserving `--cache-dir`; complete verified bundles are reused cache-first without provider access, `--offline` guarantees zero network access, and `--refresh` explicitly forces a fresh provider check/acquisition;
 - interactive assessment progress reports measured compressed bytes consumed for Chain, Net, and Reciprocal-best inputs with a visual bar, numeric percentage, and byte counts; `--quiet` suppresses it;
+- interactive cache verification reports one measured aggregate SHA-256 row across the required cached bundle, reusing the same progress rendering primitives and withholding 100% until every required artifact passes integrity; `--quiet` suppresses it;
 - interactive acknowledgements are the default, with explicit `--acknowledge-ucsc-terms` and `--accept-transfer-plan` flags for non-interactive use;
 - automatic UCSC runs use a conservative pair-level shared lineage node only for provenance dependency grouping, while exact consumed-file identity remains SHA-256-addressed beneath it;
 - the first real CLI smoke run completed 2026-08-16 against the established external `canFam3`→`canFam4` comparative fixture, reporting `COMPARATIVE`, 170 candidates, and `CONTESTED` for display locus `chrUn_JH373233:1845736-1845835`;
-- an independent fixture cross-check derives `CONTESTED` directly from the extracted public evidence without using production verdict logic, identifying 138 material candidates and agreeing with the production assessor.
+- an independent fixture cross-check derives `CONTESTED` directly from the extracted public evidence without using production verdict logic, identifying 138 material candidates and agreeing with the production assessor;
+- `--details` emits the full human-readable evidence dossier: exact mapped segments, categorical verdict-evidence roles, every observation, resource retrieval/checksum context, consumed-vs-unconsumed status, and the complete provenance dependency graph without implying candidate rank or independent confirmation.
 
 Remaining:
 
-- `--details` evidence-dossier output;
 - JSON output preserving coordinates, provenance, dependencies, resource hashes, and verdict semantics;
 - download/transfer-progress reporting suitable for large/resumable acquisitions (assessment-read progress is implemented).
 
@@ -406,7 +407,7 @@ Select and verify a real source, likely an external orthology/synteny provider, 
 
 ### Detailed/JSON schema stabilization
 
-Finalize stable machine-readable report semantics once the assessor core and at least one real end-to-end assessment exist. Avoid freezing a schema around synthetic-only assumptions.
+The human-readable `--details` dossier is implemented against the real validated assessment/report model. Finalize stable machine-readable JSON semantics next, preserving the same coordinate, evidence-role, resource-consumption, and provenance/dependency distinctions rather than freezing a separate synthetic-only representation.
 
 ## Deliberately deferred beyond v1
 
