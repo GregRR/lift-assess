@@ -39,6 +39,7 @@ from liftassess import (
     inspect_ucsc_bundle_transfer_plan,
     inspect_ucsc_resource,
     iter_chain_file,
+    load_cached_ucsc_resource_bundle,
     plan_ucsc_bundle_acquisition,
     provenance_source_for_file,
     ucsc_resource_terms,
@@ -48,6 +49,7 @@ from liftassess.resource_cache import (
     _acquire_ucsc_resource_bundle,
     _inspect_ucsc_bundle_transfer_plan,
     _inspect_ucsc_resource,
+    _write_url_index,
 )
 
 
@@ -1262,6 +1264,113 @@ def _cached_for_url(url: str, cache_root: Path, *, cache_hit: bool) -> CachedRes
         terms=terms,
         cache_hit=cache_hit,
     )
+
+
+def _publish_cached_index_entry(
+    cache_root: Path,
+    url: str,
+    data: bytes,
+) -> None:
+    digest = hashlib.sha256(data).hexdigest()
+    artifact = cache_root / "artifacts" / "sha256" / digest[:2] / digest
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_bytes(data)
+    index_key = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    _write_url_index(
+        cache_root / "by-url" / f"{index_key}.json",
+        source_url=url,
+        retrieved_at="2026-08-16T00:00:00Z",
+        sha256=digest,
+        size_bytes=len(data),
+        provider_checksum=None,
+        terms=ucsc_resource_terms(url),
+    )
+
+
+def test_cached_bundle_loader_returns_none_when_cache_index_directory_is_missing(
+    tmp_path: Path,
+) -> None:
+    assert not (tmp_path / "by-url").exists()
+
+    result = load_cached_ucsc_resource_bundle(tmp_path, "canFam3", "canFam4")
+
+    assert result is None
+
+
+def test_cached_bundle_loader_skips_malformed_index_and_uses_valid_entry(
+    tmp_path: Path,
+) -> None:
+    liftover = _liftover_bundle()
+    _publish_cached_index_entry(tmp_path, liftover.chain_url, b"liftover chain")
+    (tmp_path / "by-url" / "malformed.json").write_text(
+        "{not valid json",
+        encoding="utf-8",
+    )
+
+    result = load_cached_ucsc_resource_bundle(tmp_path, "canFam3", "canFam4")
+
+    assert result is not None
+    assert result.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY
+    assert result.chain.source_url == liftover.chain_url
+
+
+def test_cached_bundle_loader_prefers_complete_comparative_bundle(
+    tmp_path: Path,
+) -> None:
+    bundle = _comparative_bundle()
+    for index, url in enumerate(
+        (
+            bundle.chain_url,
+            bundle.net_url,
+            bundle.syntenic_net_url,
+            bundle.reciprocal_best_chain_url,
+            bundle.reciprocal_best_net_url,
+        )
+    ):
+        assert url is not None
+        _publish_cached_index_entry(tmp_path, url, f"resource-{index}".encode())
+
+    result = load_cached_ucsc_resource_bundle(tmp_path, "canFam3", "canFam4")
+
+    assert result is not None
+    assert result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+    assert result.chain.cache_hit is True
+    assert result.net is not None and result.net.cache_hit is True
+    assert result.syntenic_net is not None and result.syntenic_net.cache_hit is True
+    assert result.reciprocal_best_chain is not None
+    assert result.reciprocal_best_chain.cache_hit is True
+    assert result.reciprocal_best_net is not None
+    assert result.reciprocal_best_net.cache_hit is True
+
+
+def test_cached_bundle_loader_falls_back_to_complete_liftover_bundle(
+    tmp_path: Path,
+) -> None:
+    comparative = _comparative_bundle()
+    assert comparative.chain_url is not None
+    _publish_cached_index_entry(tmp_path, comparative.chain_url, b"partial comparative")
+    liftover = _liftover_bundle()
+    _publish_cached_index_entry(tmp_path, liftover.chain_url, b"liftover chain")
+
+    result = load_cached_ucsc_resource_bundle(tmp_path, "canFam3", "canFam4")
+
+    assert result is not None
+    assert result.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY
+    assert result.chain.source_url == liftover.chain_url
+
+
+def test_cached_bundle_loader_rejects_incomplete_or_corrupt_cache(
+    tmp_path: Path,
+) -> None:
+    liftover = _liftover_bundle()
+    _publish_cached_index_entry(tmp_path, liftover.chain_url, b"liftover chain")
+    index_path = next((tmp_path / "by-url").glob("*.json"))
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    digest = payload["sha256"]
+    artifact = tmp_path / "artifacts" / "sha256" / digest[:2] / digest
+    artifact.write_bytes(b"changed bytes")
+
+    assert load_cached_ucsc_resource_bundle(tmp_path, "canFam3", "canFam4") is None
 
 
 def test_comparative_bundle_plan_is_complete_inspectable_and_no_network() -> None:

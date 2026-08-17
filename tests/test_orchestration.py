@@ -404,3 +404,60 @@ def test_liftover_only_zero_candidate_report_marks_only_chain_consumed(
     assert report.assessment.verdict is Verdict.INDETERMINATE
     assert report.assessment.candidates == ()
     assert _consumed_roles(report) == {UCSCBundleResourceRole.CHAIN}
+
+
+def test_zero_candidate_progress_never_consumes_comparative_evidence_resources(
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    bundle = _comparative_bundle(tmp_path, chain_start=200)
+    events: list[tuple[UCSCBundleResourceRole, int, int]] = []
+
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 105, 115),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
+        progress_callback=lambda role, read, total: events.append((role, read, total)),
+    )
+
+    assert report.assessment.candidates == ()
+    assert {role for role, _, _ in events} == {UCSCBundleResourceRole.CHAIN}
+    assert events[-1] == (
+        UCSCBundleResourceRole.CHAIN,
+        bundle.chain.size_bytes,
+        bundle.chain.size_bytes,
+    )
+
+
+def test_cached_bundle_progress_reports_exact_consumed_raw_byte_totals(
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    bundle = _comparative_bundle(tmp_path)
+    events: list[tuple[UCSCBundleResourceRole, int, int]] = []
+
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 105, 115),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
+        progress_callback=lambda role, read, total: events.append((role, read, total)),
+    )
+
+    assert report.assessment.candidates
+    assert bundle.net is not None
+    assert bundle.reciprocal_best_chain is not None
+    final_by_role = {role: (read, total) for role, read, total in events}
+    assert final_by_role == {
+        UCSCBundleResourceRole.CHAIN: (
+            bundle.chain.size_bytes,
+            bundle.chain.size_bytes,
+        ),
+        UCSCBundleResourceRole.NET: (bundle.net.size_bytes, bundle.net.size_bytes),
+        UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN: (
+            bundle.reciprocal_best_chain.size_bytes,
+            bundle.reciprocal_best_chain.size_bytes,
+        ),
+    }
+    assert all(0 < read <= total for _, read, total in events)

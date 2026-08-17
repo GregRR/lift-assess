@@ -17,7 +17,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import io
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from os import PathLike
 from pathlib import Path
@@ -47,6 +47,10 @@ from .resource_identity import (
 )
 
 ResourcePath: TypeAlias = str | PathLike[str]
+ResourceReadProgressCallback: TypeAlias = Callable[
+    [UCSCBundleResourceRole, int, int], None
+]
+RawReadProgressCallback: TypeAlias = Callable[[int], None]
 
 _CHUNK_SIZE = 1024 * 1024
 
@@ -58,12 +62,31 @@ class _Digest(Protocol):
 
 
 class _HashingRawReader(io.RawIOBase):
-    """Read one binary stream while hashing exactly the bytes returned upstream."""
+    """Read one binary stream while hashing exactly the bytes returned upstream.
 
-    def __init__(self, raw: io.RawIOBase, digest: _Digest) -> None:
+    Progress, when requested by the cached-bundle CLI path, is measured from these
+    exact raw artifact bytes rather than decompressed records or a time estimate.
+    Reporting is throttled by a caller-selected byte interval so terminal UI updates
+    cannot dominate multi-gigabyte parsing.
+    """
+
+    def __init__(
+        self,
+        raw: io.RawIOBase,
+        digest: _Digest,
+        *,
+        progress_callback: RawReadProgressCallback | None = None,
+        progress_interval_bytes: int = _CHUNK_SIZE,
+    ) -> None:
         super().__init__()
+        if progress_interval_bytes <= 0:
+            raise ValueError("progress interval must be positive")
         self._raw = raw
         self._digest = digest
+        self._progress_callback = progress_callback
+        self._progress_interval_bytes = progress_interval_bytes
+        self._bytes_read = 0
+        self._last_reported_bytes = 0
 
     def readable(self) -> bool:
         return True
@@ -77,8 +100,26 @@ class _HashingRawReader(io.RawIOBase):
         if not data:
             return 0
         self._digest.update(data)
+        self._bytes_read += len(data)
+        if (
+            self._progress_callback is not None
+            and self._bytes_read - self._last_reported_bytes
+            >= self._progress_interval_bytes
+        ):
+            self._progress_callback(self._bytes_read)
+            self._last_reported_bytes = self._bytes_read
         view[: len(data)] = data
         return len(data)
+
+    def finish_progress(self) -> None:
+        """Publish the exact final raw-byte count after identity verification."""
+
+        if (
+            self._progress_callback is not None
+            and self._last_reported_bytes != self._bytes_read
+        ):
+            self._progress_callback(self._bytes_read)
+            self._last_reported_bytes = self._bytes_read
 
     def close(self) -> None:
         try:
@@ -135,11 +176,52 @@ def build_ucsc_candidates_from_files(
     + completeness must be supplied together.
     """
 
-    chains = _iter_chain_file_with_provenance(chain_path, chain_provenance)
+    return _build_ucsc_candidates_from_files(
+        source_interval,
+        chain_path,
+        target_assembly=target_assembly,
+        chain_provenance=chain_provenance,
+        net_path=net_path,
+        net_provenance=net_provenance,
+        reciprocal_best_chain_path=reciprocal_best_chain_path,
+        reciprocal_best_provenance=reciprocal_best_provenance,
+        reciprocal_best_completeness=reciprocal_best_completeness,
+    )
+
+
+def _build_ucsc_candidates_from_files(
+    source_interval: GenomicInterval,
+    chain_path: ResourcePath,
+    *,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+    net_path: ResourcePath | None = None,
+    net_provenance: ProvenanceSource | None = None,
+    reciprocal_best_chain_path: ResourcePath | None = None,
+    reciprocal_best_provenance: ProvenanceSource | None = None,
+    reciprocal_best_completeness: ReciprocalBestResourceCompleteness | None = None,
+    chain_progress: RawReadProgressCallback | None = None,
+    chain_progress_interval_bytes: int = _CHUNK_SIZE,
+    net_progress: RawReadProgressCallback | None = None,
+    net_progress_interval_bytes: int = _CHUNK_SIZE,
+    reciprocal_best_progress: RawReadProgressCallback | None = None,
+    reciprocal_best_progress_interval_bytes: int = _CHUNK_SIZE,
+) -> tuple[NormalizedCandidate, ...]:
+    chains = _iter_chain_file_with_provenance(
+        chain_path,
+        chain_provenance,
+        progress_callback=chain_progress,
+        progress_interval_bytes=chain_progress_interval_bytes,
+    )
     # Unpaired optional inputs intentionally fall through to engine validation;
     # only a complete path/provenance pair may use the verified file stream.
     net_records = (
-        _iter_net_file_with_provenance(net_path, net_provenance)
+        _iter_net_file_with_provenance(
+            net_path,
+            net_provenance,
+            progress_callback=net_progress,
+            progress_interval_bytes=net_progress_interval_bytes,
+        )
         if net_path is not None and net_provenance is not None
         else iter_net_file(net_path)
         if net_path is not None
@@ -147,7 +229,10 @@ def build_ucsc_candidates_from_files(
     )
     reciprocal_best_chains = (
         _iter_chain_file_with_provenance(
-            reciprocal_best_chain_path, reciprocal_best_provenance
+            reciprocal_best_chain_path,
+            reciprocal_best_provenance,
+            progress_callback=reciprocal_best_progress,
+            progress_interval_bytes=reciprocal_best_progress_interval_bytes,
         )
         if reciprocal_best_chain_path is not None
         and reciprocal_best_provenance is not None
@@ -175,6 +260,7 @@ def build_ucsc_candidates_from_cached_bundle(
     *,
     target_assembly: AssemblyIdentifier,
     alignment_provenance: ProvenanceSource,
+    progress_callback: ResourceReadProgressCallback | None = None,
 ) -> tuple[NormalizedCandidate, ...]:
     """Build candidates from one fully acquired UCSC cache bundle.
 
@@ -221,11 +307,15 @@ def build_ucsc_candidates_from_cached_bundle(
     )
 
     if bundle.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
-        return build_ucsc_candidates_from_files(
+        return _build_ucsc_candidates_from_files(
             source_interval,
             bundle.chain.path,
             target_assembly=target_assembly,
             chain_provenance=chain_provenance,
+            chain_progress=_resource_progress_callback(
+                progress_callback, UCSCBundleResourceRole.CHAIN, bundle.chain
+            ),
+            chain_progress_interval_bytes=_progress_interval_bytes(bundle.chain),
         )
 
     # CachedUCSCResourceBundle enforces the complete five-resource COMPARATIVE shape.
@@ -252,7 +342,7 @@ def build_ucsc_candidates_from_cached_bundle(
     # boundary. As with the lower-level COMPLETE_RESOURCE API, liftAssess can verify
     # the bytes it consumes but cannot independently prove that a manually constructed
     # external object was not truncated before being described as complete.
-    return build_ucsc_candidates_from_files(
+    return _build_ucsc_candidates_from_files(
         source_interval,
         bundle.chain.path,
         target_assembly=target_assembly,
@@ -264,7 +354,43 @@ def build_ucsc_candidates_from_cached_bundle(
         reciprocal_best_completeness=(
             ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE
         ),
+        chain_progress=_resource_progress_callback(
+            progress_callback, UCSCBundleResourceRole.CHAIN, bundle.chain
+        ),
+        chain_progress_interval_bytes=_progress_interval_bytes(bundle.chain),
+        net_progress=_resource_progress_callback(
+            progress_callback, UCSCBundleResourceRole.NET, bundle.net
+        ),
+        net_progress_interval_bytes=_progress_interval_bytes(bundle.net),
+        reciprocal_best_progress=_resource_progress_callback(
+            progress_callback,
+            UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN,
+            bundle.reciprocal_best_chain,
+        ),
+        reciprocal_best_progress_interval_bytes=_progress_interval_bytes(
+            bundle.reciprocal_best_chain
+        ),
     )
+
+
+def _resource_progress_callback(
+    callback: ResourceReadProgressCallback | None,
+    role: UCSCBundleResourceRole,
+    resource: CachedResource,
+) -> RawReadProgressCallback | None:
+    if callback is None:
+        return None
+
+    def report(bytes_read: int) -> None:
+        callback(role, bytes_read, resource.size_bytes)
+
+    return report
+
+
+def _progress_interval_bytes(resource: CachedResource) -> int:
+    # Aim for roughly one hundred measured updates while keeping small resources
+    # responsive and avoiding a callback for every decompressor read.
+    return max(64 * 1024, resource.size_bytes // 100)
 
 
 def _validate_cached_bundle_assemblies(
@@ -347,18 +473,34 @@ def _provenance_for_cached_resource(
 def _iter_chain_file_with_provenance(
     path: ResourcePath,
     provenance: ProvenanceSource,
+    *,
+    progress_callback: RawReadProgressCallback | None = None,
+    progress_interval_bytes: int = _CHUNK_SIZE,
 ) -> Iterator[ChainRecord]:
     expected_sha256 = _sha256_checksum_from_file_provenance(provenance)
-    with _open_text_resource(path, expected_sha256=expected_sha256) as lines:
+    with _open_text_resource(
+        path,
+        expected_sha256=expected_sha256,
+        progress_callback=progress_callback,
+        progress_interval_bytes=progress_interval_bytes,
+    ) as lines:
         yield from iter_chain_records(lines)
 
 
 def _iter_net_file_with_provenance(
     path: ResourcePath,
     provenance: ProvenanceSource,
+    *,
+    progress_callback: RawReadProgressCallback | None = None,
+    progress_interval_bytes: int = _CHUNK_SIZE,
 ) -> Iterator[NetRecord]:
     expected_sha256 = _sha256_checksum_from_file_provenance(provenance)
-    with _open_text_resource(path, expected_sha256=expected_sha256) as lines:
+    with _open_text_resource(
+        path,
+        expected_sha256=expected_sha256,
+        progress_callback=progress_callback,
+        progress_interval_bytes=progress_interval_bytes,
+    ) as lines:
         yield from iter_net_records(lines)
 
 
@@ -367,6 +509,8 @@ def _open_text_resource(
     path: ResourcePath,
     *,
     expected_sha256: str | None = None,
+    progress_callback: RawReadProgressCallback | None = None,
+    progress_interval_bytes: int = _CHUNK_SIZE,
 ) -> Iterator[TextIO]:
     """Open and stream one local UCSC text resource from a single file handle.
 
@@ -390,10 +534,21 @@ def _open_text_resource(
             hashlib.sha256() if expected_sha256 is not None else None
         )
         binary_raw: io.RawIOBase
+        hashing_raw: _HashingRawReader | None = None
         if digest is None:
+            if progress_callback is not None:
+                raise ValueError(
+                    "raw-byte progress requires an expected SHA256 identity"
+                )
             binary_raw = raw
         else:
-            binary_raw = _HashingRawReader(raw, digest)
+            hashing_raw = _HashingRawReader(
+                raw,
+                digest,
+                progress_callback=progress_callback,
+                progress_interval_bytes=progress_interval_bytes,
+            )
+            binary_raw = hashing_raw
 
         buffered = io.BufferedReader(binary_raw)
         binary_text: io.BufferedIOBase
@@ -420,6 +575,8 @@ def _open_text_resource(
                         f"SHA256 provenance mismatch for {resource_path}: "
                         f"expected {expected_sha256}, got {actual}"
                     )
+                assert hashing_raw is not None
+                hashing_raw.finish_progress()
         finally:
             text.close()
             if is_gzip:

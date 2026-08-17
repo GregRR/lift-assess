@@ -422,6 +422,7 @@ def test_main_translates_invalid_locus_to_error_exit(
 
 def test_main_preserves_discovery_failure_as_error(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     def fail_discovery(source: str, target: str) -> UCSCResourceBundle | None:
@@ -429,7 +430,15 @@ def test_main_preserves_discovery_failure_as_error(
 
     monkeypatch.setattr(cli, "discover_ucsc_resources", fail_discovery)
 
-    exit_code = cli.main([_SOURCE_DB, _TARGET_DB, "chr1:101-120"])
+    exit_code = cli.main(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "empty-cache"),
+        ]
+    )
 
     captured = capsys.readouterr()
     assert exit_code == 1
@@ -506,7 +515,9 @@ def test_comparative_cli_run_shares_pair_provenance_across_consumed_resources(
         *,
         target_assembly: AssemblyIdentifier,
         alignment_provenance: ProvenanceSource,
+        progress_callback: object = None,
     ) -> UCSCAssessmentReport:
+        assert progress_callback is None
         report = assess_ucsc_cached_bundle(
             source_interval,
             bundle,
@@ -658,3 +669,179 @@ def test_confirm_fails_closed_on_eof() -> None:
 
     assert accepted is False
     assert stderr.getvalue() == "Continue? [y/N] \n"
+
+
+class _TTYStringIO(StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def test_cli_reuses_complete_verified_cache_without_provider_access(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cached = _cached_bundle(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target: cached,
+    )
+
+    def forbidden_discovery(source: str, target: str) -> UCSCResourceBundle | None:
+        raise AssertionError("provider discovery must not run for a complete cache hit")
+
+    monkeypatch.setattr(cli, "discover_ucsc_resources", forbidden_discovery)
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+        ]
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
+
+    assert exit_code == 0
+    assert "Evidence availability: LIFTOVER-ONLY" in stdout.getvalue()
+    assert "UCSC was not contacted" in stderr.getvalue()
+    assert "UCSC terms to review" not in stderr.getvalue()
+
+
+def test_offline_requires_complete_cached_bundle_without_provider_access(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target: None,
+    )
+
+    def forbidden_discovery(source: str, target: str) -> UCSCResourceBundle | None:
+        raise AssertionError("--offline must guarantee zero provider access")
+
+    monkeypatch.setattr(cli, "discover_ucsc_resources", forbidden_discovery)
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "empty-cache"),
+            "--offline",
+        ]
+    )
+    stderr = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 1
+    assert (
+        "--offline requires a complete verified cached UCSC bundle" in stderr.getvalue()
+    )
+
+
+def test_refresh_and_offline_are_mutually_exclusive() -> None:
+    parser = cli._build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                _SOURCE_DB,
+                _TARGET_DB,
+                "chr1:101-120",
+                "--refresh",
+                "--offline",
+            ]
+        )
+
+
+def test_run_integrates_zero_candidate_progress_without_consuming_comparative_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cached = _comparative_cached_bundle(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target: cached,
+    )
+
+    def forbidden_discovery(source: str, target: str) -> UCSCResourceBundle | None:
+        raise AssertionError("complete offline cache must prevent provider discovery")
+
+    monkeypatch.setattr(cli, "discover_ucsc_resources", forbidden_discovery)
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:201-220",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--offline",
+        ]
+    )
+    stdout = StringIO()
+    stderr = _TTYStringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert "Candidates assessed: 0" in stdout.getvalue()
+    progress = stderr.getvalue()
+    assert "Chain" in progress
+    assert "100%" in progress
+    assert "Net" in progress
+    assert "Reciprocal-best" in progress
+    assert progress.count("not used") == 2
+
+
+def test_assessment_progress_display_reports_measured_byte_percentage(
+    tmp_path: Path,
+) -> None:
+    bundle = _cached_bundle(tmp_path)
+    stderr = _TTYStringIO()
+    display = cli._AssessmentProgressDisplay(bundle, stderr=stderr)
+    total = bundle.chain.size_bytes
+
+    display.start()
+    display.update(UCSCBundleResourceRole.CHAIN, total // 2, total)
+    display.update(UCSCBundleResourceRole.CHAIN, total, total)
+    display.finish(candidates_exist=True)
+
+    text = stderr.getvalue()
+    assert "Chain" in text
+    assert "50%" in text or "49%" in text
+    assert "100%" in text
+    assert "████████████████████" in text
+    assert cli._format_progress_bytes(total) in text
+
+
+def test_comparative_progress_display_starts_later_resources_as_pending(
+    tmp_path: Path,
+) -> None:
+    bundle = _comparative_cached_bundle(tmp_path)
+    stderr = _TTYStringIO()
+    display = cli._AssessmentProgressDisplay(bundle, stderr=stderr)
+
+    display.start()
+
+    text = stderr.getvalue()
+    assert "Chain" in text
+    assert "Net" in text
+    assert "Reciprocal-best" in text
+    assert text.count("pending") == 3

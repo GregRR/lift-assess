@@ -32,6 +32,7 @@ from .resource_cache import (
     UCSCBundleResourceRole,
 )
 from .resource_files import (
+    ResourceReadProgressCallback,
     _cached_bundle_resource_provenance,
     build_ucsc_candidates_from_cached_bundle,
 )
@@ -134,6 +135,7 @@ def assess_ucsc_cached_bundle(
     *,
     target_assembly: AssemblyIdentifier,
     alignment_provenance: ProvenanceSource,
+    progress_callback: ResourceReadProgressCallback | None = None,
 ) -> UCSCAssessmentReport:
     """Run the v1 candidate engine and assessor over one cached UCSC bundle.
 
@@ -148,6 +150,7 @@ def assess_ucsc_cached_bundle(
         bundle,
         target_assembly=target_assembly,
         alignment_provenance=alignment_provenance,
+        progress_callback=progress_callback,
     )
     assessment = assess_candidates(
         source_interval,

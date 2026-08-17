@@ -2,7 +2,7 @@
 
 **liftAssess** evaluates ambiguous genomic coordinate liftOver mappings using transparent, provenance- and dependency-aware evidence, reporting whether mappings are **well supported**, **contested**, or **indeterminate**.
 
-> **Status:** Active development. Core candidate-generation, evidence-extraction, deterministic assessor, and cached-bundle assessment orchestration are implemented, reviewed, and tested. The CLI and final user-facing reporting layer are still under construction.
+> **Status:** Active development. Core candidate-generation, evidence extraction, deterministic assessment, cached-bundle orchestration, and the common-case CLI are implemented and tested. Detailed/JSON reporting and remaining alpha polish are still under construction.
 
 ## Why liftAssess exists
 
@@ -59,6 +59,8 @@ The current development code includes:
 - UCSC acquisition into a caller-selected external cache, with explicit provider-terms acknowledgement
   before network access, exact-filename MD5 and HTTP-length verification when available, atomic
   content-addressed storage, retrieval metadata, offline cache reuse, and refresh;
+- cache-first CLI reuse of complete verified bundles with zero provider access, plus explicit `--offline` and `--refresh` modes so offline analysis and freshness checks are never conflated;
+- interactive assessment progress based on exact compressed bytes consumed during SHA-256-verified parsing, with Chain/Net/Reciprocal-best progress bars and numeric byte percentages;
 - explicit bundle transfer planning and complete-or-error bundle acquisition for discovered
   `COMPARATIVE` and `LIFTOVER_ONLY` resource sets, with a separate transfer-plan acknowledgement before
   any planned resource acquisition begins;
@@ -75,11 +77,11 @@ The current development code includes:
 
 ## Not implemented yet
 
-The project now implements the common-case CLI and concise summary path, but the full real comparative CLI smoke verification is still pending. Major v1 work still includes:
+The project now implements the common-case CLI and concise summary path, and the first real comparative CLI smoke run has completed against the established external `canFam3`→`canFam4` cache. Major v1 work still includes:
 
-- a real end-to-end CLI smoke verification against the established external `canFam3`→`canFam4` comparative fixture;
+- independent fixture-level cross-checking of the production verdict against the documented deterministic rule;
 - detailed/JSON evidence dossiers with full provenance and resource metadata;
-- transfer-progress reporting appropriate for large/resumable comparative downloads;
+- download/transfer-progress reporting appropriate for large/resumable comparative acquisitions (assessment-read progress is implemented);
 - a future truth-bearing historical-resolution locus for the planned `canFam3.1`→`canFam6` sanity-check pedigree;
 - optional flanking-gene orthology/synteny evidence;
 - a defensible definition of candidate-rank and target-placement evidence where those concepts can be supported without inventing unsupported heuristics.

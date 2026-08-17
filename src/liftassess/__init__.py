@@ -50,10 +50,12 @@ from .resource_cache import (
     acquire_ucsc_resource_bundle,
     inspect_ucsc_bundle_transfer_plan,
     inspect_ucsc_resource,
+    load_cached_ucsc_resource_bundle,
     plan_ucsc_bundle_acquisition,
     ucsc_resource_terms,
 )
 from .resource_files import (
+    ResourceReadProgressCallback,
     build_ucsc_candidates_from_cached_bundle,
     build_ucsc_candidates_from_files,
     iter_chain_file,
@@ -102,6 +104,7 @@ __all__ = [
     "ResourceChecksumAlgorithm",
     "ResourceChecksumMismatchError",
     "ResourceIdentityMismatchError",
+    "ResourceReadProgressCallback",
     "UCSCAssessmentReport",
     "UCSCAssessmentResource",
     "UCSCBundleAcquisitionItem",
@@ -131,6 +134,7 @@ __all__ = [
     "inspect_ucsc_resource",
     "iter_chain_file",
     "iter_net_file",
+    "load_cached_ucsc_resource_bundle",
     "plan_ucsc_bundle_acquisition",
     "provenance_source_for_file",
     "sha256_identifier_for_file",

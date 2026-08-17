@@ -36,7 +36,7 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -569,6 +569,149 @@ def _inspect_ucsc_bundle_transfer_plan(
         evidence_tier=plan.evidence_tier,
         items=inspected,
     )
+
+
+def load_cached_ucsc_resource_bundle(
+    cache_root: ResourcePath,
+    source_db: str,
+    target_db: str,
+) -> CachedUCSCResourceBundle | None:
+    """Load the best complete verified bundle already present in a local cache.
+
+    This function performs no network access. It reconstructs bundle membership from
+    the URL indexes written at acquisition time, re-verifies each selected artifact's
+    size and SHA-256, and prefers a complete ``COMPARATIVE`` bundle over a
+    ``LIFTOVER_ONLY`` chain when both are present.
+
+    The returned evidence tier describes the exact cached resources available for
+    assessment. It is deliberately not a claim that UCSC still publishes the same
+    resource set today; callers that require a provider freshness check must perform
+    discovery again or use the CLI's ``--refresh`` path.
+    """
+
+    root = Path(cache_root)
+    index_root = root / "by-url"
+    if not index_root.is_dir():
+        return None
+
+    candidates: dict[
+        tuple[EvidenceAvailabilityTier, UCSCBundleResourceRole],
+        list[tuple[Path, str]],
+    ] = {}
+    for index_path in sorted(index_root.glob("*.json")):
+        source_url = _cache_index_source_url(index_path)
+        if source_url is None:
+            continue
+        binding = _cached_bundle_binding_for_url(
+            source_url,
+            source_db=source_db,
+            target_db=target_db,
+        )
+        if binding is None:
+            continue
+        candidates.setdefault(binding, []).append((index_path, source_url))
+
+    comparative: dict[UCSCBundleResourceRole, CachedResource] = {}
+    for role in _bundle_roles_for_tier(EvidenceAvailabilityTier.COMPARATIVE):
+        resource = _first_verified_cached_candidate(
+            root,
+            candidates.get((EvidenceAvailabilityTier.COMPARATIVE, role), []),
+        )
+        if resource is None:
+            break
+        comparative[role] = resource
+    else:
+        return CachedUCSCResourceBundle(
+            source_db=source_db,
+            target_db=target_db,
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+            chain=comparative[UCSCBundleResourceRole.CHAIN],
+            net=comparative[UCSCBundleResourceRole.NET],
+            syntenic_net=comparative[UCSCBundleResourceRole.SYNTENIC_NET],
+            reciprocal_best_chain=comparative[
+                UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN
+            ],
+            reciprocal_best_net=comparative[UCSCBundleResourceRole.RECIPROCAL_BEST_NET],
+        )
+
+    liftover = _first_verified_cached_candidate(
+        root,
+        candidates.get(
+            (EvidenceAvailabilityTier.LIFTOVER_ONLY, UCSCBundleResourceRole.CHAIN),
+            [],
+        ),
+    )
+    if liftover is None:
+        return None
+    return CachedUCSCResourceBundle(
+        source_db=source_db,
+        target_db=target_db,
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        chain=liftover,
+    )
+
+
+def _cache_index_source_url(index_path: Path) -> str | None:
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    source_url = payload.get("source_url")
+    return source_url if isinstance(source_url, str) and source_url else None
+
+
+def _cached_bundle_binding_for_url(
+    url: str,
+    *,
+    source_db: str,
+    target_db: str,
+) -> tuple[EvidenceAvailabilityTier, UCSCBundleResourceRole] | None:
+    for role in _bundle_roles_for_tier(EvidenceAvailabilityTier.COMPARATIVE):
+        try:
+            _validate_bundle_resource_binding(
+                role,
+                url,
+                source_db=source_db,
+                target_db=target_db,
+                evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+            )
+        except ValueError:
+            continue
+        return EvidenceAvailabilityTier.COMPARATIVE, role
+
+    try:
+        _validate_bundle_resource_binding(
+            UCSCBundleResourceRole.CHAIN,
+            url,
+            source_db=source_db,
+            target_db=target_db,
+            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        )
+    except ValueError:
+        return None
+    return EvidenceAvailabilityTier.LIFTOVER_ONLY, UCSCBundleResourceRole.CHAIN
+
+
+def _first_verified_cached_candidate(
+    root: Path,
+    candidates: Sequence[tuple[Path, str]],
+) -> CachedResource | None:
+    for index_path, source_url in candidates:
+        try:
+            terms = ucsc_resource_terms(source_url)
+        except ValueError:
+            continue
+        resource = _read_verified_cache_entry(
+            root,
+            index_path,
+            source_url=source_url,
+            terms=terms,
+        )
+        if resource is not None:
+            return resource
+    return None
 
 
 def acquire_ucsc_resource_bundle(

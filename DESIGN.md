@@ -520,9 +520,13 @@ CLI target for the common case:
 ```
 assess-liftover canFam3 canFam4 chr16:12345-12400
 ```
-The common-case command now composes resource discovery, explicit UCSC-terms review, body-free HEAD inspection of the exact transfer plan, a separate transfer-plan acknowledgement, cached acquisition, candidate/evidence generation, assessment, and concise rendering. Interactive acknowledgements are the default; explicit acknowledgement flags support non-interactive runs without weakening the two separate gates. `--refresh` forces provider reacquisition, `--cache-dir` overrides the user cache, and `--quiet` suppresses nonessential high-level progress. The platform defaults are `~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` (falling back to `~/.cache/liftassess`) elsewhere.
+The common-case command is cache-first. A complete locally indexed bundle is re-verified from its URL-indexed SHA-256 artifacts and can be assessed with zero provider access; this reports the evidence tier represented by those cached bytes and does not claim UCSC's current publication state is unchanged. `--offline` makes zero network access an explicit guarantee and fails if no complete verified local bundle exists. `--refresh` deliberately bypasses cache-first reuse and performs the provider discovery/terms/HEAD/transfer workflow to check and reacquire current resources. `--cache-dir` overrides the user cache and `--quiet` suppresses nonessential progress. The platform defaults are `~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` (falling back to `~/.cache/liftassess`) elsewhere.
+
+Interactive assessment progress is measured from the exact compressed artifact bytes simultaneously streamed through SHA-256 verification into parsing. The CLI displays separate Chain, Net, and Reciprocal-best rows with a visual bar, numeric percentage, and measured bytes; pending resources remain visibly pending until consumed. The display is terminal-only and is suppressed by `--quiet`, so redirected output is not flooded with progress updates. This is assessment-read progress, not an estimate of biological or algorithmic completion.
 
 For automatic UCSC runs, the CLI supplies one conservative source/target-pair lineage node as the shared upstream dependency of consumed UCSC files. This is intentionally a dependency-grouping statement, not a reconstruction of the provider's exact alignment/process history from downloaded bytes. Exact consumed-file identity remains represented by the SHA-256-addressed child provenance nodes. This conservative grouping prevents chain/net/reciprocal-best observations from being presented as independent confirmation without claiming more process knowledge than the CLI has.
+
+The first real CLI smoke run completed 2026-08-16 against the external `canFam3`→`canFam4` comparative cache at source display locus `chrUn_JH373233:1845736-1845835` (canonical internal interval `1845735-1845835`). The command reported `COMPARATIVE`, 170 candidates, and `CONTESTED`, matching the established candidate count from the mechanical fixture. This is an end-to-end software result, not biological ground truth; the independent verifier cross-check of the deterministic verdict is maintained separately.
 
 Expert users can still use the library boundaries with explicitly supplied resources/provenance. Engine selection becomes a real option only once a second engine exists — v1 has exactly one (§7). Detailed `--details`/JSON output remains unresolved below.
 
@@ -557,8 +561,11 @@ Expert users can still use the library boundaries with explicitly supplied resou
     membership. Chains 5170 and 2692 provide contrasting partial-coverage and reciprocal-best-
     absent cases. The production path SHA-256-verifies the consumed resource bytes and preserves
     one caller-declared shared upstream alignment ancestor across chain/net/reciprocal-best file
-    provenance. This fixture verifies extraction and provenance wiring only; it computes no
-    verdict and makes no biological ground-truth claim. The reproducible verifier lives at
+    provenance. The original completed fixture run verified extraction and provenance wiring only.
+    The reproducible verifier has since been extended to derive the expected comparative verdict
+    independently from the extracted candidate evidence (without calling `assess_candidates()`) and
+    compare that derivation with the production assessor; the real-data rerun is the remaining
+    validation checkpoint. No biological ground-truth claim is made. The verifier lives at
     `scripts/verify_canFam3_canFam4_mechanical_fixture.py`; the UCSC bulk files remain external.
 - **Historical-resolution fixture pedigree (not yet a concrete fixture)** — identifies the right
   assembly pair for proving the report behaves sensibly against a known resolution; the specific
@@ -608,6 +615,4 @@ anything now.
 - Decide the exact `--details` / JSON schema.
 - Decide the source for optional flanking-gene synteny context (e.g. Ensembl Compara) and its
   fallback behavior when no ortholog table exists for a species pair.
-- Add transfer-progress reporting suitable for large/resumable comparative downloads. The CLI now has
-  platform user-cache defaults, `--cache-dir`, `--refresh`, suppressible high-level status, terms-gated HEAD
-  preflight, and separate transfer-plan confirmation; detailed byte-level/resume-aware progress remains open.
+- Add **download/transfer** progress reporting suitable for large/resumable comparative acquisitions. Assessment-read progress is now measured from exact compressed bytes consumed during parsing, but byte-level/resume-aware progress while downloading remains open.

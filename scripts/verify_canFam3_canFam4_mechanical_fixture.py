@@ -25,6 +25,8 @@ from liftassess import (
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
     ResourceChecksumAlgorithm,
+    Verdict,
+    assess_candidates,
     build_ucsc_candidates_from_cached_bundle,
     iter_chain_file,
     ucsc_resource_terms,
@@ -339,6 +341,39 @@ def _rbest(candidate: NormalizedCandidate) -> ReciprocalBestMembershipSummary:
     return cast(ReciprocalBestMembershipSummary, value)
 
 
+def _derive_expected_comparative_verdict(
+    candidates: tuple[NormalizedCandidate, ...],
+) -> tuple[Verdict, tuple[str, ...]]:
+    """Derive this fixture's expected verdict without using assessor logic.
+
+    This verifier intentionally re-derives only the categorical condition needed by
+    this real fixture: under the documented COMPARATIVE rule, a candidate remains
+    materially in play when it has FULL source-locus coverage or non-NONE
+    reciprocal-best membership. Two or more such candidates require CONTESTED.
+
+    The derivation reads the already-extracted public evidence observations directly;
+    it does not call ``assess_candidates`` or any private assessor helper. The
+    production assessor is invoked only afterward, as the implementation being
+    cross-checked against this independently derived expectation.
+    """
+
+    material_candidate_ids: list[str] = []
+    for candidate in candidates:
+        coverage = _coverage(candidate)
+        reciprocal_best = _rbest(candidate)
+        if coverage.status is MappingCoverageStatus.FULL or reciprocal_best.status in {
+            ReciprocalBestMembershipStatus.FULL,
+            ReciprocalBestMembershipStatus.PARTIAL,
+        }:
+            material_candidate_ids.append(candidate.candidate_id)
+
+    _check(
+        len(material_candidate_ids) >= 2,
+        "fixture no longer has at least two material comparative candidates",
+    )
+    return Verdict.CONTESTED, tuple(material_candidate_ids)
+
+
 def main() -> None:
     args = parse_args()
     bundle = _load_bundle(args.cache_root)
@@ -518,6 +553,29 @@ def main() -> None:
         "chain 2692 chains_examined disagrees with direct rbest pair count",
     )
 
+    expected_verdict, material_candidate_ids = _derive_expected_comparative_verdict(
+        candidates
+    )
+    _check(
+        primary.candidate_id in material_candidate_ids,
+        "chain 573 must remain material in the independent verdict derivation",
+    )
+    _check(
+        alternative.candidate_id in material_candidate_ids,
+        "chain 2692 must remain material in the independent verdict derivation",
+    )
+    production_assessment = assess_candidates(
+        interval,
+        candidates,
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+    )
+    _check(
+        production_assessment.verdict is expected_verdict,
+        "production assessor verdict disagrees with independently derived fixture "
+        f"verdict: expected {expected_verdict.value}, got "
+        f"{production_assessment.verdict.value}",
+    )
+
     chain_sha = RESOURCE_EXPECTATIONS["chain"][1]
     net_sha = RESOURCE_EXPECTATIONS["net"][1]
     rbest_sha = RESOURCE_EXPECTATIONS["reciprocal_best_chain"][1]
@@ -575,7 +633,11 @@ def main() -> None:
         "resource_completeness_basis=caller-declared COMPLETE_RESOURCE from prior "
         "complete acquisition; exact consumed bytes SHA-verified by production path"
     )
-    print("verdict_computed=no")
+    print(
+        "independent_verdict_crosscheck="
+        f"expected={expected_verdict.value} production={production_assessment.verdict.value} "
+        f"material_candidates={len(material_candidate_ids)}"
+    )
     print("biological_ground_truth_claim=no")
     print()
     print("Exact primary segment/gap/rbest geometry for fixture freezing:")

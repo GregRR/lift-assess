@@ -4,7 +4,7 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 `DESIGN.md` remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, verdict meanings, v1 scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
 
-## Current status — 2026-08-16
+## Current status — 2026-08-17
 
 liftAssess is an active, private development repository. It is not yet a released end-to-end analysis tool.
 
@@ -18,11 +18,12 @@ The project now has an integrated UCSC evidence pipeline plus a completed real c
 - bridge a complete cached resource bundle directly into the file-backed candidate/evidence engine;
 - reproduce a measured `canFam3`→`canFam4` comparative fixture through that production cached-bundle path while keeping all multi-gigabyte provider resources outside the repository;
 - run a reviewed deterministic assessor over normalized coverage and reciprocal-best evidence without a numeric score;
-- and compose a complete cached UCSC bundle through candidate/evidence generation and the assessor into an auditable assessment report.
+- compose a complete cached UCSC bundle through candidate/evidence generation and the assessor into an auditable assessment report;
+- and run the `assess-liftover` CLI cache-first or fully offline with measured assessment-read progress.
 
-The routine automated suite contains **265 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
+The routine automated suite contains **288 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
-The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. liftAssess still does not provide the planned CLI and user-facing report workflow, so verdict assignment remains development behavior rather than a released scientific interface.
+The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, and measured assessment-read progress are implemented and have completed a real comparative smoke run. Milestone 15 remains in progress while detailed evidence-dossier/JSON output and transfer-progress reporting are still unfinished, so liftAssess remains a pre-release development tool.
 
 ## Implementation history
 
@@ -357,16 +358,18 @@ Implemented so far:
 - UCSC database identifiers and CLI loci are parsed at an explicit boundary, with 1-based inclusive display coordinates converted immediately to canonical 0-based half-open intervals;
 - concise human-readable summaries show evidence availability before verdict interpretation and always retain the biological-correctness caveat;
 - the `assess-liftover` console entry point now composes discovery, terms review, HEAD transfer inspection, separate transfer-plan acknowledgement, cached acquisition, assessment orchestration, and summary rendering;
-- the CLI chooses a platform user-cache default while preserving `--cache-dir`, supports `--refresh`, and provides suppressible high-level progress with `--quiet`;
+- the CLI chooses a platform user-cache default while preserving `--cache-dir`; complete verified bundles are reused cache-first without provider access, `--offline` guarantees zero network access, and `--refresh` explicitly forces a fresh provider check/acquisition;
+- interactive assessment progress reports measured compressed bytes consumed for Chain, Net, and Reciprocal-best inputs with a visual bar, numeric percentage, and byte counts; `--quiet` suppresses it;
 - interactive acknowledgements are the default, with explicit `--acknowledge-ucsc-terms` and `--accept-transfer-plan` flags for non-interactive use;
-- automatic UCSC runs use a conservative pair-level shared lineage node only for provenance dependency grouping, while exact consumed-file identity remains SHA-256-addressed beneath it.
+- automatic UCSC runs use a conservative pair-level shared lineage node only for provenance dependency grouping, while exact consumed-file identity remains SHA-256-addressed beneath it;
+- the first real CLI smoke run completed 2026-08-16 against the established external `canFam3`→`canFam4` comparative fixture, reporting `COMPARATIVE`, 170 candidates, and `CONTESTED` for display locus `chrUn_JH373233:1845736-1845835`;
+- an independent fixture cross-check derives `CONTESTED` directly from the extracted public evidence without using production verdict logic, identifying 138 material candidates and agreeing with the production assessor.
 
 Remaining:
 
 - `--details` evidence-dossier output;
 - JSON output preserving coordinates, provenance, dependencies, resource hashes, and verdict semantics;
-- transfer-progress reporting suitable for large/resumable downloads;
-- a real CLI smoke verification against the established external `canFam3`→`canFam4` comparative fixture before the milestone is marked complete.
+- download/transfer-progress reporting suitable for large/resumable acquisitions (assessment-read progress is implemented).
 
 ### 16. First public alpha milestone
 
