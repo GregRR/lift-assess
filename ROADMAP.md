@@ -383,11 +383,11 @@ A formal versioned release can follow after the CLI/report workflow is coherent 
 
 Identify one concrete, independently established `canFam3.1` → `canFam6` locus from the same-individual Tasha pedigree. This should test sensible behavior under sparse evidence and later assembly resolution without being used as a calibration set.
 
-### Assembly identity/canonicalization boundary
+### Assembly identity/canonicalization boundary — v1 rule defined
 
-`AssemblyIdentifier` currently uses frozen-dataclass structural equality, including optional accession and aliases. That conservative behavior is safe today because `resources.py` still uses plain UCSC `source_db`/`target_db` strings and each engine call threads one `AssemblyIdentifier` instance through its candidate geometry.
+Milestone 15 defines the first external-identifier construction rule narrowly: an explicit UCSC database identifier is canonicalized to `AssemblyIdentifier(name=<db>, provider="UCSC")`. The CLI does not infer accessions or biological aliases from that string, and it threads the same structured assembly object into the canonical source interval / target engine call.
 
-The cached-bundle-to-engine bridge deliberately avoids this trigger: it does not construct a new assembly object from UCSC database strings and instead validates those strings against the caller's explicitly recorded assembly name/aliases. The issue becomes live when the resolver/CLI first constructs assembly objects from external identifiers that may then be compared with independently constructed objects carrying different accession/alias metadata. Before that object-construction bridge lands, define explicit identity/canonicalization semantics rather than either relying indefinitely on structural equality or weakening `__eq__` speculatively.
+`AssemblyIdentifier` structural equality therefore remains an internal consistency check rather than a speculative general alias resolver. The cached-bundle bridge continues to validate a UCSC db against an explicitly recorded name/alias when callers supply richer assembly metadata. General cross-provider identity resolution remains outside v1 scope and should only be added against a concrete requirement.
 
 ### Candidate-rank and target-placement evidence
 
