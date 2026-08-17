@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from liftassess import (
@@ -10,6 +11,7 @@ from liftassess import (
     EvidenceAvailabilityTier,
     EvidenceKind,
     EvidenceObservation,
+    EvidenceReference,
     GenomicInterval,
     MappingCoverageStatus,
     MappingCoverageSummary,
@@ -266,9 +268,9 @@ def test_split_candidate_summary_labels_target_interval_as_bounding_span() -> No
     )
 
 
-def test_detailed_report_exposes_evidence_resources_and_provenance_without_ranking() -> (
-    None
-):
+def _detailed_liftover_report(
+    *, orientation: MappingOrientation = MappingOrientation.SAME
+) -> UCSCAssessmentReport:
     sha256 = f"sha256:{'a' * 64}"
     alignment = ProvenanceSource("alignment", "shared test alignment")
     chain_provenance = ProvenanceSource(
@@ -297,7 +299,7 @@ def test_detailed_report_exposes_evidence_resources_and_provenance_without_ranki
     candidate = NormalizedCandidate(
         candidate_id=candidate_id,
         target_interval=GenomicInterval(TARGET_ASSEMBLY, "chrA", 1000, 1100),
-        orientation=MappingOrientation.SAME,
+        orientation=orientation,
         mapping_provenance=chain_provenance,
         segments=(
             MappingSegment(
@@ -326,7 +328,7 @@ def test_detailed_report_exposes_evidence_resources_and_provenance_without_ranki
         terms=ucsc_resource_terms(url),
         cache_hit=True,
     )
-    report = UCSCAssessmentReport(
+    return UCSCAssessmentReport(
         assessment=assessment,
         source_db="sourceAsm",
         target_db="targetAsm",
@@ -340,6 +342,14 @@ def test_detailed_report_exposes_evidence_resources_and_provenance_without_ranki
             ),
         ),
     )
+
+
+def test_detailed_report_exposes_evidence_resources_and_provenance_without_ranking() -> (
+    None
+):
+    report = _detailed_liftover_report()
+    candidate_id = report.assessment.candidates[0].candidate_id
+    sha256 = report.resources[0].resource.sha256
 
     details = render_assessment_details(report)
 
@@ -357,9 +367,106 @@ def test_detailed_report_exposes_evidence_resources_and_provenance_without_ranki
     assert "CHAIN_SCORE [context]: 12345" in details
     assert "CHAIN [consumed]" in details
     assert f"SHA-256: {sha256}" in details
-    assert f"Derived from: {alignment.source_id}" in details
+    assert f"Derived from: {report.alignment_provenance.source_id}" in details
     assert "categorical roles, not additive scores" in details
     assert details.endswith("This does not establish biological correctness.")
+
+
+def test_machine_evidence_roles_cover_all_categorical_states() -> None:
+    reference = EvidenceReference("candidate", "observation")
+    role = reporting._evidence_role
+
+    assert role(reference, supporting=set(), contradicting=set()) == "CONTEXT"
+    assert role(reference, supporting={reference}, contradicting=set()) == "SUPPORTING"
+    assert (
+        role(reference, supporting=set(), contradicting={reference}) == "CONTRADICTING"
+    )
+    assert (
+        role(reference, supporting={reference}, contradicting={reference})
+        == "SUPPORTING_AND_CONTRADICTING"
+    )
+
+
+def test_json_report_preserves_assessment_resource_and_provenance_semantics() -> None:
+    report = _detailed_liftover_report()
+
+    payload = json.loads(reporting.render_assessment_json(report))
+
+    assert payload["schema_version"] == 1
+    assert payload["report_type"] == "liftassess.ucsc_assessment"
+    assert payload["semantics"] == {
+        "candidate_order": "reproducibility_only_not_rank",
+        "evidence_roles": "categorical_not_additive",
+        "interval_coordinates": "0-based-half-open",
+        "provenance_edges": "dependence_not_independent_confirmation",
+    }
+    assert payload["ucsc_database_pair"] == {
+        "source_db": "sourceAsm",
+        "target_db": "targetAsm",
+    }
+
+    assessment = payload["assessment"]
+    assert assessment["source_interval"]["start"] == 100
+    assert assessment["source_interval"]["end"] == 200
+    assert assessment["source_interval"]["coordinate_system"] == "0-based-half-open"
+    assert assessment["evidence_tier"] == "LIFTOVER_ONLY"
+    assert assessment["verdict"] == "WELL_SUPPORTED"
+
+    candidate = assessment["candidates"][0]
+    assert candidate["ucsc_chain_id"] == 42
+    assert candidate["target_bounding_interval"]["start"] == 1000
+    assert candidate["target_bounding_interval"]["end"] == 1100
+    assert candidate["segments"][0]["source_interval"]["start"] == 100
+    evidence_by_kind = {item["kind"]: item for item in candidate["evidence"]}
+    assert evidence_by_kind["MAPPING_COVERAGE"]["assessment_role"] == "SUPPORTING"
+    assert evidence_by_kind["MAPPING_COVERAGE"]["value"] == {
+        "covered_source_bases": 100,
+        "source_bases": 100,
+        "status": "FULL",
+        "type": "MAPPING_COVERAGE_SUMMARY",
+        "uncovered_source_intervals": [],
+    }
+    assert evidence_by_kind["CHAIN_SCORE"]["assessment_role"] == "CONTEXT"
+    assert evidence_by_kind["CHAIN_SCORE"]["value"] == {
+        "type": "SCALAR",
+        "value": 12345,
+    }
+
+    resource = payload["resources"][0]
+    assert resource["role"] == "CHAIN"
+    assert resource["consumed_by_engine"] is True
+    assert resource["sha256"] == report.resources[0].resource.sha256
+    assert resource["file_provenance_source_id"] is not None
+    assert resource["provider_checksum"] is None
+
+    provenance_by_id = {
+        source["source_id"]: source for source in payload["provenance"]["sources"]
+    }
+    file_provenance = report.resources[0].file_provenance
+    assert file_provenance is not None
+    file_source_id = file_provenance.source_id
+    assert provenance_by_id[file_source_id]["derived_from_source_ids"] == ["alignment"]
+    assert payload["caveat"] == "This does not establish biological correctness."
+
+
+def test_json_and_details_preserve_reverse_orientation_with_forward_coordinates() -> (
+    None
+):
+    report = _detailed_liftover_report(orientation=MappingOrientation.REVERSE)
+
+    payload = json.loads(reporting.render_assessment_json(report))
+    candidate = payload["assessment"]["candidates"][0]
+
+    assert candidate["orientation"] == "REVERSE"
+    assert candidate["target_bounding_interval"]["start"] == 1000
+    assert candidate["target_bounding_interval"]["end"] == 1100
+    assert candidate["segments"][0]["source_interval"]["start"] == 100
+    assert candidate["segments"][0]["source_interval"]["end"] == 200
+    assert candidate["segments"][0]["target_interval"]["start"] == 1000
+    assert candidate["segments"][0]["target_interval"]["end"] == 1100
+
+    details = render_assessment_details(report)
+    assert "reverse orientation" in details
 
 
 def test_structured_comparative_evidence_and_provider_checksum_rendering() -> None:
@@ -419,6 +526,28 @@ def test_structured_comparative_evidence_and_provider_checksum_rendering() -> No
         "covered source intervals: chr1:101-200 (1-based inclusive)",
     ]
 
+    gap_json = json.loads(
+        json.dumps(reporting._evidence_value_json(gap_observation.value))
+    )
+    assert gap_json["type"] == "CHAIN_GAP_SUMMARY"
+    assert gap_json["gaps"][0]["source_boundary_0_based"] == 150
+    assert gap_json["gaps"][0]["target_gap_interval"]["start"] == 1050
+
+    net_json = json.loads(
+        json.dumps(reporting._evidence_value_json(net_observation.value))
+    )
+    assert net_json["type"] == "NET_HIERARCHY_SUMMARY"
+    assert net_json["depth"] == 3
+    assert net_json["source_fill_interval"]["coordinate_system"] == "0-based-half-open"
+
+    reciprocal_json = json.loads(
+        json.dumps(reporting._evidence_value_json(reciprocal_observation.value))
+    )
+    assert reciprocal_json["type"] == "RECIPROCAL_BEST_MEMBERSHIP_SUMMARY"
+    assert reciprocal_json["status"] == "FULL"
+    assert reciprocal_json["resource_completeness"] == "COMPLETE_RESOURCE"
+    assert reciprocal_json["covered_source_intervals"][0]["start"] == 100
+
     checksum_url = "https://example.test/md5sum.txt"
     resource = CachedResource(
         path=Path("/cache/chain.gz"),
@@ -440,3 +569,28 @@ def test_structured_comparative_evidence_and_provider_checksum_rendering() -> No
     assert reporting._provider_checksum_text(resource) == (
         f"md5:{'c' * 32} (from {checksum_url})"
     )
+
+    checksum_provenance = ProvenanceSource(
+        "checksum-resource",
+        "checksum resource",
+        identifiers=(
+            ProvenanceIdentifier(ProvenanceIdentifierKind.SHA256, resource.sha256),
+        ),
+    )
+    resource_json = json.loads(
+        json.dumps(
+            reporting._assessment_resource_json(
+                UCSCAssessmentResource(
+                    role=UCSCBundleResourceRole.CHAIN,
+                    resource=resource,
+                    consumed_by_engine=True,
+                    file_provenance=checksum_provenance,
+                )
+            )
+        )
+    )
+    assert resource_json["provider_checksum"] == {
+        "algorithm": "md5",
+        "source_url": checksum_url,
+        "value": "c" * 32,
+    }

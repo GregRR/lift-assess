@@ -2,7 +2,7 @@
 
 **liftAssess** evaluates ambiguous genomic coordinate liftOver mappings using transparent, provenance- and dependency-aware evidence, reporting whether mappings are **well supported**, **contested**, or **indeterminate**.
 
-> **Status:** Active development. Core candidate-generation, evidence extraction, deterministic assessment, cached-bundle orchestration, the common-case CLI, and human-readable detailed reporting are implemented and tested. JSON reporting and remaining alpha polish are still under construction.
+> **Status:** Active development. Core candidate-generation, evidence extraction, deterministic assessment, cached-bundle orchestration, the common-case CLI, and human-readable detailed plus machine-readable JSON reporting are implemented and tested. Remaining alpha polish is still under construction.
 
 ## Why liftAssess exists
 
@@ -78,9 +78,8 @@ The current development code includes:
 
 ## Not implemented yet
 
-The project now implements the common-case CLI and concise summary path, and the first real comparative CLI smoke run has completed against the established external `canFam3`→`canFam4` cache. Major v1 work still includes:
+The project now implements the common-case CLI, concise summary, human-readable detail, and schema-versioned JSON reporting paths, and the first real comparative CLI smoke run has completed against the established external `canFam3`→`canFam4` cache. Major v1 work still includes:
 
-- JSON evidence output preserving the implemented human dossier's coordinate, evidence-role, provenance, dependency, and resource distinctions;
 - download/transfer-progress reporting appropriate for large/resumable comparative acquisitions (assessment-read progress is implemented);
 - a future truth-bearing historical-resolution locus for the planned `canFam3.1`→`canFam6` sanity-check pedigree;
 - optional flanking-gene orthology/synteny evidence;
@@ -135,11 +134,17 @@ uv run assess-liftover canFam3 canFam4 chr16:12345-12400
 
 CLI loci use the familiar UCSC-style 1-based, inclusive display convention and are converted immediately to liftAssess's canonical 0-based, half-open internal representation.
 
-Before resource acquisition, the command displays the applicable UCSC terms and requires explicit acknowledgement. It then performs body-free HEAD inspection of the exact transfer plan, displays provider-advertised resource sizes and the cache destination, and requires a separate transfer-plan acknowledgement before downloading or verifying cached resources. The displayed size is the provider resource-set size, not a promise that all bytes will be transferred: verified cache hits can avoid body transfer unless `--refresh` is used. `--acknowledge-ucsc-terms` and `--accept-transfer-plan` provide explicit non-interactive acknowledgements; `--cache-dir`, `--refresh`, `--offline`, `--details`, and `--quiet` control cache placement, provider access, detailed reporting, and progress output.
+Before resource acquisition, the command displays the applicable UCSC terms and requires explicit acknowledgement. It then performs body-free HEAD inspection of the exact transfer plan, displays provider-advertised resource sizes and the cache destination, and requires a separate transfer-plan acknowledgement before downloading or verifying cached resources. The displayed size is the provider resource-set size, not a promise that all bytes will be transferred: verified cache hits can avoid body transfer unless `--refresh` is used. `--acknowledge-ucsc-terms` and `--accept-transfer-plan` provide explicit non-interactive acknowledgements; `--cache-dir`, `--refresh`, `--offline`, `--details`, `--json`, and `--quiet` control cache placement, provider access, report format, and progress output.
 
 The default cache is the platform user cache (`~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` or `~/.cache/liftassess` on other platforms).
 
-The default command emits the concise assessment summary. `--details` emits the full human-readable evidence dossier, including exact mapped segments, categorical verdict-evidence roles, resource URLs/checksums and consumed-vs-unconsumed status, and the complete provenance dependency graph. JSON output remains planned. Both output modes retain the explicit caveat that evidentiary support is not proof of biological correctness.
+The default command emits the concise assessment summary. `--details` emits the full human-readable evidence dossier, including exact mapped segments, categorical verdict-evidence roles, resource URLs/checksums and consumed-vs-unconsumed status, and the complete provenance dependency graph. `--json` emits schema version 1 of the same report semantics using canonical 0-based, half-open interval objects, structured evidence values, exact resource metadata, and explicit provenance dependency edges. `--details` and `--json` are mutually exclusive. All report modes retain the explicit caveat that evidentiary support is not proof of biological correctness.
+
+For machine use, stdout remains the JSON document while status/progress stays on stderr, so normal shell redirection is safe:
+
+```text
+uv run assess-liftover canFam3 canFam4 chr16:12345-12400 --json > assessment.json
+```
 
 ## Validation strategy
 

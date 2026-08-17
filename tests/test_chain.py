@@ -3,7 +3,26 @@ from io import StringIO
 import pytest
 
 from liftassess import MappingOrientation
-from liftassess.chain import ChainFormatError, ChainStrand, iter_chain_records
+from liftassess.chain import (
+    ChainFormatError,
+    ChainStrand,
+    chain_candidate_id,
+    chain_id_from_candidate_id,
+    iter_chain_records,
+)
+
+
+def test_chain_candidate_id_round_trips_through_shared_decoder() -> None:
+    candidate_id = chain_candidate_id("file:sha256:abc", 42)
+
+    assert candidate_id == "file:sha256:abc:chain:42"
+    assert chain_id_from_candidate_id(candidate_id) == 42
+    assert chain_id_from_candidate_id("not-a-chain-candidate") is None
+    assert chain_id_from_candidate_id(":chain:42") is None
+    assert chain_id_from_candidate_id("source:chain:-1") is None
+    assert chain_id_from_candidate_id("source:chain:+1") is None
+    assert chain_id_from_candidate_id("source:chain:01") is None
+    assert chain_id_from_candidate_id("source:chain:not-an-int") is None
 
 
 def test_parser_reads_chain_header_blocks_and_gaps() -> None:

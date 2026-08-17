@@ -21,9 +21,9 @@ The project now has an integrated UCSC evidence pipeline plus a completed real c
 - compose a complete cached UCSC bundle through candidate/evidence generation and the assessor into an auditable assessment report;
 - and run the `assess-liftover` CLI cache-first or fully offline with measured assessment-read progress.
 
-The routine automated suite contains **298 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
+The routine automated suite contains **304 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
-The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, measured cache-verification progress, and measured assessment-read progress are implemented; the real comparative assessment path has completed a smoke run. Milestone 15 remains in progress while JSON output and transfer-progress reporting are still unfinished, so liftAssess remains a pre-release development tool.
+The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, human-readable and JSON detailed reporting, measured cache-verification progress, and measured assessment-read progress are implemented; the real comparative assessment path has completed a smoke run. Milestone 15 remains in progress while transfer-progress reporting is still unfinished, so liftAssess remains a pre-release development tool.
 
 ## Implementation history
 
@@ -365,11 +365,10 @@ Implemented so far:
 - automatic UCSC runs use a conservative pair-level shared lineage node only for provenance dependency grouping, while exact consumed-file identity remains SHA-256-addressed beneath it;
 - the first real CLI smoke run completed 2026-08-16 against the established external `canFam3`→`canFam4` comparative fixture, reporting `COMPARATIVE`, 170 candidates, and `CONTESTED` for display locus `chrUn_JH373233:1845736-1845835`;
 - an independent fixture cross-check derives `CONTESTED` directly from the extracted public evidence without using production verdict logic, identifying 138 material candidates and agreeing with the production assessor;
-- `--details` emits the full human-readable evidence dossier: exact mapped segments, categorical verdict-evidence roles, every observation, resource retrieval/checksum context, consumed-vs-unconsumed status, and the complete provenance dependency graph without implying candidate rank or independent confirmation.
+- `--details` emits the full human-readable evidence dossier: exact mapped segments, categorical verdict-evidence roles, every observation, resource retrieval/checksum context, consumed-vs-unconsumed status, and the complete provenance dependency graph without implying candidate rank or independent confirmation;
+- `--json` emits schema version 1 from the same assessment/report model, preserving canonical 0-based half-open coordinates, structured evidence roles/values, candidate order without ranking semantics, resource consumption/checksums/terms, provenance dependency edges, and the biological-correctness caveat.
 
 Remaining:
-
-- JSON output preserving coordinates, provenance, dependencies, resource hashes, and verdict semantics;
 - download/transfer-progress reporting suitable for large/resumable acquisitions (assessment-read progress is implemented).
 
 ### 16. First public alpha milestone
@@ -407,7 +406,7 @@ Select and verify a real source, likely an external orthology/synteny provider, 
 
 ### Detailed/JSON schema stabilization
 
-The human-readable `--details` dossier is implemented against the real validated assessment/report model. Finalize stable machine-readable JSON semantics next, preserving the same coordinate, evidence-role, resource-consumption, and provenance/dependency distinctions rather than freezing a separate synthetic-only representation.
+The human-readable `--details` dossier and schema-versioned `--json` representation are implemented against the same validated assessment/report model. JSON schema version 1 uses canonical 0-based, half-open interval objects; explicit categorical assessment roles; structured evidence payloads; complete resource consumption/retrieval/checksum/terms metadata; and source-ID provenance dependency edges. Candidate array order is reproducibility-only, not rank, and the biological-correctness caveat remains explicit.
 
 ## Deliberately deferred beyond v1
 

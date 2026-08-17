@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import json
 from io import StringIO
 from pathlib import Path
 
@@ -861,6 +862,67 @@ def test_details_flag_emits_full_dossier_from_cached_assessment(
     assert "Resources" in output
     assert "Provenance dependencies" in output
     assert "Source locus: chr1:101-120 (1-based inclusive)" in output
+
+
+def test_json_flag_emits_machine_readable_cached_assessment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cached = _cached_bundle(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target: cached,
+    )
+
+    def forbidden_discovery(source: str, target: str) -> UCSCResourceBundle | None:
+        raise AssertionError("provider discovery must not run for a complete cache hit")
+
+    monkeypatch.setattr(cli, "discover_ucsc_resources", forbidden_discovery)
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--json",
+        ]
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert "Checking/verifying local UCSC cache" in stderr.getvalue()
+    payload = json.loads(stdout.getvalue())
+    assert payload["schema_version"] == 1
+    assert payload["assessment"]["source_interval"]["start"] == 100
+    assert payload["assessment"]["source_interval"]["end"] == 120
+    assert payload["assessment"]["verdict"] == "WELL_SUPPORTED"
+    assert payload["resources"][0]["role"] == "CHAIN"
+    assert payload["caveat"] == "This does not establish biological correctness."
+
+
+def test_details_and_json_output_modes_are_mutually_exclusive() -> None:
+    parser = cli._build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                _SOURCE_DB,
+                _TARGET_DB,
+                "chr1:101-120",
+                "--details",
+                "--json",
+            ]
+        )
 
 
 def test_offline_requires_complete_cached_bundle_without_provider_access(

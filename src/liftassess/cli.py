@@ -24,7 +24,11 @@ from typing import TextIO
 from .cli_input import parse_ucsc_locus, ucsc_assembly_identifier
 from .models import EvidenceAvailabilityTier, ProvenanceSource
 from .orchestration import assess_ucsc_cached_bundle
-from .reporting import render_assessment_details, render_assessment_summary
+from .reporting import (
+    render_assessment_details,
+    render_assessment_json,
+    render_assessment_summary,
+)
 from .resource_cache import (
     CachedUCSCResourceBundle,
     CacheVerificationProgressCallback,
@@ -114,10 +118,17 @@ def _build_parser() -> argparse.ArgumentParser:
             "confirm the displayed resource transfer plan without an interactive prompt"
         ),
     )
-    parser.add_argument(
+    output_mode = parser.add_mutually_exclusive_group()
+    output_mode.add_argument(
         "--details",
         action="store_true",
-        help="emit the full evidence, resource, and provenance dossier",
+        help="emit the full human-readable evidence, resource, and provenance dossier",
+    )
+    output_mode.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="emit the full machine-readable assessment report as JSON",
     )
     parser.add_argument(
         "--quiet",
@@ -214,11 +225,12 @@ def _run(
         progress_display.finish(
             candidates_exist=bool(report.assessment.candidates),
         )
-    rendered = (
-        render_assessment_details(report)
-        if args.details
-        else render_assessment_summary(report.assessment)
-    )
+    if args.json_output:
+        rendered = render_assessment_json(report)
+    elif args.details:
+        rendered = render_assessment_details(report)
+    else:
+        rendered = render_assessment_summary(report.assessment)
     print(rendered, file=stdout)
     return 0
 

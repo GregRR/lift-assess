@@ -1,17 +1,20 @@
-"""Concise human-readable assessment reporting.
+"""Human-readable and machine-readable assessment reporting.
 
 The renderer consumes an already-computed :class:`~liftassess.models.Assessment`.
 It never assigns or modifies a verdict, counts evidence as a score, or infers
 biological correctness.  Its job is presentation: expose evidence availability
-before interpretation, convert canonical internal coordinates back to an explicit
-1-based inclusive display convention, and summarize only the narrow evidence states
-that drive the v1 assessor.
+before interpretation and preserve coordinate semantics explicitly. Human-readable
+renderers convert canonical internal coordinates to a labeled 1-based inclusive display
+convention; JSON retains canonical 0-based half-open intervals for exact machine use.
 
 A candidate's ``target_interval`` is a bounding span.  For split mappings, the
 summary therefore labels that span explicitly and reports the number of mapped
 segments rather than implying that every base inside the span aligned.
 """
 
+import json
+
+from .chain import chain_id_from_candidate_id
 from .models import (
     Assessment,
     ChainGapSummary,
@@ -19,6 +22,7 @@ from .models import (
     EvidenceKind,
     EvidenceObservation,
     EvidenceReference,
+    EvidenceValue,
     GenomicInterval,
     MappingCoverageStatus,
     MappingCoverageSummary,
@@ -28,10 +32,13 @@ from .models import (
     ReciprocalBestMembershipSummary,
     Verdict,
 )
-from .orchestration import UCSCAssessmentReport
+from .orchestration import UCSCAssessmentReport, UCSCAssessmentResource
 from .resource_cache import CachedResource
 
 _BIOLOGICAL_CORRECTNESS_CAVEAT = "This does not establish biological correctness."
+_JSON_SCHEMA_VERSION = 1
+_JSON_REPORT_TYPE = "liftassess.ucsc_assessment"
+_JSON_INTERVAL_COORDINATE_SYSTEM = "0-based-half-open"
 
 
 def format_display_interval(interval: GenomicInterval) -> str:
@@ -281,6 +288,253 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
     return "\n".join(lines)
 
 
+def render_assessment_json(report: UCSCAssessmentReport) -> str:
+    """Render one deterministic machine-readable v1 UCSC assessment report.
+
+    JSON mirrors the already-computed assessment/report model rather than introducing
+    a second interpretation layer. All genomic intervals use liftAssess's canonical
+    0-based, half-open coordinates; the schema labels that convention explicitly.
+    Candidate array order is retained only for reproducibility, evidence roles remain
+    categorical, and provenance edges record dependence rather than independence.
+    """
+
+    assessment = report.assessment
+    supporting = set(assessment.supporting_evidence)
+    contradicting = set(assessment.contradicting_evidence)
+    payload: dict[str, object] = {
+        "schema_version": _JSON_SCHEMA_VERSION,
+        "report_type": _JSON_REPORT_TYPE,
+        "semantics": {
+            "interval_coordinates": _JSON_INTERVAL_COORDINATE_SYSTEM,
+            "candidate_order": "reproducibility_only_not_rank",
+            "evidence_roles": "categorical_not_additive",
+            "provenance_edges": "dependence_not_independent_confirmation",
+        },
+        "ucsc_database_pair": {
+            "source_db": report.source_db,
+            "target_db": report.target_db,
+        },
+        "assessment": {
+            "source_interval": _interval_json(assessment.source_interval),
+            "evidence_tier": assessment.evidence_tier.value,
+            "verdict": assessment.verdict.value,
+            "preferred_candidate_id": assessment.preferred_candidate_id,
+            "supporting_evidence": [
+                _evidence_reference_json(reference)
+                for reference in assessment.supporting_evidence
+            ],
+            "contradicting_evidence": [
+                _evidence_reference_json(reference)
+                for reference in assessment.contradicting_evidence
+            ],
+            "candidates": [
+                _candidate_json(
+                    candidate,
+                    supporting=supporting,
+                    contradicting=contradicting,
+                )
+                for candidate in assessment.candidates
+            ],
+        },
+        "resources": [
+            _assessment_resource_json(assessment_resource)
+            for assessment_resource in report.resources
+        ],
+        "provenance": {
+            "alignment_source_id": report.alignment_provenance.source_id,
+            "sources": [
+                _provenance_source_json(source)
+                for source in _report_provenance_sources(report)
+            ],
+        },
+        "caveat": _BIOLOGICAL_CORRECTNESS_CAVEAT,
+    }
+    return json.dumps(payload, indent=2, sort_keys=True, allow_nan=False)
+
+
+def _interval_json(interval: GenomicInterval) -> dict[str, object]:
+    return {
+        "assembly": {
+            "name": interval.assembly.name,
+            "provider": interval.assembly.provider,
+            "accession": interval.assembly.accession,
+            "aliases": list(interval.assembly.aliases),
+        },
+        "sequence_name": interval.sequence_name,
+        "start": interval.start,
+        "end": interval.end,
+        "coordinate_system": _JSON_INTERVAL_COORDINATE_SYSTEM,
+    }
+
+
+def _evidence_reference_json(reference: EvidenceReference) -> dict[str, str]:
+    return {
+        "candidate_id": reference.candidate_id,
+        "observation_id": reference.observation_id,
+    }
+
+
+def _candidate_json(
+    candidate: NormalizedCandidate,
+    *,
+    supporting: set[EvidenceReference],
+    contradicting: set[EvidenceReference],
+) -> dict[str, object]:
+    return {
+        "candidate_id": candidate.candidate_id,
+        "ucsc_chain_id": _chain_id_from_candidate(candidate),
+        "orientation": candidate.orientation.value,
+        "target_bounding_interval": _interval_json(candidate.target_interval),
+        "mapping_provenance_source_id": candidate.mapping_provenance.source_id,
+        "segments": [
+            {
+                "source_interval": _interval_json(segment.source_interval),
+                "target_interval": _interval_json(segment.target_interval),
+            }
+            for segment in candidate.segments
+        ],
+        "evidence": [
+            _evidence_observation_json(
+                candidate.candidate_id,
+                observation,
+                supporting=supporting,
+                contradicting=contradicting,
+            )
+            for observation in candidate.evidence
+        ],
+    }
+
+
+def _evidence_observation_json(
+    candidate_id: str,
+    observation: EvidenceObservation,
+    *,
+    supporting: set[EvidenceReference],
+    contradicting: set[EvidenceReference],
+) -> dict[str, object]:
+    reference = EvidenceReference(candidate_id, observation.observation_id)
+    return {
+        "observation_id": observation.observation_id,
+        "kind": observation.kind.value,
+        "assessment_role": _evidence_role(
+            reference,
+            supporting=supporting,
+            contradicting=contradicting,
+        ),
+        "value": _evidence_value_json(observation.value),
+        "provenance_source_id": observation.provenance.source_id,
+    }
+
+
+def _evidence_value_json(value: EvidenceValue) -> dict[str, object]:
+    if isinstance(value, MappingCoverageSummary):
+        return {
+            "type": "MAPPING_COVERAGE_SUMMARY",
+            "status": value.status.value,
+            "covered_source_bases": value.covered_source_bases,
+            "source_bases": value.source_bases,
+            "uncovered_source_intervals": [
+                _interval_json(interval)
+                for interval in value.uncovered_source_intervals
+            ],
+        }
+
+    if isinstance(value, ChainGapSummary):
+        return {
+            "type": "CHAIN_GAP_SUMMARY",
+            "gaps": [
+                {
+                    "source_boundary_0_based": gap.source_boundary,
+                    "source_gap_overlap": (
+                        _interval_json(gap.source_gap_overlap)
+                        if gap.source_gap_overlap is not None
+                        else None
+                    ),
+                    "target_gap_interval": (
+                        _interval_json(gap.target_gap_interval)
+                        if gap.target_gap_interval is not None
+                        else None
+                    ),
+                }
+                for gap in value.gaps
+            ],
+        }
+
+    if isinstance(value, NetHierarchySummary):
+        return {
+            "type": "NET_HIERARCHY_SUMMARY",
+            "depth": value.depth,
+            "source_fill_interval": _interval_json(value.source_fill_interval),
+        }
+
+    if isinstance(value, ReciprocalBestMembershipSummary):
+        return {
+            "type": "RECIPROCAL_BEST_MEMBERSHIP_SUMMARY",
+            "status": value.status.value,
+            "resource_completeness": value.resource_completeness.value,
+            "chains_examined": value.chains_examined,
+            "covered_source_bases": value.covered_source_bases,
+            "candidate_source_bases": value.candidate_source_bases,
+            "covered_source_intervals": [
+                _interval_json(interval) for interval in value.covered_source_intervals
+            ],
+        }
+
+    if isinstance(value, (str, int, float, bool)):
+        return {"type": "SCALAR", "value": value}
+
+    raise TypeError(f"unsupported evidence value for JSON reporting: {type(value)!r}")
+
+
+def _assessment_resource_json(
+    assessment_resource: UCSCAssessmentResource,
+) -> dict[str, object]:
+    role = assessment_resource.role
+    resource = assessment_resource.resource
+    file_provenance = assessment_resource.file_provenance
+    checksum = resource.provider_checksum
+    return {
+        "role": role.value,
+        "consumed_by_engine": assessment_resource.consumed_by_engine,
+        "file_provenance_source_id": (
+            file_provenance.source_id if file_provenance is not None else None
+        ),
+        "source_url": resource.source_url,
+        "cache_path": str(resource.path),
+        "retrieved_at": resource.retrieved_at,
+        "size_bytes": resource.size_bytes,
+        "sha256": resource.sha256,
+        "cache_hit_at_acquisition": resource.cache_hit,
+        "provider_checksum": (
+            {
+                "algorithm": checksum.algorithm.value,
+                "value": checksum.value,
+                "source_url": checksum.source_url,
+            }
+            if checksum is not None
+            else None
+        ),
+        "terms": {
+            "resource_class": resource.terms.resource_class.value,
+            "general_terms_url": resource.terms.general_terms_url,
+            "directory_terms_url": resource.terms.directory_terms_url,
+            "restricted_liftover_chain": resource.terms.restricted_liftover_chain,
+        },
+    }
+
+
+def _provenance_source_json(source: ProvenanceSource) -> dict[str, object]:
+    return {
+        "source_id": source.source_id,
+        "label": source.label,
+        "identifiers": [
+            {"kind": identifier.kind.value, "value": identifier.value}
+            for identifier in source.identifiers
+        ],
+        "derived_from_source_ids": [parent.source_id for parent in source.derived_from],
+    }
+
+
 def _candidate_detail_lines(
     candidate: NormalizedCandidate,
     *,
@@ -328,14 +582,26 @@ def _candidate_heading(candidate: NormalizedCandidate) -> str:
 def _chain_id_from_candidate(candidate: NormalizedCandidate) -> int | None:
     """Extract the UCSC chain ID embedded by the one v1 candidate engine."""
 
-    _, separator, chain_text = candidate.candidate_id.rpartition(":chain:")
-    if not separator:
-        return None
-    try:
-        chain_id = int(chain_text)
-    except ValueError:
-        return None
-    return chain_id if chain_id >= 0 else None
+    return chain_id_from_candidate_id(candidate.candidate_id)
+
+
+def _evidence_role(
+    reference: EvidenceReference,
+    *,
+    supporting: set[EvidenceReference],
+    contradicting: set[EvidenceReference],
+) -> str:
+    """Return the one categorical assessment role shared by text and JSON output."""
+
+    is_supporting = reference in supporting
+    is_contradicting = reference in contradicting
+    if is_supporting and is_contradicting:
+        return "SUPPORTING_AND_CONTRADICTING"
+    if is_supporting:
+        return "SUPPORTING"
+    if is_contradicting:
+        return "CONTRADICTING"
+    return "CONTEXT"
 
 
 def _evidence_role_text(
@@ -344,15 +610,17 @@ def _evidence_role_text(
     supporting: set[EvidenceReference],
     contradicting: set[EvidenceReference],
 ) -> str:
-    is_supporting = reference in supporting
-    is_contradicting = reference in contradicting
-    if is_supporting and is_contradicting:
-        return "supporting + contradicting"
-    if is_supporting:
-        return "supporting"
-    if is_contradicting:
-        return "contradicting"
-    return "context"
+    role = _evidence_role(
+        reference,
+        supporting=supporting,
+        contradicting=contradicting,
+    )
+    return {
+        "SUPPORTING": "supporting",
+        "CONTRADICTING": "contradicting",
+        "SUPPORTING_AND_CONTRADICTING": "supporting + contradicting",
+        "CONTEXT": "context",
+    }[role]
 
 
 def _evidence_value_lines(observation: EvidenceObservation) -> list[str]:

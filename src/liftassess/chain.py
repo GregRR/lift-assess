@@ -17,6 +17,9 @@ class ChainFormatError(ValueError):
     """Raised when input does not conform to the chain structure we consume."""
 
 
+_CHAIN_CANDIDATE_SEPARATOR = ":chain:"
+
+
 class ChainStrand(str, Enum):
     """Strand token used by the UCSC chain format."""
 
@@ -31,7 +34,24 @@ def chain_candidate_id(mapping_source_id: str, chain_id: int) -> str:
         raise ValueError("mapping source ID must not be empty")
     if chain_id < 0:
         raise ValueError("chain ID must be non-negative")
-    return f"{mapping_source_id}:chain:{chain_id}"
+    return f"{mapping_source_id}{_CHAIN_CANDIDATE_SEPARATOR}{chain_id}"
+
+
+def chain_id_from_candidate_id(candidate_id: str) -> int | None:
+    """Return the UCSC chain ID from a canonical chain candidate ID, if present."""
+
+    mapping_source_id, separator, chain_text = candidate_id.rpartition(
+        _CHAIN_CANDIDATE_SEPARATOR
+    )
+    if not separator or not mapping_source_id:
+        return None
+    try:
+        chain_id = int(chain_text)
+    except ValueError:
+        return None
+    if chain_id < 0 or chain_text != str(chain_id):
+        return None
+    return chain_id
 
 
 @dataclass(frozen=True)

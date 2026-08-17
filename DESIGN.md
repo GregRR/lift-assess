@@ -513,7 +513,21 @@ Why:
 This does not establish biological correctness.
 ```
 
-**Detail (`--details`):** full human-readable dossier with chain IDs, exact mapped segments, every evidence observation, categorical supporting/contradicting/context roles, net hierarchy, resource retrieval/checksum context, consumed-vs-unconsumed resource status, and the complete provenance dependency graph. Candidate encounter order is preserved for reproducibility but is not presented as rank. Provenance edges state dependence, not independent confirmation. JSON must preserve the same distinctions when added.
+**Detail (`--details`):** full human-readable dossier with chain IDs, exact mapped segments, every evidence observation, categorical supporting/contradicting/context roles, net hierarchy, resource retrieval/checksum context, consumed-vs-unconsumed resource status, and the complete provenance dependency graph. Candidate encounter order is preserved for reproducibility but is not presented as rank. Provenance edges state dependence, not independent confirmation.
+
+**JSON (`--json`):** versioned machine-readable representation of the same completed `UCSCAssessmentReport`, not a second assessment path. Schema version 1 preserves the exact verdict/evidence tier, preferred-candidate reference when one exists, supporting and contradicting evidence references, candidate encounter order, exact mapped segments, structured evidence values, resource consumption, retrieval/checksum/terms metadata, and a flattened provenance dependency graph. Every genomic interval is emitted in canonical 0-based, half-open coordinates with an explicit `coordinate_system` field; chain gap boundaries are named `source_boundary_0_based`. Candidate target spans are named `target_bounding_interval` so split mappings cannot be mistaken for continuously aligned spans. Per-observation `assessment_role` is one of `SUPPORTING`, `CONTRADICTING`, `SUPPORTING_AND_CONTRADICTING`, or `CONTEXT`; these remain categorical and non-additive. Provenance parents are source-ID edges and record dependence, not independent confirmation. The unconditional biological-correctness caveat is retained as a top-level field. `--json` and `--details` are mutually exclusive.
+
+Schema version 1 has these fixed structural boundaries:
+- top level: `schema_version`, `report_type`, `semantics`, `ucsc_database_pair`, `assessment`, `resources`, `provenance`, `caveat`;
+- every interval: `assembly` (`name`, `provider`, optional `accession`, `aliases`), `sequence_name`, `start`, `end`, `coordinate_system`;
+- assessment: source interval, evidence tier, verdict, optional preferred candidate ID, exact supporting/contradicting evidence-reference arrays, and ordered candidates;
+- candidate: candidate ID, UCSC chain ID when encoded by the v1 engine, orientation, target bounding interval, mapping-provenance source ID, exact segment array, and evidence array;
+- observation: observation ID, evidence kind, categorical assessment role, typed value payload, and provenance source ID;
+- structured value payload types: `MAPPING_COVERAGE_SUMMARY`, `CHAIN_GAP_SUMMARY`, `NET_HIERARCHY_SUMMARY`, and `RECIPROCAL_BEST_MEMBERSHIP_SUMMARY`; primitive evidence values use `SCALAR`;
+- resource: role, actual engine-consumption flag, optional file-provenance source ID, source URL, local cache path, retrieval time, byte size, SHA-256 identity, acquisition cache-hit flag, optional provider checksum, and terms metadata;
+- provenance: the alignment source ID plus a source-ID-sorted flat source array; each source carries its label, typed identifiers, and `derived_from_source_ids` edges.
+
+The local cache path is run context, not artifact identity; the SHA-256 field identifies the exact cached bytes. JSON field order is not semantic. Candidate and evidence array order is preserved from the report for reproducibility but must not be interpreted as ranking. CLI status/progress remains on stderr, leaving stdout as the JSON document for redirection or pipeline use.
 
 CLI target for the common case:
 ```
@@ -529,7 +543,7 @@ For automatic UCSC runs, the CLI supplies one conservative source/target-pair li
 
 The first real CLI smoke run completed 2026-08-16 against the external `canFam3`→`canFam4` comparative cache at source display locus `chrUn_JH373233:1845736-1845835` (canonical internal interval `1845735-1845835`). The command reported `COMPARATIVE`, 170 candidates, and `CONTESTED`, matching the established candidate count from the mechanical fixture. This is an end-to-end software result, not biological ground truth; the independent verifier cross-check of the deterministic verdict is maintained separately.
 
-Expert users can still use the library boundaries with explicitly supplied resources/provenance. Engine selection becomes a real option only once a second engine exists — v1 has exactly one (§7). Human-readable `--details` output is implemented; stable JSON output remains unresolved below.
+Expert users can still use the library boundaries with explicitly supplied resources/provenance. Engine selection becomes a real option only once a second engine exists — v1 has exactly one (§7). Human-readable `--details` output and schema-versioned `--json` output are implemented against the same report model.
 
 ## 10. Validation strategy — two fixtures, different jobs
 
@@ -613,7 +627,6 @@ anything now.
   is independently established (e.g. traceable via the Dog10K assembly paper's gap-closure or
   SNV-array mapping data), turning the historical-resolution pedigree in §10 into an actual
   fixture.
-- Decide the exact `--details` / JSON schema.
 - Decide the source for optional flanking-gene synteny context (e.g. Ensembl Compara) and its
   fallback behavior when no ortholog table exists for a species pair.
 - Add **download/transfer** progress reporting suitable for large/resumable comparative acquisitions. Assessment-read progress is now measured from exact compressed bytes consumed during parsing, but byte-level/resume-aware progress while downloading remains open.
