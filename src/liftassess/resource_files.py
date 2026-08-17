@@ -17,11 +17,11 @@ from __future__ import annotations
 import gzip
 import hashlib
 import io
-from collections.abc import Buffer, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from os import PathLike
 from pathlib import Path
-from typing import Protocol, TextIO, TypeAlias
+from typing import Any, Protocol, TextIO, TypeAlias
 
 from .chain import ChainRecord, iter_chain_records
 from .engine import build_ucsc_candidates
@@ -68,7 +68,10 @@ class _HashingRawReader(io.RawIOBase):
     def readable(self) -> bool:
         return True
 
-    def readinto(self, buffer: Buffer) -> int:
+    def readinto(self, buffer: Any) -> int:
+        # Python 3.11 has no public type for the general buffer protocol; using
+        # Any here keeps this private RawIOBase adapter importable on the declared
+        # Python 3.11 floor while preserving the runtime buffer check in memoryview.
         view = memoryview(buffer)
         data = self._raw.read(len(view))
         if not data:
