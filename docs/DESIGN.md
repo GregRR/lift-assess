@@ -1,7 +1,7 @@
 # LiftOver Ambiguity Assessor — liftAssess - Design Baseline (v1)
 
 Status: v1 design baseline; implementation in progress. This document remains the authoritative
-scientific and architectural specification, not a development-status log. See `ROADMAP.md` for
+scientific and architectural specification, not a development-status log. See [`ROADMAP.md`](ROADMAP.md) for
 implementation history, current review state, and planned milestones. Building will continue to
 expose mistakes here, and this design should change when it does.
 

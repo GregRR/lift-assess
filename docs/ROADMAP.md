@@ -2,7 +2,7 @@
 
 This roadmap tracks implementation status and sequencing for **liftAssess**. It is a development-status document, not the scientific specification.
 
-`DESIGN.md` remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, verdict meanings, v1 scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
+[`DESIGN.md`](DESIGN.md) remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, verdict meanings, v1 scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
 
 ## Current status — 2026-08-17
 
@@ -380,7 +380,7 @@ This focused correctness/compatibility slice was discovered during the final pro
 Implemented and reviewed:
 
 - fixed the confirmed concise-summary bug in which an `INDETERMINATE` comparative assessment with multiple raw candidates but only one material partial candidate can be described as though the evidence failed to distinguish the candidates; the remaining uncertainty is incomplete source-locus coverage, not unresolved material multiplicity;
-- added one required assessor-owned categorical `decision_reason` to every `Assessment`, using the ten exhaustive/mutually-exclusive terminal conditions specified in `DESIGN.md` rather than mixing biological findings with evidence-rule names;
+- added one required assessor-owned categorical `decision_reason` to every `Assessment`, using the ten exhaustive/mutually-exclusive terminal conditions specified in [`DESIGN.md`](DESIGN.md) rather than mixing biological findings with evidence-rule names;
 - split the final comparative fallback into `COMPARATIVE_SOLE_MATERIAL_PARTIAL` versus `COMPARATIVE_NO_MATERIAL_CANDIDATE` using the already-defined material-candidate predicate, and regression-tested the exact boundary (`PARTIAL` coverage with reciprocal-best `FULL`/`PARTIAL` is material; reciprocal-best `NONE` is not);
 - made reporting consume the recorded decision reason instead of reconstructing assessor semantics from candidate count, verdict, or evidence values;
 - required every `Assessment` construction to supply a decision reason, handle every declared decision-reason enum member explicitly in reason/verdict/reporting mappings without wildcard fallback, and test that assessor coverage reaches the complete declared reason vocabulary; branch-specific regression tests must still verify that each semantic boundary selects the correct reason;
@@ -422,9 +422,13 @@ Candidate rank remains intentionally deferred until a defensible locus-scoped de
 
 Add categorical target-sequence context only from a defined evidence source rather than treating sequence-name patterns as biological truth. Prefer authoritative per-sequence assembly metadata when available. NCBI's genome sequence report exposes sequence role, assembly unit, chromosome name, GenBank/RefSeq sequence accessions, and UCSC-style sequence name, providing an explicit bridge from assembly metadata to UCSC names (`https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/using-dataformat/genome-data-reports/`). Provider-specific naming conventions may be used only as an explicitly labeled fallback when authoritative metadata is unavailable. Keep this context descriptive; it must not silently become a verdict rule or claim that ambiguity was biologically caused by duplication/alternate sequence.
 
-### Scalable batch assessment
+### Performance and scalable batch assessment
 
-Add BED/simple interval-table batch assessment only with an architecture that reuses work across loci. Do not implement batch mode as a naive outer loop that reparses multi-gigabyte comparative resources once per locus. The design should either evaluate many intervals during shared resource traversal or introduce an indexed/preprocessed local representation while preserving the same single-locus assessor semantics and per-locus provenance.
+Initial single-locus performance characterization completed 2026-08-17 on commit `e1e0472c` and is documented in [`PERFORMANCE.md`](PERFORMANCE.md). On an Apple M4, two offline `canFam3`→`canFam4` mechanical-fixture runs took 641.17 and 625.71 seconds. A simple `WELL_SUPPORTED` locus on the same 2.47 GiB all-chain took 640.74 seconds, while a zero-candidate `canFam6`→`mm39` locus using a 157.0 MiB all-chain took 42.50 seconds. A mapped locus on that smaller pair took 103.12 seconds. The cross-species `canFam6`→`mm39` runs are computational probes only, not scientific validation within v1's same-species operational envelope. `cProfile` independently identified Python-level chain parsing/object construction as the dominant hotspot in the large-chain mechanical-fixture workload. These measurements are scoped performance evidence, not a universal scaling law.
+
+Treat avoiding unnecessary whole-resource parsing as a single-locus performance requirement as well as a future batch requirement. Add BED/simple interval-table batch assessment only with an architecture that reuses work across loci. Do not implement batch mode as a naive outer loop that reparses multi-gigabyte comparative resources once per locus. The design should either evaluate many intervals during shared resource traversal or introduce an indexed/preprocessed local representation while preserving the same single-locus assessor semantics, exact resource/provenance identities, and per-locus provenance.
+
+After a structural reuse/indexing approach is implemented and benchmarked, profile again before deciding whether parser micro-optimization or safe multicore execution is the next bottleneck. Any parallel path must preserve deterministic assessment results, coordinate semantics, evidence completeness, and provenance.
 
 ### Reproducible case manifests and portable packets
 

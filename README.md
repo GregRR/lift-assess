@@ -138,7 +138,7 @@ CLI loci use the familiar UCSC-style 1-based, inclusive display convention and a
 
 Before resource acquisition, the command displays the applicable UCSC terms and requires explicit acknowledgement. It then performs body-free HEAD inspection of the exact transfer plan, displays provider-advertised resource sizes and the cache destination, and requires a separate transfer-plan acknowledgement before downloading or verifying cached resources. The displayed size is the provider resource-set size, not a promise that all bytes will be transferred: verified cache hits can avoid body transfer unless `--refresh` is used. `--acknowledge-ucsc-terms` and `--accept-transfer-plan` provide explicit non-interactive acknowledgements; `--cache-dir`, `--refresh`, `--offline`, `--details`, `--json`, and `--quiet` control cache placement, provider access, report format, and progress output.
 
-The default cache is the platform user cache (`~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` or `~/.cache/liftassess` on other platforms). The documented `canFam3`→`canFam4` example is the real comparative mechanical fixture and requires a complete approximately 2.50 GiB UCSC comparative bundle; initial acquisition and the current streaming verification/assessment path can therefore take substantial time depending on storage and CPU performance. Once that bundle is cached, `--offline` reuses and re-verifies the exact cached resources without contacting UCSC.
+The default cache is the platform user cache (`~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` or `~/.cache/liftassess` on other platforms). The documented `canFam3`→`canFam4` example is the real comparative mechanical fixture and requires a complete approximately 2.50 GiB UCSC comparative bundle; initial acquisition and the current streaming verification/assessment path can therefore take substantial time depending on storage and CPU performance. Once that bundle is cached, `--offline` reuses and re-verifies the exact cached resources without contacting UCSC. Current single-locus assessment streams the relevant comparative resources rather than using a prebuilt genomic index, so runtime can depend strongly on resource size. See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for measured examples, profiling results, and the scope of current performance conclusions.
 
 The default command emits the concise assessment summary, including a plain-language rendering of the assessor-owned terminal `decision_reason`. `COMPARATIVE` summaries also state that comparative observations are not assumed to be independent and point to `--details` / `--json` for dependency provenance; `LIFTOVER_ONLY` summaries do not receive that qualification. `--details` emits the full human-readable evidence dossier, including the exact decision-reason code, mapped segments, categorical verdict-evidence roles, resource URLs/checksums and consumed-vs-unconsumed status, and the complete provenance dependency graph. `--json` emits schema version 1 of the same report semantics using canonical 0-based, half-open interval objects, the required categorical `decision_reason`, structured evidence values, exact resource metadata, and explicit provenance dependency edges. `--details` and `--json` are mutually exclusive. All report modes retain the explicit caveat that evidentiary support is not proof of biological correctness.
 
@@ -185,7 +185,7 @@ Non-obvious genomic, coordinate, provenance, and evidence decisions should be do
 
 The goal is for researchers to be able to inspect not only **what** liftAssess concluded, but also **what evidence was examined, where it came from, which observations share upstream sources, and what assumptions the implementation made**.
 
-`DESIGN.md` is the authoritative v1 design document and contains the detailed scientific rationale, scope, invariants, validation plan, and open questions.
+[`docs/DESIGN.md`](docs/DESIGN.md) is the authoritative v1 design document and contains the detailed scientific rationale, scope, invariants, validation plan, and open questions.
 
 ## External resources
 
@@ -205,8 +205,10 @@ Automatic UCSC discovery is intended as a convenience, not a permanent hard depe
 
 ## Project documentation
 
-- [`DESIGN.md`](DESIGN.md) — authoritative scientific and architectural specification.
-- [`ROADMAP.md`](ROADMAP.md) — implementation history, current review state, and planned milestones.
+- [`DESIGN.md`](docs/DESIGN.md) — authoritative scientific and architectural specification.
+- [`ROADMAP.md`](docs/ROADMAP.md) — implementation history, current review state, and planned milestones.
+- [`PERFORMANCE.md`](docs/PERFORMANCE.md) — measured runtime characteristics, profiling results, and current optimization priorities.
+- [`REFERENCES.md`](docs/REFERENCES.md) — literature, provider/format documentation, and technical evidence used by the project.
 
 ## Citation
 
