@@ -17,7 +17,8 @@ keywords:
   - genomic-coordinates
   - genome-assembly
   - comparative-genomics
-  - sequence-alignment
+  - coordinate-conversion
+  - ucsc
   - provenance
   - scientific-software
   - reproducible-research

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "liftassess"
 version = "0.1.0a1"
-description = "Evidence-based assessment of ambiguous genomic coordinate liftover candidates"
+description = "Evidence-based assessment of ambiguous genomic coordinate liftOver mappings"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
@@ -16,8 +16,12 @@ license-files = ["LICENSE"]
 keywords = [
     "bioinformatics",
     "genomics",
-    "genome-assembly",
     "liftover",
+    "genomic-coordinates",
+    "coordinate-conversion",
+    "genome-assembly",
+    "comparative-genomics",
+    "ucsc",
     "provenance",
 ]
 classifiers = [
@@ -25,13 +29,19 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 
 [project.urls]
 Homepage = "https://github.com/GregRR/lift-assess"
+Documentation = "https://github.com/GregRR/lift-assess/tree/main/docs"
 Repository = "https://github.com/GregRR/lift-assess"
 Issues = "https://github.com/GregRR/lift-assess/issues"
+Releases = "https://github.com/GregRR/lift-assess/releases"
 
 [project.scripts]
 assess-liftover = "liftassess.cli:main"

@@ -150,7 +150,7 @@ tested.
 
 The categorical decision policy is:
 
-- `LIFTOVER_ONLY`: exactly one candidate with `FULL` source-locus coverage is
+- `LIFTOVER-ONLY`: exactly one candidate with `FULL` source-locus coverage is
   `WELL_SUPPORTED`; multiple chain-derived candidates are `CONTESTED`; no candidate or a single
   `PARTIAL` candidate is `INDETERMINATE`. With no comparative evidence, a partial alternative is
   not silently dismissed by chain-score ranking.
@@ -173,9 +173,9 @@ v1 decision-reason vocabulary is:
 | Decision reason | Evidence tier | Terminal condition | Verdict |
 | --- | --- | --- | --- |
 | `NO_CANDIDATES` | either | no candidate mapping was generated | `INDETERMINATE` |
-| `LIFTOVER_MULTIPLE_CANDIDATES` | `LIFTOVER_ONLY` | more than one chain-derived candidate remains | `CONTESTED` |
-| `LIFTOVER_SINGLE_FULL_MAPPING` | `LIFTOVER_ONLY` | exactly one candidate with `FULL` source-locus coverage | `WELL_SUPPORTED` |
-| `LIFTOVER_SINGLE_PARTIAL_MAPPING` | `LIFTOVER_ONLY` | exactly one candidate with `PARTIAL` source-locus coverage | `INDETERMINATE` |
+| `LIFTOVER_MULTIPLE_CANDIDATES` | `LIFTOVER-ONLY` | more than one chain-derived candidate remains | `CONTESTED` |
+| `LIFTOVER_SINGLE_FULL_MAPPING` | `LIFTOVER-ONLY` | exactly one candidate with `FULL` source-locus coverage | `WELL_SUPPORTED` |
+| `LIFTOVER_SINGLE_PARTIAL_MAPPING` | `LIFTOVER-ONLY` | exactly one candidate with `PARTIAL` source-locus coverage | `INDETERMINATE` |
 | `COMPARATIVE_MULTIPLE_MATERIAL_CANDIDATES` | `COMPARATIVE` | two or more candidates satisfy the v1 materiality rule | `CONTESTED` |
 | `COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_FULL` | `COMPARATIVE` | the sole material candidate has `FULL` coverage and `FULL` reciprocal-best membership | `WELL_SUPPORTED` |
 | `COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_NONE` | `COMPARATIVE` | the sole material candidate has `FULL` coverage and `NONE` reciprocal-best membership | `CONTESTED` |
@@ -563,7 +563,7 @@ Two layers, so rigor and glanceability aren't in tension:
 and a plain-language rendering of the assessor-owned `decision_reason`. The summary must not
 re-derive verdict semantics from candidate count or evidence values. For `COMPARATIVE` assessments
 only, it also states that comparative observations are not assumed to be independent and points to
-`--details` / `--json` for dependency provenance. `LIFTOVER_ONLY` summaries do not receive that
+`--details` / `--json` for dependency provenance. `LIFTOVER-ONLY` summaries do not receive that
 comparative-evidence qualification. The biological-correctness caveat is always retained.
 
 **Detail (`--details`):** full human-readable dossier with the exact verdict and

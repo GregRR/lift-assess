@@ -37,7 +37,7 @@ Implemented:
 - mapping segments and orientation;
 - evidence observations and evidence kinds;
 - provenance sources, typed identifiers, and provenance graph relationships;
-- evidence-availability tiers (`COMPARATIVE`, `LIFTOVER_ONLY`);
+- evidence-availability tiers (`COMPARATIVE`, `LIFTOVER-ONLY`);
 - exact v1 verdict vocabulary (`WELL_SUPPORTED`, `CONTESTED`, `INDETERMINATE`).
 
 Important boundary established: an `Assessment` model may hold a verdict, but no numeric confidence score exists and no code should claim biological correctness.
@@ -133,7 +133,7 @@ Measured result:
 - no chain gaps;
 - no assessment verdict computed.
 
-This establishes real-file mechanical plumbing under `LIFTOVER_ONLY`. It is **not** the planned full comparative fixture and does not establish biological support or correctness.
+This establishes real-file mechanical plumbing under `LIFTOVER-ONLY`. It is **not** the planned full comparative fixture and does not establish biological support or correctness.
 
 ### 9. Resource identity and integrity — complete
 
@@ -196,7 +196,7 @@ Implemented in the second acquisition slice:
 - requires a separate `transfer_plan_acknowledged=True` before bundle execution can call the single-resource acquisition layer, so discovery alone cannot silently trigger a five-resource comparative transfer;
 - acquires the plan sequentially through the already-reviewed single-resource cache path and returns a `CachedUCSCResourceBundle` only after every required item succeeds or is verified in cache;
 - preserves the no-partial-comparative invariant at the returned-object boundary while deliberately retaining any immutable content-addressed artifacts successfully published before a later item fails, so a retry can reuse them;
-- keeps `LIFTOVER_ONLY` as a one-chain local bundle and `COMPARATIVE` as the exact five-role set: chain, net, syntenic net, reciprocal-best chain, reciprocal-best net;
+- keeps `LIFTOVER-ONLY` as a one-chain local bundle and `COMPARATIVE` as the exact five-role set: chain, net, syntenic net, reciprocal-best chain, reciprocal-best net;
 - binds each plan item's surfaced terms metadata back to its exact URL classification so an inspectable plan cannot display one terms class while executing another URL.
 
 Implemented in the third acquisition slice:
@@ -238,7 +238,7 @@ Implemented in the fifth acquisition slice:
 - builds content-addressed file provenance from the SHA-256 identities already recorded by acquisition, avoiding an extra pre-parse full-file hash while retaining the parser's exact-byte SHA-256 verification on every consumed resource;
 - requires caller-supplied upstream alignment provenance, so acquisition metadata is never mistaken for evidence independence or alignment-process provenance;
 - validates cached bundle `source_db`/`target_db` strings against only the source/target assembly's explicit name or aliases, avoiding speculative general alias resolution;
-- maps `LIFTOVER_ONLY` to its chain-only engine path and `COMPARATIVE` to the all-chain, ordinary classified net, and reciprocal-best chain with `COMPLETE_RESOURCE` semantics;
+- maps `LIFTOVER-ONLY` to its chain-only engine path and `COMPARATIVE` to the all-chain, ordinary classified net, and reciprocal-best chain with `COMPLETE_RESOURCE` semantics;
 - deliberately retains the syntenic net and reciprocal-best net on the five-resource comparative bundle without parsing them as current v1 engine inputs. UCSC's current automation confirms that `*.syn.net.gz` is a `netFilter -syn` derivative of the ordinary net, so substituting it would discard non-syntenic placements rather than add evidence.
 
 This closes the acquisition/cache milestone itself. The future CLI's default cache location, progress/refresh controls, and large-transfer confirmation belong to milestone 15. Presentation of retrieval metadata in the final assessment belongs to milestone 14.
@@ -306,7 +306,7 @@ remain report context and do not silently become weights or thresholds.
 The implementation also:
 
 - keeps evidence availability separate from verdict strength, including allowing a single full
-  `LIFTOVER_ONLY` mapping to be `WELL_SUPPORTED`;
+  `LIFTOVER-ONLY` mapping to be `WELL_SUPPORTED`;
 - treats multiple sparse-tier candidates as `CONTESTED` instead of ranking them by chain score;
 - treats a single full comparative candidate with reciprocal-best `NONE` as `CONTESTED`, while
   `PARTIAL` remains `INDETERMINATE` because v1 has no threshold for deciding when partial
@@ -385,7 +385,7 @@ Implemented and reviewed:
 - made reporting consume the recorded decision reason instead of reconstructing assessor semantics from candidate count, verdict, or evidence values;
 - required every `Assessment` construction to supply a decision reason, handle every declared decision-reason enum member explicitly in reason/verdict/reporting mappings without wildcard fallback, and test that assessor coverage reaches the complete declared reason vocabulary; branch-specific regression tests must still verify that each semantic boundary selects the correct reason;
 - included the required decision reason in human detail and JSON output and finalized schema v1 before alpha; private pre-alpha schema v1 remains mutable, while the first public alpha freezes it as an external compatibility surface and later incompatible structural/semantic changes require a new schema version;
-- added a concise dependence qualification only for `COMPARATIVE` summaries: comparative observations are not assumed to be independent, with dependency provenance available in `--details` / `--json`. `LIFTOVER_ONLY` output should not receive that context-free qualification.
+- added a concise dependence qualification only for `COMPARATIVE` summaries: comparative observations are not assumed to be independent, with dependency provenance available in `--details` / `--json`. `LIFTOVER-ONLY` output should not receive that context-free qualification.
 
 The slice preserves the existing three verdicts, two evidence tiers, no-score policy, and assessor-not-resolver boundary. The routine suite now contains 316 passing tests; Ruff, Ruff formatting, strict mypy, package build, and `git diff --check` all passed. A post-hardening offline CLI run on 2026-08-17 reported `COMPARATIVE`, 170 candidates, and `CONTESTED` with the new dependence qualification and biological-correctness caveat. The independently derived mechanical-fixture verifier then passed against the same cached bundle, deriving `CONTESTED` from 138 material candidates and matching the production assessor without calling its verdict logic.
 

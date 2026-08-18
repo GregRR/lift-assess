@@ -126,7 +126,7 @@ evidence.
 If chain projection produces no candidates, comparative resources are not needlessly
 parsed; the report records which cached resources were actually consumed.
 
-### `LIFTOVER_ONLY`
+### `LIFTOVER-ONLY`
 
 Only a UCSC liftOver chain is available. liftAssess can still generate candidates and
 chain-derived evidence, but comparative net and reciprocal-best evidence is not
@@ -213,8 +213,11 @@ Schema v1 includes:
 - flattened provenance sources and dependency edges; and
 - the biological-correctness caveat.
 
-All JSON genomic intervals use canonical **0-based, half-open** coordinates. Status and
-progress remain on stderr, so stdout can be redirected directly to a JSON file.
+All JSON genomic intervals use canonical **0-based, half-open** coordinates. The
+human-facing tier name `LIFTOVER-ONLY` is serialized as the enum token `LIFTOVER_ONLY`
+in schema-v1 JSON and is exposed as `EvidenceAvailabilityTier.LIFTOVER_ONLY` in Python.
+Status and progress remain on stderr, so stdout can be redirected directly to a JSON
+file.
 
 `--json` and `--details` are mutually exclusive.
 

@@ -1,12 +1,16 @@
 # liftAssess
 
-**liftAssess** evaluates ambiguous genomic coordinate liftOver mappings using transparent, provenance- and dependency-aware evidence, reporting whether mappings are **well supported**, **contested**, or **indeterminate**.
+**liftAssess** is a Python command-line tool and library for assessing ambiguous genomic coordinate liftOver mappings between genome assemblies. It uses transparent, provenance- and dependency-aware evidence to report whether mappings are **well supported**, **contested**, or **indeterminate**.
 
 > **Status:** First public alpha (`0.1.0a1`). Core candidate generation, evidence extraction, deterministic assessment, cached-bundle orchestration, the common-case CLI, and human-readable detailed plus machine-readable JSON reporting are implemented and tested. This remains early scientific software; the schema-v1 compatibility boundary and biological-correctness caveats described below apply.
+
+**New to liftAssess?** Start with [`GETTING_STARTED.md`](docs/GETTING_STARTED.md). See [`FEATURES.md`](docs/FEATURES.md) for the complete catalog of implemented capabilities, expert APIs, and current limitations.
 
 ## Why liftAssess exists
 
 Coordinate liftOver tools answer an important question: *where can this interval map in another assembly?* They do not, by themselves, explain how much support an ambiguous result deserves when there are multiple candidate targets, split mappings, duplicated sequence, alternative or unplaced scaffolds, or disagreement between methods.
+
+Use liftAssess when genome assembly or genome build coordinate conversion produces one-to-many mappings, split mappings, or competing target loci and you need an auditable assessment of the alternatives.
 
 liftAssess is intended to sit downstream of or alongside coordinate-conversion tools and answer a different question:
 
@@ -64,7 +68,7 @@ The current development code includes:
 - interactive cache-verification progress based on exact artifact bytes hashed across the required cached bundle, with one aggregate row that reaches 100% only after all required SHA-256 checks pass;
 - interactive resource-transfer progress for fresh and resumable UCSC acquisition, using measured exact bytes, retained-prefix-aware resume state, explicit cache-hit labeling, and byte-only display rather than invented percentages when the provider size is unknown;
 - explicit bundle transfer planning and complete-or-error bundle acquisition for discovered
-  `COMPARATIVE` and `LIFTOVER_ONLY` resource sets, with a separate transfer-plan acknowledgement before
+  `COMPARATIVE` and `LIFTOVER-ONLY` resource sets, with a separate transfer-plan acknowledgement before
   any planned resource acquisition begins;
 - terms-gated, body-free remote metadata inspection using HTTP HEAD with identity encoding requested,
   preserving provider-advertised `Content-Length`, `Accept-Ranges`, `Last-Modified`, `ETag`, and
@@ -94,7 +98,7 @@ The project now implements the common-case CLI, concise summary, human-readable 
 liftAssess distinguishes **how much evidence can be checked** from the eventual verdict.
 
 - `COMPARATIVE` — a full comparative resource set is available, including chain/net context and reciprocal-best resources needed by the v1 UCSC evidence path.
-- `LIFTOVER_ONLY` — only a liftOver chain resource is available, so candidate generation and chain-derived evidence can still proceed but comparative evidence is unavailable.
+- `LIFTOVER-ONLY` — only a liftOver chain resource is available, so candidate generation and chain-derived evidence can still proceed but comparative evidence is unavailable.
 
 These are evidence-availability tiers, **not confidence tiers**.
 
@@ -156,7 +160,7 @@ Before resource acquisition, the command displays the applicable UCSC terms and 
 
 The default cache is the platform user cache (`~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` or `~/.cache/liftassess` on other platforms). The documented `canFam3`→`canFam4` example is the real comparative mechanical fixture and requires a complete approximately 2.50 GiB UCSC comparative bundle; initial acquisition and the current streaming verification/assessment path can therefore take substantial time depending on storage and CPU performance. Once that bundle is cached, `--offline` reuses and re-verifies the exact cached resources without contacting UCSC. Current single-locus assessment streams the relevant comparative resources rather than using a prebuilt genomic index, so runtime can depend strongly on resource size. See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for measured examples, profiling results, and the scope of current performance conclusions.
 
-The default command emits the concise assessment summary, including a plain-language rendering of the assessor-owned terminal `decision_reason`. `COMPARATIVE` summaries also state that comparative observations are not assumed to be independent and point to `--details` / `--json` for dependency provenance; `LIFTOVER_ONLY` summaries do not receive that qualification. `--details` emits the full human-readable evidence dossier, including the exact decision-reason code, mapped segments, categorical verdict-evidence roles, resource URLs/checksums and consumed-vs-unconsumed status, and the complete provenance dependency graph. `--json` emits schema version 1 of the same report semantics using canonical 0-based, half-open interval objects, the required categorical `decision_reason`, structured evidence values, exact resource metadata, and explicit provenance dependency edges. `--details` and `--json` are mutually exclusive. All report modes retain the explicit caveat that evidentiary support is not proof of biological correctness.
+The default command emits the concise assessment summary, including a plain-language rendering of the assessor-owned terminal `decision_reason`. `COMPARATIVE` summaries also state that comparative observations are not assumed to be independent and point to `--details` / `--json` for dependency provenance; `LIFTOVER-ONLY` summaries do not receive that qualification. `--details` emits the full human-readable evidence dossier, including the exact decision-reason code, mapped segments, categorical verdict-evidence roles, resource URLs/checksums and consumed-vs-unconsumed status, and the complete provenance dependency graph. `--json` emits schema version 1 of the same report semantics using canonical 0-based, half-open interval objects, the required categorical `decision_reason`, structured evidence values, exact resource metadata, and explicit provenance dependency edges. `--details` and `--json` are mutually exclusive. All report modes retain the explicit caveat that evidentiary support is not proof of biological correctness.
 
 For machine use, stdout remains the JSON document while status/progress stays on stderr, so normal shell redirection is safe:
 
@@ -215,7 +219,7 @@ The acquisition layer now uses that verified transport contract opportunisticall
 
 A live interrupted acquisition check on 2026-08-14 exercised the full resume path against the 5,403,921-byte `canFam3.canFam4.rbest.chain.gz`: the first transfer was stopped after 262,144 bytes, retry revalidated with HEAD and requested `Range: bytes=262144-` plus `If-Range`, and the completed file matched both UCSC's published MD5 and the previously measured liftAssess SHA-256 identity.
 
-A fully cached bundle can now feed the existing file-backed candidate engine directly while preserving content-addressed SHA-256 provenance and explicit shared upstream alignment provenance. `LIFTOVER_ONLY` consumes its chain. A complete `COMPARATIVE` bundle retains all five acquired resources, but the current v1 engine consumes only the all-chain, ordinary classified net, and reciprocal-best chain. UCSC's current automation produces the optional syntenic net by filtering the ordinary net for synteny, so liftAssess does not substitute it for the ordinary net evidence stream; the syntenic net and reciprocal-best net remain available on the cached bundle as retrieval/provenance context. The bridge validates the bundle's UCSC source/target database names against explicitly recorded assembly names or aliases rather than performing general alias resolution.
+A fully cached bundle can now feed the existing file-backed candidate engine directly while preserving content-addressed SHA-256 provenance and explicit shared upstream alignment provenance. `LIFTOVER-ONLY` consumes its chain. A complete `COMPARATIVE` bundle retains all five acquired resources, but the current v1 engine consumes only the all-chain, ordinary classified net, and reciprocal-best chain. UCSC's current automation produces the optional syntenic net by filtering the ordinary net for synteny, so liftAssess does not substitute it for the ordinary net evidence stream; the syntenic net and reciprocal-best net remain available on the cached bundle as retrieval/provenance context. The bridge validates the bundle's UCSC source/target database names against explicitly recorded assembly names or aliases rather than performing general alias resolution.
 
 Automatic UCSC discovery is intended as a convenience, not a permanent hard dependency. User-supplied resources are part of the v1 design and remain subject to their own provider terms.
 
