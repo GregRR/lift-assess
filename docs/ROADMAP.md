@@ -6,7 +6,7 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 ## Current status — 2026-08-17
 
-The `v0.1.0a1` release commit is the transition to liftAssess's first public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
+liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
 
 The project now has an integrated UCSC evidence pipeline plus a completed real comparative mechanical fixture. The current code can:
 
@@ -23,7 +23,7 @@ The project now has an integrated UCSC evidence pipeline plus a completed real c
 
 The routine automated suite contains **316 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
-The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, human-readable and JSON detailed reporting, measured cache-verification progress, measured transfer progress, and measured assessment-read progress are implemented. Milestone 15 and the pre-alpha semantic/output-hardening slice are complete and reviewed. Post-hardening real comparative CLI and independent-verifier runs completed successfully on 2026-08-17. A real-provider transfer-progress smoke check remains desirable but non-gating. Milestone 16 technical/documentation readiness criteria are satisfied; publication of `v0.1.0a1` completes the first public alpha milestone.
+The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, human-readable and JSON detailed reporting, measured cache-verification progress, measured transfer progress, and measured assessment-read progress are implemented. Milestone 15 and the pre-alpha semantic/output-hardening slice are complete and reviewed. Post-hardening real comparative CLI and independent-verifier runs completed successfully on 2026-08-17. A real-provider transfer-progress smoke check remains desirable but non-gating. Milestone 16 is complete. The first public alpha, `v0.1.0a1`, was tagged and published to PyPI on 2026-08-17.
 
 ## Implementation history
 
@@ -400,7 +400,7 @@ The public-transition milestone is defined by:
 - README usage commands are real and reproducible;
 - the project clearly labels itself alpha and states that well-supported does not mean biologically correct.
 
-As of 2026-08-17, the technical and documentation readiness criteria above are satisfied. Publishing this release commit as `v0.1.0a1` completes Milestone 16 and begins the public-alpha compatibility period; subsequent work is tracked below.
+As of 2026-08-17, Milestone 16 is complete. v0.1.0a1 was tagged and published to PyPI as the first public alpha, and the documented external PyPI install path was verified successfully. The public-alpha compatibility period begins with this release.
 
 ## Remaining v1 work after the first public alpha
 
