@@ -221,6 +221,8 @@ Automatic UCSC discovery is intended as a convenience, not a permanent hard depe
 
 ## Project documentation
 
+- [`GETTING_STARTED.md`](docs/GETTING_STARTED.md) — beginner-oriented CLI guide, output interpretation, cache/network modes, and common mistakes.
+- [`FEATURES.md`](docs/FEATURES.md) — complete catalog of implemented capabilities, expert APIs, and current non-features.
 - [`DESIGN.md`](docs/DESIGN.md) — authoritative scientific and architectural specification.
 - [`ROADMAP.md`](docs/ROADMAP.md) — implementation history, current review state, and planned milestones.
 - [`PERFORMANCE.md`](docs/PERFORMANCE.md) — measured runtime characteristics, profiling results, and current optimization priorities.
