@@ -2,7 +2,7 @@
 
 **liftAssess** evaluates ambiguous genomic coordinate liftOver mappings using transparent, provenance- and dependency-aware evidence, reporting whether mappings are **well supported**, **contested**, or **indeterminate**.
 
-> **Status:** First public alpha release candidate. Core candidate generation, evidence extraction, deterministic assessment, cached-bundle orchestration, the common-case CLI, and human-readable detailed plus machine-readable JSON reporting are implemented and tested. The release candidate is undergoing the final pre-release audit.
+> **Status:** First public alpha (`0.1.0a1`). Core candidate generation, evidence extraction, deterministic assessment, cached-bundle orchestration, the common-case CLI, and human-readable detailed plus machine-readable JSON reporting are implemented and tested. This remains early scientific software; the schema-v1 compatibility boundary and biological-correctness caveats described below apply.
 
 ## Why liftAssess exists
 
@@ -87,7 +87,7 @@ The project now implements the common-case CLI, concise summary, human-readable 
 - scalable batch assessment that reuses comparative-resource work across loci;
 - reproducible case manifests and, where redistribution terms permit, portable resource packets.
 
-Until the first public alpha is released, the repository should be treated as a developing scientific software project rather than a released analysis tool.
+`0.1.0a1` is the first public alpha. It should be treated as early scientific software under active development rather than as a mature or stable analysis platform.
 
 ## Evidence-availability tiers
 
@@ -230,7 +230,7 @@ Automatic UCSC discovery is intended as a convenience, not a permanent hard depe
 
 ## Citation
 
-If you use liftAssess in research, please cite the software using the metadata in [`CITATION.cff`](CITATION.cff). The citation metadata records the current alpha version; release-date metadata is added when the release is published.
+If you use liftAssess in research, please cite the software using the version and release-date metadata in [`CITATION.cff`](CITATION.cff).
 
 ## License
 

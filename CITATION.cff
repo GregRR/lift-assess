@@ -3,6 +3,7 @@ message: "If you use liftAssess in research, please cite the software using thes
 title: "liftAssess"
 type: software
 version: "0.1.0a1"
+date-released: "2026-08-17"
 repository-code: "https://github.com/GregRR/lift-assess"
 url: "https://github.com/GregRR/lift-assess"
 authors:

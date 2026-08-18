@@ -6,7 +6,7 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 ## Current status — 2026-08-17
 
-liftAssess is an active, private development repository. It is not yet a released end-to-end analysis tool.
+The `v0.1.0a1` release commit is the transition to liftAssess's first public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
 
 The project now has an integrated UCSC evidence pipeline plus a completed real comparative mechanical fixture. The current code can:
 
@@ -23,7 +23,7 @@ The project now has an integrated UCSC evidence pipeline plus a completed real c
 
 The routine automated suite contains **316 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
-The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, human-readable and JSON detailed reporting, measured cache-verification progress, measured transfer progress, and measured assessment-read progress are implemented. Milestone 15 and the pre-alpha semantic/output-hardening slice are complete and reviewed. Post-hardening real comparative CLI and independent-verifier runs completed successfully on 2026-08-17. A real-provider transfer-progress smoke check remains desirable but non-gating. Milestone 16 technical/documentation readiness criteria are now satisfied; the first public alpha itself remains unreleased pending the pre-release checklist and public/versioned release steps.
+The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, human-readable and JSON detailed reporting, measured cache-verification progress, measured transfer progress, and measured assessment-read progress are implemented. Milestone 15 and the pre-alpha semantic/output-hardening slice are complete and reviewed. Post-hardening real comparative CLI and independent-verifier runs completed successfully on 2026-08-17. A real-provider transfer-progress smoke check remains desirable but non-gating. Milestone 16 technical/documentation readiness criteria are satisfied; publication of `v0.1.0a1` completes the first public alpha milestone.
 
 ## Implementation history
 
@@ -391,16 +391,16 @@ The slice preserves the existing three verdicts, two evidence tiers, no-score po
 
 ### 16. First public alpha milestone
 
-The repository is currently private. A good public-transition milestone is reached when:
+The public-transition milestone is defined by:
 
 - a researcher can run one documented end-to-end real UCSC assessment from the CLI;
 - the comparative mechanical fixture works;
 - provenance/resource identity is visible in output;
 - evidence availability and support are clearly separated;
 - README usage commands are real and reproducible;
-- the project still clearly labels itself pre-release/alpha and states that well-supported does not mean biologically correct.
+- the project clearly labels itself alpha and states that well-supported does not mean biologically correct.
 
-As of 2026-08-17, the technical and documentation readiness criteria above are satisfied. Milestone 16 becomes complete when the first public alpha is actually released; the next step is the project-agnostic pre-release checklist against the exact release-candidate commit, followed by the public/versioned alpha transition.
+As of 2026-08-17, the technical and documentation readiness criteria above are satisfied. Publishing this release commit as `v0.1.0a1` completes Milestone 16 and begins the public-alpha compatibility period; subsequent work is tracked below.
 
 ## Remaining v1 work after the first public alpha
 
