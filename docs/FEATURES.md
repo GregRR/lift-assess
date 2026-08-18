@@ -337,6 +337,11 @@ Current capabilities include:
 The public model includes typed assembly, interval, mapping-segment, candidate,
 evidence, provenance, assessment, resource, and report objects.
 
+### Public package version
+
+`liftassess.__version__` exposes the installed package version from distribution
+metadata.
+
 ### Public Python functions
 
 The package currently exports these callable boundaries:

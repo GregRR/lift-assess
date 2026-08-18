@@ -79,26 +79,32 @@ you inspect JSON or use the Python API.
 The current CLI assesses one locus at a time. It does not yet accept a BED file or a
 batch of loci.
 
-## 3. Run from the current source checkout
+## 3. Install liftAssess
 
-Until the first public release is published, the documented workflow is from a source
-checkout using `uv`.
+liftAssess requires Python 3.11 or newer. For the public alpha, install the
+pre-release package from PyPI:
 
-From the repository root:
+```bash
+python -m pip install --pre liftassess
+assess-liftover --help
+```
+
+The rest of this guide assumes the installed `assess-liftover` command. If you are
+working from a source checkout instead, run:
 
 ```bash
 uv sync
 uv run assess-liftover --help
 ```
 
-The package requires Python 3.11 or newer.
+and prefix the assessment commands below with `uv run`.
 
 ## 4. Your first assessment
 
 A known real mechanical-fixture command is:
 
 ```bash
-uv run assess-liftover \
+assess-liftover \
   canFam3 \
   canFam4 \
   chrUn_JH373233:1845736-1845835
@@ -219,7 +225,7 @@ conclusion.
 Use `--details` when you need to understand or audit the evidence behind the summary:
 
 ```bash
-uv run assess-liftover \
+assess-liftover \
   canFam3 canFam4 chrUn_JH373233:1845736-1845835 \
   --details
 ```
@@ -243,7 +249,7 @@ Use this mode when a concise verdict is not enough for scientific review.
 Use `--json` for the complete schema-versioned machine-readable report:
 
 ```bash
-uv run assess-liftover \
+assess-liftover \
   canFam3 canFam4 chrUn_JH373233:1845736-1845835 \
   --json > assessment.json
 ```
@@ -273,7 +279,7 @@ The default cache is outside the repository:
 To use another location:
 
 ```bash
-uv run assess-liftover \
+assess-liftover \
   canFam3 canFam4 chr1:10000001-10000100 \
   --cache-dir /path/to/liftassess-cache
 ```
@@ -289,7 +295,7 @@ the exact artifact identity recorded in provenance.
 Once the needed resource bundle is cached, use `--offline`:
 
 ```bash
-uv run assess-liftover \
+assess-liftover \
   canFam3 canFam4 chr1:10000001-10000100 \
   --offline
 ```
@@ -306,7 +312,7 @@ Use `--refresh` when you specifically want liftAssess to contact UCSC and reacqu
 current resource bytes instead of accepting cache-first reuse:
 
 ```bash
-uv run assess-liftover \
+assess-liftover \
   canFam3 canFam4 chr1:10000001-10000100 \
   --refresh
 ```
@@ -320,7 +326,7 @@ Interactive terms and transfer-plan confirmations are the default. For a script 
 other non-interactive run, explicit flags can supply those acknowledgements:
 
 ```bash
-uv run assess-liftover \
+assess-liftover \
   canFam3 canFam4 chr1:10000001-10000100 \
   --acknowledge-ucsc-terms \
   --accept-transfer-plan \
@@ -336,7 +342,7 @@ provider terms or relicense external resources.
 Use `--quiet` to suppress nonessential status and measured progress displays:
 
 ```bash
-uv run assess-liftover \
+assess-liftover \
   canFam3 canFam4 chr1:10000001-10000100 \
   --quiet
 ```
@@ -367,7 +373,7 @@ mutually exclusive.
 ### Normal first run
 
 ```bash
-uv run assess-liftover SOURCE_DB TARGET_DB CHR:START-END
+assess-liftover SOURCE_DB TARGET_DB CHR:START-END
 ```
 
 Discover resources if needed, review terms and the transfer plan, cache verified
@@ -376,7 +382,7 @@ artifacts, and print the summary.
 ### Repeat a previous analysis using the cache
 
 ```bash
-uv run assess-liftover SOURCE_DB TARGET_DB CHR:START-END
+assess-liftover SOURCE_DB TARGET_DB CHR:START-END
 ```
 
 If a complete verified bundle is already cached, the default path uses it without
@@ -385,7 +391,7 @@ contacting UCSC.
 ### Require offline reproducibility
 
 ```bash
-uv run assess-liftover SOURCE_DB TARGET_DB CHR:START-END --offline
+assess-liftover SOURCE_DB TARGET_DB CHR:START-END --offline
 ```
 
 Fail rather than use the network.
@@ -393,7 +399,7 @@ Fail rather than use the network.
 ### Save the complete machine-readable report
 
 ```bash
-uv run assess-liftover \
+assess-liftover \
   SOURCE_DB TARGET_DB CHR:START-END \
   --json > assessment.json
 ```
@@ -401,7 +407,7 @@ uv run assess-liftover \
 ### Inspect why a result was contested or indeterminate
 
 ```bash
-uv run assess-liftover \
+assess-liftover \
   SOURCE_DB TARGET_DB CHR:START-END \
   --details
 ```
