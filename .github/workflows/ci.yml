@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Verify lockfile
+        run: uv lock --check
+
+      - name: Run tests
+        run: uv run --locked pytest
+
+  quality:
+    name: Quality gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Verify lockfile
+        run: uv lock --check
+
+      - name: Run Ruff checks
+        run: uv run --locked ruff check src tests
+
+      - name: Check formatting
+        run: uv run --locked ruff format --check src tests
+
+      - name: Run strict mypy
+        run: uv run --locked mypy --strict src tests
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Check whitespace errors
+        run: git diff --check
