@@ -1,5 +1,6 @@
 """liftAssess public core model."""
 
+from ._version import __version__
 from .assessor import assess_candidates
 from .engine import build_ucsc_candidates
 from .models import (
@@ -123,6 +124,7 @@ __all__ = [
     "UCSCResourceTerms",
     "UCSCResourceTermsAcknowledgementRequired",
     "Verdict",
+    "__version__",
     "acquire_ucsc_resource",
     "acquire_ucsc_resource_bundle",
     "assess_candidates",

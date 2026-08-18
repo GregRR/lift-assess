@@ -2,10 +2,13 @@ cff-version: 1.2.0
 message: "If you use liftAssess in research, please cite the software using these metadata."
 title: "liftAssess"
 type: software
+version: "0.1.0a1"
+repository-code: "https://github.com/GregRR/lift-assess"
+url: "https://github.com/GregRR/lift-assess"
 authors:
   - family-names: "Roe"
     given-names: "Greg"
-license: "GPL-3.0"
+license: "GPL-3.0-only"
 keywords:
   - liftover
   - bioinformatics

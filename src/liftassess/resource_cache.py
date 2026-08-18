@@ -7,8 +7,8 @@ verifies UCSC-published MD5 metadata when available, and stores the resulting ex
 artifact by liftAssess's canonical SHA-256 identity.
 
 The cache root is always supplied by the caller.  liftAssess does not create a cache
-inside the source tree and this module does not choose a user/OS default on behalf of
-the future CLI.
+inside the source tree; the CLI supplies the platform-specific default cache root at
+its boundary.
 
 Primary provider references checked 2026-08-13:
 
@@ -47,6 +47,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import SplitResult, urljoin, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from ._version import __version__
 from .models import EvidenceAvailabilityTier
 from .resource_identity import (
     ResourceChecksumAlgorithm,
@@ -61,7 +62,7 @@ ResourceTransferProgressCallback: TypeAlias = Callable[[int, int | None], None]
 
 _UCSC_HOSTS = frozenset({"hgdownload.soe.ucsc.edu", "hgdownload.gi.ucsc.edu"})
 _UCSC_LICENSE_URL = "https://genome.ucsc.edu/license/"
-_USER_AGENT = "liftAssess/0.0 resource-acquisition"
+_USER_AGENT = f"liftAssess/{__version__} resource-acquisition"
 _CHUNK_SIZE = 1024 * 1024
 _MD5_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 _CACHE_SCHEMA_VERSION = 1

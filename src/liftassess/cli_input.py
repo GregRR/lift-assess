@@ -1,4 +1,4 @@
-"""Pure input-boundary helpers for the planned liftAssess CLI.
+"""Pure input-boundary helpers for the liftAssess CLI.
 
 The CLI accepts UCSC database identifiers and UCSC-style display loci, while the
 scientific core uses structured assembly identities and 0-based, half-open intervals.

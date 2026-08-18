@@ -4,7 +4,7 @@ This module is the first end-to-end assessment boundary in v1. It connects one e
 cached UCSC resource bundle to the existing file-backed candidate engine and then to
 the deterministic assessor. It deliberately does not discover or download resources;
 network policy, terms acknowledgement, and transfer confirmation remain separate
-boundaries that the future CLI can compose around this function.
+boundaries that the CLI composes around this function.
 
 The report retains every artifact in the acquired bundle as retrieval context, but it
 marks resource consumption explicitly. This distinction matters scientifically:

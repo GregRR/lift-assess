@@ -374,7 +374,7 @@ Assessment report (summary + detailed dossier)
   separate metadata-inspection step may issue body-free HTTP HEAD requests to expose
   provider-advertised `Content-Length` and transport headers before transfer-plan acknowledgement.
   Live provider checks on 2026-08-14 verified exact HEAD sizes plus byte-range/`If-Range` behavior for
-  the planned canFam3→canFam4 comparative resources. The acquisition layer now uses those semantics
+  the canFam3→canFam4 comparative resources. The acquisition layer now uses those semantics
   opportunistically: when an exact provider checksum, identity-encoded `Content-Length`, explicit byte-range support, and a strong
   `ETag` are available, interrupted HTTPS transfers retain a URL/size/validator-bound partial and resume
   with `Range` + `If-Range`. A response that fails the expected 206/`Content-Range`/validator contract is
@@ -516,7 +516,7 @@ Assessment report (summary + detailed dossier)
 - Comparative resources under `source/vsTarget/` are a distinct publication class and must follow
   the terms published for that resource directory rather than automatically inheriting the
   `liftOver/*.over.chain.gz` restriction merely because some files use chain format. For the
-  planned `canFam3` ↔ `canFam4` mechanical fixture, UCSC's `canFam3/vsCanFam4/` README explicitly
+  established `canFam3` ↔ `canFam4` mechanical fixture, UCSC's `canFam3/vsCanFam4/` README explicitly
   states that all files in that directory are freely available for public use. Future comparative
   assembly pairs must still retain and respect their own provider README/terms rather than
   generalizing from this one directory.

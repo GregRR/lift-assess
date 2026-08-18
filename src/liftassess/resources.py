@@ -28,9 +28,9 @@ kept separate from the later downloader/cache layer so network availability or
 UCSC licensing acceptance cannot be confused with evidence interpretation.
 In particular, discovering a ``liftOver/*.over.chain.gz`` URL is only an
 availability result: it must not be treated as permission to download or use a
-resource.  A future downloader must apply the terms published for the actual
-resource class, surface UCSC's restricted liftOver-chain terms when applicable,
-and obtain explicit user acknowledgement before retrieval.  Comparative
+resource.  The acquisition layer applies the terms published for the actual
+resource class, surfaces UCSC's restricted liftOver-chain terms when applicable,
+and requires explicit user acknowledgement before retrieval.  Comparative
 ``vsTarget/`` resources must likewise follow their own published directory
 terms rather than inheriting a license solely from their file format.
 """
@@ -45,11 +45,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
+from ._version import __version__
 from .models import EvidenceAvailabilityTier
 
 _UCSC_GOLDEN_PATH = "https://hgdownload.soe.ucsc.edu/goldenPath/"
 _UCSC_DB_PATTERN = r"[A-Za-z0-9_.-]+"
-_USER_AGENT = "liftAssess/0.0 resource-discovery"
+_USER_AGENT = f"liftAssess/{__version__} resource-discovery"
 
 
 class UCSCResourceDiscoveryError(RuntimeError):

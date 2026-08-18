@@ -2,7 +2,7 @@
 
 **liftAssess** evaluates ambiguous genomic coordinate liftOver mappings using transparent, provenance- and dependency-aware evidence, reporting whether mappings are **well supported**, **contested**, or **indeterminate**.
 
-> **Status:** Active development. Core candidate-generation, evidence extraction, deterministic assessment, cached-bundle orchestration, the common-case CLI, and human-readable detailed plus machine-readable JSON reporting are implemented and tested. Remaining alpha polish is still under construction.
+> **Status:** First public alpha release candidate. Core candidate generation, evidence extraction, deterministic assessment, cached-bundle orchestration, the common-case CLI, and human-readable detailed plus machine-readable JSON reporting are implemented and tested. The release candidate is undergoing the final pre-release audit.
 
 ## Why liftAssess exists
 
@@ -126,12 +126,28 @@ Chains and nets have different responsibilities:
 
 Net availability is therefore not required for basic chain-backed candidate generation.
 
+## Installation
+
+liftAssess requires Python 3.11 or newer. For the public alpha release, install the pre-release package from PyPI with:
+
+```bash
+python -m pip install --pre liftassess
+```
+
+Verify the installed command without contacting any external provider:
+
+```bash
+assess-liftover --help
+```
+
+For development from a source checkout, use `uv sync` as described under [Development setup](#development-setup).
+
 ## CLI workflow
 
-From a development checkout, the common-case command is:
+After installation, the common-case command is:
 
 ```text
-uv run assess-liftover canFam3 canFam4 chrUn_JH373233:1845736-1845835
+assess-liftover canFam3 canFam4 chrUn_JH373233:1845736-1845835
 ```
 
 CLI loci use the familiar UCSC-style 1-based, inclusive display convention and are converted immediately to liftAssess's canonical 0-based, half-open internal representation.
@@ -145,12 +161,12 @@ The default command emits the concise assessment summary, including a plain-lang
 For machine use, stdout remains the JSON document while status/progress stays on stderr, so normal shell redirection is safe:
 
 ```text
-uv run assess-liftover canFam3 canFam4 chrUn_JH373233:1845736-1845835 --json > assessment.json
+assess-liftover canFam3 canFam4 chrUn_JH373233:1845736-1845835 --json > assessment.json
 ```
 
 ## Validation strategy
 
-Two complementary validation tracks are planned.
+Validation uses two complementary tracks.
 
 ### Mechanical evidence fixture
 
@@ -189,9 +205,9 @@ The goal is for researchers to be able to inspect not only **what** liftAssess c
 
 ## External resources
 
-liftAssess does not bundle UCSC chain/net resources or depend on the UCSC liftOver executable for its core logic. UCSC and other external resources remain subject to their providers' own licensing and usage terms; liftAssess's GPL-3.0 license does not relicense those external files.
+liftAssess does not bundle UCSC chain/net resources or depend on the UCSC liftOver executable for its core logic. UCSC and other external resources remain subject to their providers' own licensing and usage terms; liftAssess's GPL-3.0-only license does not relicense those external files.
 
-UCSC resource terms are not uniform simply because multiple resources use chain format. In particular, UCSC's dedicated `liftOver/*.over.chain.gz` files are subject to UCSC's liftOver chain-file terms, including non-commercial-use restrictions unless an applicable commercial license has been obtained. Comparative `vsTarget/` chain/net resources follow the terms published for their own download directory. The planned `canFam3/vsCanFam4/` mechanical-fixture directory currently states that its files are freely available for public use.
+UCSC resource terms are not uniform simply because multiple resources use chain format. In particular, UCSC's dedicated `liftOver/*.over.chain.gz` files are subject to UCSC's liftOver chain-file terms, including non-commercial-use restrictions unless an applicable commercial license has been obtained. Comparative `vsTarget/` chain/net resources follow the terms published for their own download directory. The established `canFam3/vsCanFam4/` mechanical-fixture directory states that its files are freely available for public use.
 
 The resolver and acquisition layers remain separate. The acquisition API can retrieve one explicitly requested UCSC resource or execute an explicit plan for a complete discovered resource bundle into a caller-selected cache outside the source tree. Planning is no-network and enumerates every required URL plus its provider-terms classification; bundle execution additionally requires explicit acknowledgement of that transfer plan before any resource acquisition begins. This is deliberately separate from terms acknowledgement. Dedicated `liftOver/*.over.chain.gz` files are identified separately because UCSC applies additional liftOver-chain restrictions. Provider `md5sum.txt` entries are verified when an exact filename entry exists, while liftAssess SHA-256 remains the canonical artifact identity. Verified cached URL→artifact reuse is intentionally available offline and does not claim remote freshness; callers request an explicit refresh to contact UCSC and reacquire current bytes. A separate body-free metadata-inspection step can query provider HTTP headers after explicit terms acknowledgement and before transfer-plan acknowledgement. It does not create cache artifacts or transfer resource bodies. A live canFam3→canFam4 check on 2026-08-14 verified exact `Content-Length` values for all five comparative resources and `Accept-Ranges: bytes`; a separate small-range probe verified `206 Partial Content`, exact `Content-Range`, stable `ETag`, and `If-Range` behavior without downloading the full chain.
 
@@ -212,11 +228,11 @@ Automatic UCSC discovery is intended as a convenience, not a permanent hard depe
 
 ## Citation
 
-If you use liftAssess in research, please cite the software using the metadata in [`CITATION.cff`](CITATION.cff). Version-specific citation metadata will be added with the first formal release.
+If you use liftAssess in research, please cite the software using the metadata in [`CITATION.cff`](CITATION.cff). The citation metadata records the current alpha version; release-date metadata is added when the release is published.
 
 ## License
 
-liftAssess is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
+liftAssess is licensed under the **GNU General Public License v3.0 (GPL-3.0-only)**.
 
 ## Project scope
 
