@@ -79,7 +79,7 @@ The current development code includes:
 
 ## Not implemented yet
 
-The project now implements the common-case CLI, concise summary, human-readable detail, schema-versioned JSON reporting, and measured cache-verification/assessment/transfer progress paths, and the first real comparative CLI smoke run has completed against the established external `canFam3`→`canFam4` cache. Planned work beyond the first public alpha includes:
+The project now implements the common-case CLI, concise summary, human-readable detail, schema-versioned JSON reporting, and measured cache-verification/assessment/transfer progress paths. The post-hardening real comparative CLI and independent mechanical-fixture verifier have both completed successfully against the established external `canFam3`→`canFam4` cache. Planned work beyond the first public alpha includes:
 
 - a future truth-bearing historical-resolution locus for the planned `canFam3.1`→`canFam6` sanity-check pedigree;
 - optional flanking-gene orthology/synteny evidence;
@@ -87,7 +87,7 @@ The project now implements the common-case CLI, concise summary, human-readable 
 - scalable batch assessment that reuses comparative-resource work across loci;
 - reproducible case manifests and, where redistribution terms permit, portable resource packets.
 
-Until the public-alpha readiness work is complete, the repository should be treated as a developing scientific software project rather than a released analysis tool.
+Until the first public alpha is released, the repository should be treated as a developing scientific software project rather than a released analysis tool.
 
 ## Evidence-availability tiers
 
@@ -131,21 +131,21 @@ Net availability is therefore not required for basic chain-backed candidate gene
 From a development checkout, the common-case command is:
 
 ```text
-uv run assess-liftover canFam3 canFam4 chr16:12345-12400
+uv run assess-liftover canFam3 canFam4 chrUn_JH373233:1845736-1845835
 ```
 
 CLI loci use the familiar UCSC-style 1-based, inclusive display convention and are converted immediately to liftAssess's canonical 0-based, half-open internal representation.
 
 Before resource acquisition, the command displays the applicable UCSC terms and requires explicit acknowledgement. It then performs body-free HEAD inspection of the exact transfer plan, displays provider-advertised resource sizes and the cache destination, and requires a separate transfer-plan acknowledgement before downloading or verifying cached resources. The displayed size is the provider resource-set size, not a promise that all bytes will be transferred: verified cache hits can avoid body transfer unless `--refresh` is used. `--acknowledge-ucsc-terms` and `--accept-transfer-plan` provide explicit non-interactive acknowledgements; `--cache-dir`, `--refresh`, `--offline`, `--details`, `--json`, and `--quiet` control cache placement, provider access, report format, and progress output.
 
-The default cache is the platform user cache (`~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` or `~/.cache/liftassess` on other platforms).
+The default cache is the platform user cache (`~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` or `~/.cache/liftassess` on other platforms). The documented `canFam3`→`canFam4` example is the real comparative mechanical fixture and requires a complete approximately 2.50 GiB UCSC comparative bundle; initial acquisition and the current streaming verification/assessment path can therefore take substantial time depending on storage and CPU performance. Once that bundle is cached, `--offline` reuses and re-verifies the exact cached resources without contacting UCSC.
 
 The default command emits the concise assessment summary, including a plain-language rendering of the assessor-owned terminal `decision_reason`. `COMPARATIVE` summaries also state that comparative observations are not assumed to be independent and point to `--details` / `--json` for dependency provenance; `LIFTOVER_ONLY` summaries do not receive that qualification. `--details` emits the full human-readable evidence dossier, including the exact decision-reason code, mapped segments, categorical verdict-evidence roles, resource URLs/checksums and consumed-vs-unconsumed status, and the complete provenance dependency graph. `--json` emits schema version 1 of the same report semantics using canonical 0-based, half-open interval objects, the required categorical `decision_reason`, structured evidence values, exact resource metadata, and explicit provenance dependency edges. `--details` and `--json` are mutually exclusive. All report modes retain the explicit caveat that evidentiary support is not proof of biological correctness.
 
 For machine use, stdout remains the JSON document while status/progress stays on stderr, so normal shell redirection is safe:
 
 ```text
-uv run assess-liftover canFam3 canFam4 chr16:12345-12400 --json > assessment.json
+uv run assess-liftover canFam3 canFam4 chrUn_JH373233:1845736-1845835 --json > assessment.json
 ```
 
 ## Validation strategy
@@ -154,7 +154,7 @@ Two complementary validation tracks are planned.
 
 ### Mechanical evidence fixture
 
-`canFam3` ↔ `canFam4` is now the real mechanical fixture for verifying extraction of chain/net/reciprocal-best evidence. The selected source interval is `chrUn_JH373233:1845735-1845835` in 0-based, half-open coordinates. The production cached-bundle path reproduces 170 candidate mappings across 114 target sequences, including a reverse, split, net-annotated, reciprocal-best-supported candidate and contrasting partial/reciprocal-best-absent alternatives. These assemblies come from different dogs, so the fixture establishes **mechanical correctness of evidence extraction**, not biological ground truth.
+`canFam3` ↔ `canFam4` is now the real mechanical fixture for verifying extraction of chain/net/reciprocal-best evidence. The selected source interval is `chrUn_JH373233:1845735-1845835` in 0-based, half-open coordinates (CLI display locus `chrUn_JH373233:1845736-1845835`). The production cached-bundle path reproduces 170 candidate mappings across 114 target sequences, including a reverse, split, net-annotated, reciprocal-best-supported candidate and contrasting partial/reciprocal-best-absent alternatives. A post-hardening run on 2026-08-17 reported `COMPARATIVE`, `CONTESTED`, and 170 candidates; the independent verifier separately derived the same `CONTESTED` verdict from 138 material candidates without calling the production verdict logic. These assemblies come from different dogs, so the fixture establishes **mechanical correctness of evidence extraction and deterministic assessment behavior**, not biological ground truth.
 
 The exact multi-gigabyte UCSC resources remain outside the repository. Developers with the acquired cache can replay the frozen verification with `scripts/verify_canFam3_canFam4_mechanical_fixture.py`.
 

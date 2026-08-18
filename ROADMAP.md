@@ -21,9 +21,9 @@ The project now has an integrated UCSC evidence pipeline plus a completed real c
 - compose a complete cached UCSC bundle through candidate/evidence generation and the assessor into an auditable assessment report;
 - and run the `assess-liftover` CLI cache-first or fully offline with measured cache-verification, transfer, and assessment-read progress.
 
-The routine automated suite contains **311 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
+The routine automated suite contains **316 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
 
-The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, human-readable and JSON detailed reporting, measured cache-verification progress, measured transfer progress, and measured assessment-read progress are implemented; the real comparative assessment path has completed a smoke run. Milestone 15 is complete and reviewed. A real-provider transfer-progress smoke check remains desirable but non-gating. Before Milestone 16/public alpha, one focused semantic/output-hardening slice will correct a confirmed concise-summary misstatement, make the assessor's terminal decision reason explicit and machine-readable, and finalize the schema-v1 compatibility boundary.
+The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, human-readable and JSON detailed reporting, measured cache-verification progress, measured transfer progress, and measured assessment-read progress are implemented. Milestone 15 and the pre-alpha semantic/output-hardening slice are complete and reviewed. Post-hardening real comparative CLI and independent-verifier runs completed successfully on 2026-08-17. A real-provider transfer-progress smoke check remains desirable but non-gating. Milestone 16 technical/documentation readiness criteria are now satisfied; the first public alpha itself remains unreleased pending the pre-release checklist and public/versioned release steps.
 
 ## Implementation history
 
@@ -350,7 +350,7 @@ Implemented and reviewed:
 Implemented the planned common-case workflow:
 
 ```text
-assess-liftover canFam3 canFam4 chr16:12345-12400
+assess-liftover canFam3 canFam4 chrUn_JH373233:1845736-1845835
 ```
 
 Implemented so far:
@@ -373,21 +373,21 @@ Milestone 15 closure review completed:
 - transfer-progress implementation and terminal semantics were reviewed against the code/tests with no confirmed defects; automated coverage now includes a fresh transfer whose real response omits `Content-Length`, proving the acquisition callback preserves an unknown total end to end rather than inventing a percentage;
 - a real-provider transfer-progress smoke check remains desirable but non-gating and should not force a multi-gigabyte reacquisition solely for UI validation.
 
-### 15.5. Pre-alpha semantic and output hardening — next
+### 15.5. Pre-alpha semantic and output hardening — complete
 
-This is a focused correctness/compatibility slice discovered during the final project-level review of Milestone 15. It does not reopen transfer-progress work.
+This focused correctness/compatibility slice was discovered during the final project-level review of Milestone 15. It did not reopen transfer-progress work.
 
-Required before the first public alpha:
+Implemented and reviewed:
 
-- fix the confirmed concise-summary bug in which an `INDETERMINATE` comparative assessment with multiple raw candidates but only one material partial candidate can be described as though the evidence failed to distinguish the candidates; the remaining uncertainty is incomplete source-locus coverage, not unresolved material multiplicity;
-- add one required assessor-owned categorical `decision_reason` to every `Assessment`, using the ten exhaustive/mutually-exclusive terminal conditions specified in `DESIGN.md` rather than mixing biological findings with evidence-rule names;
-- split the current final comparative fallback into `COMPARATIVE_SOLE_MATERIAL_PARTIAL` versus `COMPARATIVE_NO_MATERIAL_CANDIDATE` using the already-defined material-candidate predicate, and regression-test the exact boundary (`PARTIAL` coverage with reciprocal-best `FULL`/`PARTIAL` is material; reciprocal-best `NONE` is not);
-- make reporting consume the recorded decision reason instead of reconstructing assessor semantics from candidate count, verdict, or evidence values;
-- require every `Assessment` construction to supply a decision reason, handle every declared decision-reason enum member explicitly in reason/verdict/reporting mappings without wildcard fallback, and test that assessor coverage reaches the complete declared reason vocabulary; branch-specific regression tests must still verify that each semantic boundary selects the correct reason;
-- include the required decision reason in human detail and JSON output, and finalize schema v1 before alpha; private pre-alpha schema v1 remains mutable, while the first public alpha freezes it as an external compatibility surface and later incompatible structural/semantic changes require a new schema version;
-- add a concise dependence qualification only for `COMPARATIVE` summaries: comparative observations are not assumed to be independent, with dependency provenance available in `--details` / `--json`. `LIFTOVER_ONLY` output should not receive that context-free qualification.
+- fixed the confirmed concise-summary bug in which an `INDETERMINATE` comparative assessment with multiple raw candidates but only one material partial candidate can be described as though the evidence failed to distinguish the candidates; the remaining uncertainty is incomplete source-locus coverage, not unresolved material multiplicity;
+- added one required assessor-owned categorical `decision_reason` to every `Assessment`, using the ten exhaustive/mutually-exclusive terminal conditions specified in `DESIGN.md` rather than mixing biological findings with evidence-rule names;
+- split the final comparative fallback into `COMPARATIVE_SOLE_MATERIAL_PARTIAL` versus `COMPARATIVE_NO_MATERIAL_CANDIDATE` using the already-defined material-candidate predicate, and regression-tested the exact boundary (`PARTIAL` coverage with reciprocal-best `FULL`/`PARTIAL` is material; reciprocal-best `NONE` is not);
+- made reporting consume the recorded decision reason instead of reconstructing assessor semantics from candidate count, verdict, or evidence values;
+- required every `Assessment` construction to supply a decision reason, handle every declared decision-reason enum member explicitly in reason/verdict/reporting mappings without wildcard fallback, and test that assessor coverage reaches the complete declared reason vocabulary; branch-specific regression tests must still verify that each semantic boundary selects the correct reason;
+- included the required decision reason in human detail and JSON output and finalized schema v1 before alpha; private pre-alpha schema v1 remains mutable, while the first public alpha freezes it as an external compatibility surface and later incompatible structural/semantic changes require a new schema version;
+- added a concise dependence qualification only for `COMPARATIVE` summaries: comparative observations are not assumed to be independent, with dependency provenance available in `--details` / `--json`. `LIFTOVER_ONLY` output should not receive that context-free qualification.
 
-This slice must preserve the existing three verdicts, two evidence tiers, no-score policy, and assessor-not-resolver boundary.
+The slice preserves the existing three verdicts, two evidence tiers, no-score policy, and assessor-not-resolver boundary. The routine suite now contains 316 passing tests; Ruff, Ruff formatting, strict mypy, package build, and `git diff --check` all passed. A post-hardening offline CLI run on 2026-08-17 reported `COMPARATIVE`, 170 candidates, and `CONTESTED` with the new dependence qualification and biological-correctness caveat. The independently derived mechanical-fixture verifier then passed against the same cached bundle, deriving `CONTESTED` from 138 material candidates and matching the production assessor without calling its verdict logic.
 
 ### 16. First public alpha milestone
 
@@ -400,7 +400,7 @@ The repository is currently private. A good public-transition milestone is reach
 - README usage commands are real and reproducible;
 - the project still clearly labels itself pre-release/alpha and states that well-supported does not mean biologically correct.
 
-A formal versioned release can follow after the CLI/report workflow is coherent enough for an outside researcher to try without project-specific guidance.
+As of 2026-08-17, the technical and documentation readiness criteria above are satisfied. Milestone 16 becomes complete when the first public alpha is actually released; the next step is the project-agnostic pre-release checklist against the exact release-candidate commit, followed by the public/versioned alpha transition.
 
 ## Remaining v1 work after the first public alpha
 

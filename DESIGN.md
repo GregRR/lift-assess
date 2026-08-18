@@ -606,7 +606,7 @@ The local cache path is run context, not artifact identity; the SHA-256 field id
 
 CLI target for the common case:
 ```
-assess-liftover canFam3 canFam4 chr16:12345-12400
+assess-liftover canFam3 canFam4 chrUn_JH373233:1845736-1845835
 ```
 The common-case command is cache-first. A complete locally indexed bundle is re-verified from its URL-indexed SHA-256 artifacts and can be assessed with zero provider access; this reports the evidence tier represented by those cached bytes and does not claim UCSC's current publication state is unchanged. `--offline` makes zero network access an explicit guarantee and fails if no complete verified local bundle exists. `--refresh` deliberately bypasses cache-first reuse and performs the provider discovery/terms/HEAD/transfer workflow to check and reacquire current resources. `--cache-dir` overrides the user cache and `--quiet` suppresses nonessential progress. The platform defaults are `~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` (falling back to `~/.cache/liftassess`) elsewhere.
 
@@ -616,7 +616,7 @@ Interactive cache verification likewise exposes measured work rather than leavin
 
 For automatic UCSC runs, the CLI supplies one conservative source/target-pair lineage node as the shared upstream dependency of consumed UCSC files. This is intentionally a dependency-grouping statement, not a reconstruction of the provider's exact alignment/process history from downloaded bytes. Exact consumed-file identity remains represented by the SHA-256-addressed child provenance nodes. This conservative grouping prevents chain/net/reciprocal-best observations from being presented as independent confirmation without claiming more process knowledge than the CLI has.
 
-The first real CLI smoke run completed 2026-08-16 against the external `canFam3`→`canFam4` comparative cache at source display locus `chrUn_JH373233:1845736-1845835` (canonical internal interval `1845735-1845835`). The command reported `COMPARATIVE`, 170 candidates, and `CONTESTED`, matching the established candidate count from the mechanical fixture. This is an end-to-end software result, not biological ground truth; the independent verifier cross-check of the deterministic verdict is maintained separately.
+The first real CLI smoke run completed 2026-08-16 against the external `canFam3`→`canFam4` comparative cache at source display locus `chrUn_JH373233:1845736-1845835` (canonical internal interval `1845735-1845835`). After the pre-alpha semantic/output hardening, the same offline CLI path was rerun on 2026-08-17 and reported `COMPARATIVE`, 170 candidates, and `CONTESTED` with the assessor-owned reason rendering, comparative-dependence qualification, and biological-correctness caveat. The independently derived mechanical-fixture verifier was then rerun against the same exact cached bundle and passed: it derived `CONTESTED` from 138 material candidates without calling `assess_candidates()` and matched the production verdict. These are end-to-end software/mechanical validation results, not biological ground truth.
 
 Expert users can still use the library boundaries with explicitly supplied resources/provenance. Engine selection becomes a real option only once a second engine exists — v1 has exactly one (§7). Human-readable `--details` output and schema-versioned `--json` output are implemented against the same report model. Interactive CLI acquisition progress is measured from exact resource bytes: fresh downloads begin at zero, validator-bound resumptions begin at the retained prefix, verified cache hits are labeled as cache reuse rather than transfer, and unknown-length bodies remain byte-only instead of receiving a fabricated percentage. The transfer display reuses the same progress-row/byte-formatting primitives as cache-verification and assessment progress and is suppressed by `--quiet` or non-TTY stderr. Transfer 100% means the provider response bytes are complete; checksum verification/private-snapshot finalization can still continue before the resource is published into the immutable cache.
 
@@ -654,8 +654,9 @@ Expert users can still use the library boundaries with explicitly supplied resou
     provenance. The original completed fixture run verified extraction and provenance wiring only.
     The reproducible verifier has since been extended to derive the expected comparative verdict
     independently from the extracted candidate evidence (without calling `assess_candidates()`) and
-    compare that derivation with the production assessor; the real-data rerun is the remaining
-    validation checkpoint. No biological ground-truth claim is made. The verifier lives at
+    compare that derivation with the production assessor. The post-hardening real-data rerun on
+    2026-08-17 passed, independently deriving `CONTESTED` from 138 material candidates and matching
+    the production `CONTESTED` verdict. No biological ground-truth claim is made. The verifier lives at
     `scripts/verify_canFam3_canFam4_mechanical_fixture.py`; the UCSC bulk files remain external.
 - **Historical-resolution fixture pedigree (not yet a concrete fixture)** — identifies the right
   assembly pair for proving the report behaves sensibly against a known resolution; the specific
@@ -689,9 +690,9 @@ Expert users can still use the library boundaries with explicitly supplied resou
 
 
 **LiftOver ambiguity assessor** — need and demand are now considered validated rather
-than merely plausible. The core implementation now exists; remaining pre-alpha uncertainty is
-user-facing semantic/compatibility hardening and how well the workflow serves outside researchers,
-not whether the underlying problem is justified.
+than merely plausible. The core implementation and pre-alpha semantic/compatibility hardening are
+complete. The remaining uncertainty is how well the workflow serves outside researchers during
+public alpha, not whether the underlying problem is justified.
 
 v1 should not be shaped around any hypothetical downstream adopter or integration partner — the
 pluggable engine boundary (§7) already preserves that flexibility for later without costing
@@ -699,10 +700,6 @@ anything now.
 
 ## 13. Open and deferred design items
 
-- Complete the pre-alpha semantic/output hardening specified in §4 and §9 before the first public
-  alpha: assessor-owned `decision_reason`, the confirmed concise-summary correctness fix,
-  exhaustive taxonomy plumbing/tests, COMPARATIVE-only dependency qualification, and the finalized
-  schema-v1 compatibility boundary.
 - Identify and document at least one concrete CanFam3.1 locus whose later placement in canFam6
   is independently established (e.g. traceable via the Dog10K assembly paper's gap-closure or
   SNV-array mapping data), turning the historical-resolution pedigree in §10 into an actual
