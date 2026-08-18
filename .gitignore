@@ -160,3 +160,5 @@ work/
 ### Project Specific ###
 my-notes/
 .liftassess-local/
+.working-docs/
+
