@@ -1,28 +1,19 @@
-"""Human-readable and machine-readable assessment reporting.
+"""Human-readable and machine-readable factual result reporting.
 
-The renderer consumes an already-computed :class:`~liftassess.models.Assessment`.
-It never assigns or modifies a verdict, counts evidence as a score, or infers
-biological correctness.  Its job is presentation: expose evidence availability
-before interpretation and preserve coordinate semantics explicitly. Human-readable
-renderers convert canonical internal coordinates to a labeled 1-based inclusive display
-convention; JSON retains canonical 0-based half-open intervals for exact machine use.
-
-A candidate's ``target_interval`` is a bounding span.  For split mappings, the
-summary therefore labels that span explicitly and reports the number of mapped
-segments rather than implying that every base inside the span aligned.
+Both renderers consume the same derived result profile. Exact candidate geometry,
+evidence, resource identity, and provenance remain available alongside the profile;
+no renderer assigns an aggregate verdict, confidence score, candidate rank, or
+biological correctness claim.
 """
 
 import json
-from typing import assert_never
 
 from .chain import chain_id_from_candidate_id
 from .models import (
-    Assessment,
-    AssessmentDecisionReason,
+    AssemblyIdentifier,
     ChainGapSummary,
     EvidenceAvailabilityTier,
     EvidenceObservation,
-    EvidenceReference,
     EvidenceValue,
     GenomicInterval,
     MappingCoverageSummary,
@@ -30,15 +21,21 @@ from .models import (
     NormalizedCandidate,
     ProvenanceSource,
     ReciprocalBestMembershipSummary,
-    Verdict,
 )
 from .orchestration import UCSCAssessmentReport, UCSCAssessmentResource
 from .resource_cache import CachedResource
+from .result_profile import (
+    CandidateResultProfile,
+    FactualHeadline,
+    ResultProfile,
+    SourceCoverageState,
+)
 
 _BIOLOGICAL_CORRECTNESS_CAVEAT = "This does not establish biological correctness."
-_JSON_SCHEMA_VERSION = 1
-_JSON_REPORT_TYPE = "liftassess.ucsc_assessment"
+_JSON_SCHEMA_VERSION = 2
+_JSON_REPORT_TYPE = "liftassess.ucsc_result"
 _JSON_INTERVAL_COORDINATE_SYSTEM = "0-based-half-open"
+_DEFAULT_INLINE_PROJECTION_LIMIT = 4
 
 
 def format_display_interval(interval: GenomicInterval) -> str:
@@ -52,169 +49,225 @@ def format_display_interval(interval: GenomicInterval) -> str:
     )
 
 
-def render_assessment_summary(assessment: Assessment) -> str:
-    """Render the concise default v1 assessment summary.
+def render_assessment_summary(report: UCSCAssessmentReport) -> str:
+    """Render the progressive-disclosure default factual result summary."""
 
-    Evidence availability is intentionally emitted before the verdict so readers do
-    not mistake a richer evidence tier for stronger confidence.  The final caveat is
-    unconditional because every v1 verdict describes evidentiary support rather than
-    biological truth.
-    """
-
+    profile = report.result_profile
     lines = [
-        f"Source locus: {format_display_interval(assessment.source_interval)}",
-        f"Evidence availability: {_evidence_tier_text(assessment.evidence_tier)}",
-        f"Assessment: {_verdict_text(assessment.verdict)}",
+        _headline_text(profile.headline),
+        f"Source: {format_display_interval(profile.source_interval)}",
     ]
 
-    preferred = _preferred_candidate(assessment)
-    if preferred is not None:
-        lines.append(f"Preferred candidate: {_candidate_text(preferred)}")
-        other_count = len(assessment.candidates) - 1
-        if other_count:
-            lines.append(f"Other candidates assessed: {other_count}")
-    elif len(assessment.candidates) == 1:
-        lines.append(f"Candidate: {_candidate_text(assessment.candidates[0])}")
+    if not profile.candidate_profiles:
+        lines.append("Chain projections: 0")
+    elif len(profile.candidate_profiles) == 1:
+        candidate_profile = profile.candidate_profiles[0]
+        candidate = report.candidates[0]
+        lines.extend(_single_candidate_summary_lines(candidate, candidate_profile))
     else:
-        lines.append(f"Candidates assessed: {len(assessment.candidates)}")
+        lines.extend(_multiple_candidate_summary_lines(report, profile))
 
-    lines.append(f"Why: {_decision_reason_text(assessment.decision_reason)}")
-    if assessment.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
-        lines.append(
-            "Comparative observations are not assumed to be independent; dependency "
-            "provenance is available with --details or --json."
-        )
-    lines.extend(("", _BIOLOGICAL_CORRECTNESS_CAVEAT))
+    lines.append(f"Evidence: {_evidence_summary(profile)}")
+    lines.append(f"Interpretation: {profile.interpretation}")
+    lines.append(
+        "Scope: coordinate projection/structure assessed; named-variant and "
+        "gene/transcript identity not assessed."
+    )
+    lines.append(
+        "Details: use --details for the full profile/evidence or --json for schema v2."
+    )
+    lines.append(_BIOLOGICAL_CORRECTNESS_CAVEAT)
     return "\n".join(lines)
 
 
-def _evidence_tier_text(tier: EvidenceAvailabilityTier) -> str:
-    if tier is EvidenceAvailabilityTier.COMPARATIVE:
-        return "COMPARATIVE — mapping plus comparative evidence available"
-    if tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
-        return "LIFTOVER-ONLY — chain mapping evidence only"
-    raise ValueError(f"unsupported evidence availability tier: {tier!r}")
+def _single_candidate_summary_lines(
+    candidate: NormalizedCandidate,
+    profile: CandidateResultProfile,
+) -> list[str]:
+    lines = [
+        f"Source coverage: {profile.covered_source_bases}/{profile.source_bases} source bases",
+        f"Target: {_candidate_text(candidate, profile)}",
+    ]
+    if profile.fragmented or profile.coverage_state is SourceCoverageState.PARTIAL:
+        lines.append(f"Geometric mapped segments: {profile.geometric_segment_count}")
+    if profile.uncovered_source_intervals:
+        lines.append(
+            "Uncovered source: "
+            + ", ".join(
+                format_display_interval(interval)
+                for interval in profile.uncovered_source_intervals
+            )
+        )
+    if profile.target_gap_intervals:
+        lines.append(
+            "Target gaps: "
+            + ", ".join(
+                format_display_interval(interval)
+                for interval in profile.target_gap_intervals
+            )
+        )
+    return lines
 
 
-def _verdict_text(verdict: Verdict) -> str:
-    return verdict.value.replace("_", " ")
+def _multiple_candidate_summary_lines(
+    report: UCSCAssessmentReport,
+    profile: ResultProfile,
+) -> list[str]:
+    lines = [
+        (
+            "Maximum candidate source coverage: "
+            f"{profile.maximum_candidate_covered_source_bases}/"
+            f"{profile.source_bases} bases"
+        ),
+        f"Chain projections: {len(profile.candidate_profiles)}",
+        "Projection order: reproducibility only; not rank.",
+    ]
+    if (
+        profile.union_covered_source_bases
+        != profile.maximum_candidate_covered_source_bases
+    ):
+        lines.append(
+            "Source bases represented across all projections: "
+            f"{profile.union_covered_source_bases}/{profile.source_bases}"
+        )
+    if len(profile.candidate_profiles) <= _DEFAULT_INLINE_PROJECTION_LIMIT:
+        lines.append("Projection details:")
+        for candidate, candidate_profile in zip(
+            report.candidates,
+            profile.candidate_profiles,
+            strict=True,
+        ):
+            lines.append(
+                "  - "
+                f"{_candidate_text(candidate, candidate_profile)}; "
+                f"coverage {candidate_profile.covered_source_bases}/"
+                f"{candidate_profile.source_bases}; "
+                f"geometric segments {candidate_profile.geometric_segment_count}"
+            )
+        return lines
+
+    segment_counts = [
+        candidate.geometric_segment_count for candidate in profile.candidate_profiles
+    ]
+    target_sequence_count = len(
+        {candidate.target_interval.sequence_name for candidate in report.candidates}
+    )
+    lines.extend(
+        (
+            f"Target sequences represented: {target_sequence_count}",
+            f"Projection orientations: {profile.orientation.value}",
+            _segment_count_summary(segment_counts),
+            (
+                "Projections at maximum source coverage: "
+                f"{len(profile.maximum_coverage_candidate_ids)}"
+            ),
+            (
+                "Projection details: omitted from default output for this candidate "
+                "set; use --details or --json for every projection."
+            ),
+        )
+    )
+    return lines
 
 
-def _preferred_candidate(assessment: Assessment) -> NormalizedCandidate | None:
-    if assessment.preferred_candidate_id is None:
-        return None
-    for candidate in assessment.candidates:
-        if candidate.candidate_id == assessment.preferred_candidate_id:
-            return candidate
-    # Assessment itself enforces referential integrity, so reaching this path would
-    # indicate that an invalid object bypassed normal dataclass construction.
-    raise ValueError("assessment preferred candidate is not present in candidates")
+def _segment_count_summary(segment_counts: list[int]) -> str:
+    minimum = min(segment_counts)
+    maximum = max(segment_counts)
+    if minimum == maximum:
+        return f"Geometric mapped segments per projection: {minimum}"
+    return f"Geometric mapped segments per projection: {minimum}-{maximum}"
 
 
-def _candidate_text(candidate: NormalizedCandidate) -> str:
+def _headline_text(headline: FactualHeadline) -> str:
+    return headline.value.replace("_", " ")
+
+
+def _evidence_summary(profile: ResultProfile) -> str:
+    roles = ", ".join(profile.consumed_resource_roles) or "none"
+    if profile.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
+        return f"LIFTOVER-ONLY — consumed {roles}; chain mapping evidence only"
+    if profile.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
+        return (
+            f"COMPARATIVE — consumed {roles}; UCSC-derived observations may share "
+            "upstream alignment lineage and are not independent votes"
+        )
+    raise ValueError(
+        f"unsupported evidence availability tier: {profile.evidence_tier!r}"
+    )
+
+
+def _candidate_text(
+    candidate: NormalizedCandidate,
+    profile: CandidateResultProfile,
+) -> str:
     interval = candidate.target_interval
     coordinate_text = f"{interval.sequence_name}:{interval.start + 1}-{interval.end}"
     details = [
         "1-based inclusive",
         f"{candidate.orientation.value.lower()} orientation",
     ]
-    if len(candidate.segments) > 1:
-        details.append(f"bounding span of {len(candidate.segments)} mapped segments")
+    if profile.geometric_segment_count > 1:
+        details.append(
+            "bounding span of "
+            f"{profile.geometric_segment_count} geometric mapped segments"
+        )
     return f"{coordinate_text} ({'; '.join(details)})"
 
 
-def _decision_reason_text(reason: AssessmentDecisionReason) -> str:
-    """Render the assessor-owned terminal decision reason without re-assessing."""
-
-    match reason:
-        case AssessmentDecisionReason.NO_CANDIDATES:
-            return "no candidate mapping was generated for the requested locus"
-        case AssessmentDecisionReason.LIFTOVER_MULTIPLE_CANDIDATES:
-            return "multiple chain-derived candidate mappings remain"
-        case AssessmentDecisionReason.LIFTOVER_SINGLE_FULL_MAPPING:
-            return "full source-locus mapping coverage"
-        case AssessmentDecisionReason.LIFTOVER_SINGLE_PARTIAL_MAPPING:
-            return "candidate maps only part of the requested source locus"
-        case AssessmentDecisionReason.COMPARATIVE_MULTIPLE_MATERIAL_CANDIDATES:
-            return "multiple candidates retain material assessment evidence"
-        case AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_FULL:
-            return (
-                "full source-locus mapping coverage and full reciprocal-best membership"
-            )
-        case AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_NONE:
-            return (
-                "full source-locus mapping coverage with reciprocal-best membership "
-                "NONE"
-            )
-        case AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_PARTIAL:
-            return (
-                "full source-locus mapping coverage with reciprocal-best membership "
-                "PARTIAL"
-            )
-        case AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_PARTIAL:
-            return (
-                "one material candidate maps only part of the requested source locus; "
-                "other raw candidates are not material under the v1 comparative rule"
-            )
-        case AssessmentDecisionReason.COMPARATIVE_NO_MATERIAL_CANDIDATE:
-            return "no candidate retains material comparative evidence"
-    assert_never(reason)
-
-
 def render_assessment_details(report: UCSCAssessmentReport) -> str:
-    """Render the auditable human-readable v1 evidence dossier.
+    """Render the complete factual profile, evidence, resources, and provenance."""
 
-    Unlike the concise summary, this renderer exposes every normalized mapping
-    segment, evidence observation, retrieval artifact, and provenance dependency in
-    the report. Candidate order is preserved for reproducibility but deliberately not
-    numbered or described as rank: v1 does not infer preference from encounter order
-    or chain score. Supporting/contradicting labels mirror the assessor's categorical
-    evidence references and must not be counted as votes or converted to a score.
-    """
-
-    assessment = report.assessment
-    supporting = set(assessment.supporting_evidence)
-    contradicting = set(assessment.contradicting_evidence)
+    profile = report.result_profile
     lines = [
-        "Detailed evidence dossier",
+        "Detailed factual result dossier",
         f"UCSC database pair: {report.source_db} -> {report.target_db}",
-        f"Source locus: {format_display_interval(assessment.source_interval)}",
-        f"Evidence availability: {_evidence_tier_text(assessment.evidence_tier)}",
-        f"Assessment: {_verdict_text(assessment.verdict)}",
-        f"Decision reason: {assessment.decision_reason.value}",
-        f"Candidates assessed: {len(assessment.candidates)}",
+        f"Source locus: {format_display_interval(report.source_interval)}",
+        f"Headline: {_headline_text(profile.headline)}",
+        f"Interpretation: {profile.interpretation}",
+        f"Input validity preflight: {profile.input_validity.value}",
+        f"Projection count: {profile.projection_count.value}",
+        f"Projection orientation: {profile.orientation.value}",
+        (
+            "Maximum candidate source coverage: "
+            f"{profile.maximum_candidate_covered_source_bases}/{profile.source_bases}"
+        ),
+        (
+            "Union source coverage across candidates: "
+            f"{profile.union_covered_source_bases}/{profile.source_bases}"
+        ),
+        f"Evidence availability: {profile.evidence_tier.value.replace('_', '-')}",
+        "Consumed resource roles: "
+        + (", ".join(profile.consumed_resource_roles) or "none"),
+        "",
+        "Current scope boundaries",
+        f"  Target role: {profile.scope.target_role.value}",
+        f"  Actual reverse mapping: {profile.scope.reverse_result.value}",
+        f"  Point/neighborhood context: {profile.scope.query_context.value}",
+        (
+            "  Comparative relationship synthesis: "
+            f"{profile.scope.comparative_relationship.value}"
+        ),
+        f"  Batch relationships: {profile.scope.batch_relationship.value}",
+        f"  Typed external context: {profile.scope.external_context.value}",
+        "  Named variant / rsID identity: NOT ASSESSED",
+        "  Gene / transcript identity: NOT ASSESSED",
+        "  File / downstream workflow: NOT ASSESSED",
+        "",
+        "Candidates",
+        (
+            "Candidate order is preserved for reproducibility and does not indicate "
+            "rank or preference."
+        ),
     ]
 
-    preferred = _preferred_candidate(assessment)
-    if preferred is None:
-        lines.append("Preferred candidate: none")
-    else:
-        lines.append(f"Preferred candidate: {_candidate_heading(preferred)}")
-
-    lines.extend(
-        (
-            (
-                "Role note: supporting/contradicting are categorical roles, not additive "
-                "scores."
-            ),
-            "",
-            "Candidates",
-            (
-                "Candidate order is preserved for reproducibility and does not indicate rank or preference."
-            ),
-        )
-    )
-
-    if not assessment.candidates:
+    if not report.candidates:
         lines.append("  none")
-    for candidate in assessment.candidates:
-        lines.extend(
-            _candidate_detail_lines(
-                candidate,
-                supporting=supporting,
-                contradicting=contradicting,
-            )
-        )
+    for candidate, candidate_profile in zip(
+        report.candidates,
+        profile.candidate_profiles,
+        strict=True,
+    ):
+        lines.extend(_candidate_detail_lines(candidate, candidate_profile))
 
     lines.extend(("", "Resources"))
     for assessment_resource in report.resources:
@@ -232,20 +285,19 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
                 f"  SHA-256: {resource.sha256}",
                 f"  Cache hit at acquisition: {'yes' if resource.cache_hit else 'no'}",
                 f"  Provider checksum: {_provider_checksum_text(resource)}",
-                f"  General terms: {resource.terms.general_terms_url}",
-                f"  Directory terms: {resource.terms.directory_terms_url}",
-                "  Evidence provenance: "
-                + (
-                    assessment_resource.file_provenance.source_id
-                    if assessment_resource.file_provenance is not None
-                    else "none (artifact was retrieval context only)"
+                (
+                    "  File provenance: "
+                    + (
+                        assessment_resource.file_provenance.source_id
+                        if assessment_resource.file_provenance is not None
+                        else "none"
+                    )
                 ),
             )
         )
 
-    provenance_sources = _report_provenance_sources(report)
-    lines.extend(("", "Provenance dependencies"))
-    for source in provenance_sources:
+    lines.extend(("", "Provenance dependency graph"))
+    for source in _report_provenance_sources(report):
         lines.append(source.source_id)
         lines.append(f"  Label: {source.label}")
         identifiers = ", ".join(
@@ -271,54 +323,26 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
 
 
 def render_assessment_json(report: UCSCAssessmentReport) -> str:
-    """Render one deterministic machine-readable v1 UCSC assessment report.
+    """Render the schema-v2 factual result report."""
 
-    JSON mirrors the already-computed assessment/report model rather than introducing
-    a second interpretation layer. All genomic intervals use liftAssess's canonical
-    0-based, half-open coordinates; the schema labels that convention explicitly.
-    Candidate array order is retained only for reproducibility, evidence roles remain
-    categorical, and provenance edges record dependence rather than independence.
-    """
-
-    assessment = report.assessment
-    supporting = set(assessment.supporting_evidence)
-    contradicting = set(assessment.contradicting_evidence)
     payload: dict[str, object] = {
         "schema_version": _JSON_SCHEMA_VERSION,
         "report_type": _JSON_REPORT_TYPE,
         "semantics": {
             "interval_coordinates": _JSON_INTERVAL_COORDINATE_SYSTEM,
             "candidate_order": "reproducibility_only_not_rank",
-            "evidence_roles": "categorical_not_additive",
+            "result_dimensions": "orthogonal_not_votes",
             "provenance_edges": "dependence_not_independent_confirmation",
         },
         "ucsc_database_pair": {
             "source_db": report.source_db,
             "target_db": report.target_db,
         },
-        "assessment": {
-            "source_interval": _interval_json(assessment.source_interval),
-            "evidence_tier": assessment.evidence_tier.value,
-            "verdict": assessment.verdict.value,
-            "decision_reason": assessment.decision_reason.value,
-            "preferred_candidate_id": assessment.preferred_candidate_id,
-            "supporting_evidence": [
-                _evidence_reference_json(reference)
-                for reference in assessment.supporting_evidence
-            ],
-            "contradicting_evidence": [
-                _evidence_reference_json(reference)
-                for reference in assessment.contradicting_evidence
-            ],
-            "candidates": [
-                _candidate_json(
-                    candidate,
-                    supporting=supporting,
-                    contradicting=contradicting,
-                )
-                for candidate in assessment.candidates
-            ],
-        },
+        "source_assembly": _assembly_json(report.source_interval.assembly),
+        "target_assembly": _assembly_json(report.target_assembly),
+        "source_interval": _interval_json(report.source_interval),
+        "result_profile": _result_profile_json(report.result_profile),
+        "candidates": [_candidate_json(candidate) for candidate in report.candidates],
         "resources": [
             _assessment_resource_json(assessment_resource)
             for assessment_resource in report.resources
@@ -335,14 +359,97 @@ def render_assessment_json(report: UCSCAssessmentReport) -> str:
     return json.dumps(payload, indent=2, sort_keys=True, allow_nan=False)
 
 
+def _result_profile_json(profile: ResultProfile) -> dict[str, object]:
+    return {
+        "input_validity": profile.input_validity.value,
+        "headline": profile.headline.value,
+        "interpretation": profile.interpretation,
+        "projection_count": profile.projection_count.value,
+        "orientation": profile.orientation.value,
+        "source_coverage": {
+            "state": profile.source_coverage.value,
+            "maximum_candidate_covered_source_bases": (
+                profile.maximum_candidate_covered_source_bases
+            ),
+            "source_bases": profile.source_bases,
+            "maximum_coverage_candidate_ids": list(
+                profile.maximum_coverage_candidate_ids
+            ),
+            "union_covered_source_bases": profile.union_covered_source_bases,
+        },
+        "evidence": {
+            "tier": profile.evidence_tier.value,
+            "consumed_resource_roles": list(profile.consumed_resource_roles),
+        },
+        "candidate_profiles": [
+            _candidate_profile_json(candidate)
+            for candidate in profile.candidate_profiles
+        ],
+        "scope": {
+            "target_role": profile.scope.target_role.value,
+            "actual_reverse_mapping": profile.scope.reverse_result.value,
+            "query_context": profile.scope.query_context.value,
+            "comparative_relationship": profile.scope.comparative_relationship.value,
+            "batch_relationship": profile.scope.batch_relationship.value,
+            "external_context": profile.scope.external_context.value,
+            "named_variant_identity_assessed": (
+                profile.scope.named_variant_identity_assessed
+            ),
+            "gene_transcript_identity_assessed": (
+                profile.scope.gene_transcript_identity_assessed
+            ),
+            "downstream_workflow_assessed": profile.scope.downstream_workflow_assessed,
+        },
+    }
+
+
+def _candidate_profile_json(profile: CandidateResultProfile) -> dict[str, object]:
+    return {
+        "candidate_id": profile.candidate_id,
+        "source_coverage": {
+            "state": profile.coverage_state.value,
+            "covered_source_bases": profile.covered_source_bases,
+            "source_bases": profile.source_bases,
+            "uncovered_source_intervals": [
+                _interval_json(interval)
+                for interval in profile.uncovered_source_intervals
+            ],
+            "largest_uncovered_source_span_bases": (
+                profile.largest_uncovered_source_span_bases
+            ),
+        },
+        "geometry": {
+            "exact_mapped_segment_count": profile.exact_mapped_segment_count,
+            "geometric_segment_count": profile.geometric_segment_count,
+            "fragmented": profile.fragmented,
+            "target_discontinuous": profile.target_discontinuous,
+            "target_bounding_span": _interval_json(profile.target_bounding_span),
+            "source_gap_intervals": [
+                _interval_json(interval) for interval in profile.source_gap_intervals
+            ],
+            "target_gap_intervals": [
+                _interval_json(interval) for interval in profile.target_gap_intervals
+            ],
+            "largest_source_gap_bases": profile.largest_source_gap_bases,
+            "largest_target_gap_bases": profile.largest_target_gap_bases,
+        },
+        "orientation": profile.orientation.value,
+    }
+
+
+def _assembly_json(assembly: AssemblyIdentifier) -> dict[str, object]:
+    # Kept as a helper so assembly serialization is identical inside/outside intervals.
+    return {
+        "name": assembly.name,
+        "provider": assembly.provider,
+        "accession": assembly.accession,
+        "aliases": list(assembly.aliases),
+    }
+
+
 def _interval_json(interval: GenomicInterval) -> dict[str, object]:
     return {
-        "assembly": {
-            "name": interval.assembly.name,
-            "provider": interval.assembly.provider,
-            "accession": interval.assembly.accession,
-            "aliases": list(interval.assembly.aliases),
-        },
+        "assembly": _assembly_json(interval.assembly),
         "sequence_name": interval.sequence_name,
         "start": interval.start,
         "end": interval.end,
@@ -350,19 +457,7 @@ def _interval_json(interval: GenomicInterval) -> dict[str, object]:
     }
 
 
-def _evidence_reference_json(reference: EvidenceReference) -> dict[str, str]:
-    return {
-        "candidate_id": reference.candidate_id,
-        "observation_id": reference.observation_id,
-    }
-
-
-def _candidate_json(
-    candidate: NormalizedCandidate,
-    *,
-    supporting: set[EvidenceReference],
-    contradicting: set[EvidenceReference],
-) -> dict[str, object]:
+def _candidate_json(candidate: NormalizedCandidate) -> dict[str, object]:
     return {
         "candidate_id": candidate.candidate_id,
         "ucsc_chain_id": _chain_id_from_candidate(candidate),
@@ -377,33 +472,16 @@ def _candidate_json(
             for segment in candidate.segments
         ],
         "evidence": [
-            _evidence_observation_json(
-                candidate.candidate_id,
-                observation,
-                supporting=supporting,
-                contradicting=contradicting,
-            )
+            _evidence_observation_json(observation)
             for observation in candidate.evidence
         ],
     }
 
 
-def _evidence_observation_json(
-    candidate_id: str,
-    observation: EvidenceObservation,
-    *,
-    supporting: set[EvidenceReference],
-    contradicting: set[EvidenceReference],
-) -> dict[str, object]:
-    reference = EvidenceReference(candidate_id, observation.observation_id)
+def _evidence_observation_json(observation: EvidenceObservation) -> dict[str, object]:
     return {
         "observation_id": observation.observation_id,
         "kind": observation.kind.value,
-        "assessment_role": _evidence_role(
-            reference,
-            supporting=supporting,
-            contradicting=contradicting,
-        ),
         "value": _evidence_value_json(observation.value),
         "provenance_source_id": observation.provenance.source_id,
     }
@@ -520,16 +598,30 @@ def _provenance_source_json(source: ProvenanceSource) -> dict[str, object]:
 
 def _candidate_detail_lines(
     candidate: NormalizedCandidate,
-    *,
-    supporting: set[EvidenceReference],
-    contradicting: set[EvidenceReference],
+    profile: CandidateResultProfile,
 ) -> list[str]:
     lines = [
         _candidate_heading(candidate),
         f"  Candidate ID: {candidate.candidate_id}",
-        f"  Target: {_candidate_text(candidate)}",
+        f"  Target: {_candidate_text(candidate, profile)}",
+        (
+            f"  Source coverage: {profile.covered_source_bases}/{profile.source_bases} "
+            f"({profile.coverage_state.value})"
+        ),
+        f"  Geometric mapped segments: {profile.geometric_segment_count}",
+        f"  Fragmented: {'yes' if profile.fragmented else 'no'}",
+        f"  Target discontinuous: {'yes' if profile.target_discontinuous else 'no'}",
+        (
+            "  Largest uncovered source span: "
+            f"{profile.largest_uncovered_source_span_bases} bases"
+        ),
+        f"  Largest source chain gap: {profile.largest_source_gap_bases} bases",
+        f"  Largest target gap: {profile.largest_target_gap_bases} bases",
         f"  Mapping provenance: {candidate.mapping_provenance.source_id}",
-        f"  Exact mapped segments ({len(candidate.segments)}):",
+        (
+            "  Exact chain-derived mapped segments "
+            f"({profile.exact_mapped_segment_count}):"
+        ),
     ]
     for segment in candidate.segments:
         lines.append(
@@ -538,18 +630,37 @@ def _candidate_detail_lines(
             f"{format_display_interval(segment.target_interval)}"
         )
 
+    if profile.uncovered_source_intervals:
+        lines.append("  Uncovered source intervals:")
+        lines.extend(
+            f"    {format_display_interval(interval)}"
+            for interval in profile.uncovered_source_intervals
+        )
+    else:
+        lines.append("  Uncovered source intervals: none")
+
+    if profile.source_gap_intervals:
+        lines.append("  Source chain-gap intervals:")
+        lines.extend(
+            f"    {format_display_interval(interval)}"
+            for interval in profile.source_gap_intervals
+        )
+    else:
+        lines.append("  Source chain-gap intervals: none")
+
+    if profile.target_gap_intervals:
+        lines.append("  Target gap intervals:")
+        lines.extend(
+            f"    {format_display_interval(interval)}"
+            for interval in profile.target_gap_intervals
+        )
+    else:
+        lines.append("  Target gap intervals: none")
+
     lines.append(f"  Evidence observations ({len(candidate.evidence)}):")
     for observation in candidate.evidence:
-        reference = EvidenceReference(
-            candidate.candidate_id, observation.observation_id
-        )
-        role = _evidence_role_text(
-            reference,
-            supporting=supporting,
-            contradicting=contradicting,
-        )
         value_lines = _evidence_value_lines(observation)
-        lines.append(f"    {observation.kind.value} [{role}]: {value_lines[0]}")
+        lines.append(f"    {observation.kind.value}: {value_lines[0]}")
         lines.extend(f"      {line}" for line in value_lines[1:])
         lines.append(f"      provenance: {observation.provenance.source_id}")
     return lines
@@ -563,47 +674,7 @@ def _candidate_heading(candidate: NormalizedCandidate) -> str:
 
 
 def _chain_id_from_candidate(candidate: NormalizedCandidate) -> int | None:
-    """Extract the UCSC chain ID embedded by the one v1 candidate engine."""
-
     return chain_id_from_candidate_id(candidate.candidate_id)
-
-
-def _evidence_role(
-    reference: EvidenceReference,
-    *,
-    supporting: set[EvidenceReference],
-    contradicting: set[EvidenceReference],
-) -> str:
-    """Return the one categorical assessment role shared by text and JSON output."""
-
-    is_supporting = reference in supporting
-    is_contradicting = reference in contradicting
-    if is_supporting and is_contradicting:
-        return "SUPPORTING_AND_CONTRADICTING"
-    if is_supporting:
-        return "SUPPORTING"
-    if is_contradicting:
-        return "CONTRADICTING"
-    return "CONTEXT"
-
-
-def _evidence_role_text(
-    reference: EvidenceReference,
-    *,
-    supporting: set[EvidenceReference],
-    contradicting: set[EvidenceReference],
-) -> str:
-    role = _evidence_role(
-        reference,
-        supporting=supporting,
-        contradicting=contradicting,
-    )
-    return {
-        "SUPPORTING": "supporting",
-        "CONTRADICTING": "contradicting",
-        "SUPPORTING_AND_CONTRADICTING": "supporting + contradicting",
-        "CONTEXT": "context",
-    }[role]
 
 
 def _evidence_value_lines(observation: EvidenceObservation) -> list[str]:
@@ -611,8 +682,8 @@ def _evidence_value_lines(observation: EvidenceObservation) -> list[str]:
     if isinstance(value, MappingCoverageSummary):
         lines = [
             (
-                f"{value.status.value}; {value.covered_source_bases}/{value.source_bases} "
-                "source bases covered"
+                f"{value.status.value}; {value.covered_source_bases}/"
+                f"{value.source_bases} source bases covered"
             )
         ]
         if value.uncovered_source_intervals:
@@ -649,8 +720,8 @@ def _evidence_value_lines(observation: EvidenceObservation) -> list[str]:
     if isinstance(value, NetHierarchySummary):
         return [
             (
-                f"depth={value.depth}; fill span="
-                f"{format_display_interval(value.source_fill_interval)}"
+                f"depth={value.depth}; "
+                f"fill span={format_display_interval(value.source_fill_interval)}"
             )
         ]
 
@@ -658,7 +729,8 @@ def _evidence_value_lines(observation: EvidenceObservation) -> list[str]:
         lines = [
             (
                 f"{value.status.value}; {value.covered_source_bases}/"
-                f"{value.candidate_source_bases} candidate mapped source bases covered; "
+                f"{value.candidate_source_bases} "
+                "candidate mapped source bases covered; "
                 f"completeness={value.resource_completeness.value}; "
                 f"chains examined={value.chains_examined}"
             )
@@ -679,8 +751,6 @@ def _evidence_value_lines(observation: EvidenceObservation) -> list[str]:
 
 
 def _provider_checksum_text(resource: CachedResource) -> str:
-    # Kept structural rather than provider-specific so future resource providers can
-    # preserve their own checksum metadata without the renderer interpreting it.
     checksum = resource.provider_checksum
     if checksum is None:
         return "none"
@@ -694,7 +764,7 @@ def _report_provenance_sources(
     for assessment_resource in report.resources:
         if assessment_resource.file_provenance is not None:
             roots.append(assessment_resource.file_provenance)
-    for candidate in report.assessment.candidates:
+    for candidate in report.candidates:
         roots.append(candidate.mapping_provenance)
         roots.extend(observation.provenance for observation in candidate.evidence)
 
@@ -715,8 +785,6 @@ def _report_provenance_sources(
 
 
 def _provenance_definition(source: ProvenanceSource) -> tuple[object, ...]:
-    """Return one cycle-safe structural definition for a provenance source ID."""
-
     return (
         source.label,
         source.identifiers,

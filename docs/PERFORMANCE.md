@@ -37,10 +37,12 @@ interactive progress bars were suppressed as designed.
 CLI loci below use the documented 1-based, inclusive display convention. The
 `canFam6` → `mm39` pair is intentionally used here only as a computational performance probe
 with a much smaller comparative resource set. It is cross-species and therefore outside
-liftAssess v1's same-species scientific operational envelope; its verdicts below are not used
-as scientific validation.
+liftAssess's same-species scientific operational envelope. These benchmarks predate the
+Milestone-17 result redesign, so the table preserves the legacy alpha result labels only as
+historical run metadata; they are not current result fields and are not used as scientific
+validation.
 
-| Assembly pair | Source locus | Result | Candidate context | All-chain size | Real time | User time | Max RSS |
+| Assembly pair | Source locus | Historical alpha result | Candidate context | All-chain size | Real time | User time | Max RSS |
 |---|---|---|---:|---:|---:|---:|---:|
 | `canFam3` → `canFam4` | `chrUn_JH373233:1845736-1845835` | `CONTESTED` | 170 | 2.47 GiB | 641.17 s | 639.14 s | 47.8 MiB |
 | `canFam3` → `canFam4` | `chrUn_JH373233:1845736-1845835` | `CONTESTED` | 170 | 2.47 GiB | 625.71 s | 624.12 s | 46.4 MiB |

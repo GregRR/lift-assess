@@ -7,107 +7,14 @@ half-open intervals.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TypeAlias, assert_never
-
-
-class Verdict(str, Enum):
-    """The three v1 assessment verdicts."""
-
-    WELL_SUPPORTED = "WELL_SUPPORTED"
-    CONTESTED = "CONTESTED"
-    INDETERMINATE = "INDETERMINATE"
+from typing import TypeAlias
 
 
 class EvidenceAvailabilityTier(str, Enum):
-    """How much source evidence is available, separate from verdict strength."""
+    """Which UCSC evidence families were available to the scientific run."""
 
     COMPARATIVE = "COMPARATIVE"
     LIFTOVER_ONLY = "LIFTOVER_ONLY"
-
-
-class AssessmentDecisionReason(str, Enum):
-    """Terminal deterministic v1 assessor rule that produced a verdict.
-
-    Decision reasons describe the assessor's categorical control-flow outcome, not a
-    biological cause, confidence score, evidence weight, or independence claim.
-    """
-
-    NO_CANDIDATES = "NO_CANDIDATES"
-    LIFTOVER_MULTIPLE_CANDIDATES = "LIFTOVER_MULTIPLE_CANDIDATES"
-    LIFTOVER_SINGLE_FULL_MAPPING = "LIFTOVER_SINGLE_FULL_MAPPING"
-    LIFTOVER_SINGLE_PARTIAL_MAPPING = "LIFTOVER_SINGLE_PARTIAL_MAPPING"
-    COMPARATIVE_MULTIPLE_MATERIAL_CANDIDATES = (
-        "COMPARATIVE_MULTIPLE_MATERIAL_CANDIDATES"
-    )
-    COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_FULL = (
-        "COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_FULL"
-    )
-    COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_NONE = (
-        "COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_NONE"
-    )
-    COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_PARTIAL = (
-        "COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_PARTIAL"
-    )
-    COMPARATIVE_SOLE_MATERIAL_PARTIAL = "COMPARATIVE_SOLE_MATERIAL_PARTIAL"
-    COMPARATIVE_NO_MATERIAL_CANDIDATE = "COMPARATIVE_NO_MATERIAL_CANDIDATE"
-
-
-def _evidence_tier_for_decision_reason(
-    reason: AssessmentDecisionReason,
-) -> EvidenceAvailabilityTier | None:
-    """Return the required evidence tier for ``reason``, or ``None`` for either tier."""
-
-    match reason:
-        case AssessmentDecisionReason.NO_CANDIDATES:
-            return None
-        case (
-            AssessmentDecisionReason.LIFTOVER_MULTIPLE_CANDIDATES
-            | AssessmentDecisionReason.LIFTOVER_SINGLE_FULL_MAPPING
-            | AssessmentDecisionReason.LIFTOVER_SINGLE_PARTIAL_MAPPING
-        ):
-            return EvidenceAvailabilityTier.LIFTOVER_ONLY
-        case (
-            AssessmentDecisionReason.COMPARATIVE_MULTIPLE_MATERIAL_CANDIDATES
-            | AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_FULL
-            | AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_NONE
-            | AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_PARTIAL
-            | AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_PARTIAL
-            | AssessmentDecisionReason.COMPARATIVE_NO_MATERIAL_CANDIDATE
-        ):
-            return EvidenceAvailabilityTier.COMPARATIVE
-    assert_never(reason)
-
-
-def _verdict_for_decision_reason(reason: AssessmentDecisionReason) -> Verdict:
-    """Return the only v1 verdict compatible with ``reason``.
-
-    The explicit match is intentionally exhaustive. Adding a decision reason without
-    extending this contract is a type-check/runtime failure rather than a silent
-    fallback to an existing verdict.
-    """
-
-    match reason:
-        case AssessmentDecisionReason.NO_CANDIDATES:
-            return Verdict.INDETERMINATE
-        case AssessmentDecisionReason.LIFTOVER_MULTIPLE_CANDIDATES:
-            return Verdict.CONTESTED
-        case AssessmentDecisionReason.LIFTOVER_SINGLE_FULL_MAPPING:
-            return Verdict.WELL_SUPPORTED
-        case AssessmentDecisionReason.LIFTOVER_SINGLE_PARTIAL_MAPPING:
-            return Verdict.INDETERMINATE
-        case AssessmentDecisionReason.COMPARATIVE_MULTIPLE_MATERIAL_CANDIDATES:
-            return Verdict.CONTESTED
-        case AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_FULL:
-            return Verdict.WELL_SUPPORTED
-        case AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_NONE:
-            return Verdict.CONTESTED
-        case AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_PARTIAL:
-            return Verdict.INDETERMINATE
-        case AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_PARTIAL:
-            return Verdict.INDETERMINATE
-        case AssessmentDecisionReason.COMPARATIVE_NO_MATERIAL_CANDIDATE:
-            return Verdict.INDETERMINATE
-    assert_never(reason)
 
 
 class MappingOrientation(str, Enum):
@@ -126,7 +33,7 @@ class ProvenanceIdentifierKind(str, Enum):
 
 
 class EvidenceKind(str, Enum):
-    """Evidence categories explicitly in scope for v1."""
+    """Evidence categories carried by the current scientific model."""
 
     MAPPING_COVERAGE = "MAPPING_COVERAGE"
     CHAIN_GAPS = "CHAIN_GAPS"
@@ -196,7 +103,7 @@ class MappingCoverageStatus(str, Enum):
 
 
 class ReciprocalBestMembershipStatus(str, Enum):
-    """Evidence-detail coverage state, not an assessment verdict."""
+    """Evidence-detail coverage state, not an aggregate result verdict."""
 
     FULL = "FULL"
     PARTIAL = "PARTIAL"
@@ -470,7 +377,7 @@ class MappingSegment:
 
 @dataclass(frozen=True)
 class NormalizedCandidate:
-    """A candidate mapping consumed by the assessor core.
+    """A normalized candidate mapping produced for result-profile derivation.
 
     ``target_interval`` is the smallest forward-reference bounding span that
     contains every exact ``segment`` target interval. It is a summary span,
@@ -547,85 +454,3 @@ class NormalizedCandidate:
             raise ValueError(
                 "evidence observation IDs must be unique within a candidate"
             )
-
-
-@dataclass(frozen=True)
-class EvidenceReference:
-    """A typed reference from an assessment to candidate evidence."""
-
-    candidate_id: str
-    observation_id: str
-
-    def __post_init__(self) -> None:
-        if not self.candidate_id:
-            raise ValueError("candidate_id must not be empty")
-        if not self.observation_id:
-            raise ValueError("observation_id must not be empty")
-
-
-@dataclass(frozen=True)
-class Assessment:
-    """Assessment result supporting summary and detailed reporting.
-
-    The model stores the verdict, its assessor-owned terminal decision reason, and
-    references to the evidence used in the assessment. It does not compute a verdict,
-    confidence score, or biological
-    truth claim. ``supporting_evidence`` and ``contradicting_evidence`` are
-    categorical roles, not additive quantities: one mixed observation may
-    legitimately appear in both collections, and consumers must not derive a
-    numeric score by counting or subtracting them. Verdict-specific candidate and
-    evidence semantics belong to the assessor logic; this container enforces
-    referential integrity plus consistency among the declared decision reason,
-    evidence tier, and verdict.
-    """
-
-    source_interval: GenomicInterval
-    verdict: Verdict
-    evidence_tier: EvidenceAvailabilityTier
-    decision_reason: AssessmentDecisionReason
-    candidates: tuple[NormalizedCandidate, ...]
-    preferred_candidate_id: str | None = None
-    supporting_evidence: tuple[EvidenceReference, ...] = ()
-    contradicting_evidence: tuple[EvidenceReference, ...] = ()
-
-    def __post_init__(self) -> None:
-        expected_tier = _evidence_tier_for_decision_reason(self.decision_reason)
-        if expected_tier is not None and self.evidence_tier is not expected_tier:
-            raise ValueError(
-                "assessment evidence tier must match its deterministic decision reason: "
-                f"{self.decision_reason.value} requires {expected_tier.value}"
-            )
-
-        expected_verdict = _verdict_for_decision_reason(self.decision_reason)
-        if self.verdict is not expected_verdict:
-            raise ValueError(
-                "assessment verdict must match its deterministic decision reason: "
-                f"{self.decision_reason.value} requires {expected_verdict.value}"
-            )
-
-        candidate_ids = [candidate.candidate_id for candidate in self.candidates]
-        if len(candidate_ids) != len(set(candidate_ids)):
-            raise ValueError("candidate IDs must be unique within an assessment")
-
-        candidate_by_id = {
-            candidate.candidate_id: candidate for candidate in self.candidates
-        }
-        if (
-            self.preferred_candidate_id is not None
-            and self.preferred_candidate_id not in candidate_by_id
-        ):
-            raise ValueError(
-                "preferred candidate must reference an assessment candidate"
-            )
-
-        for reference in (*self.supporting_evidence, *self.contradicting_evidence):
-            candidate = candidate_by_id.get(reference.candidate_id)
-            if candidate is None:
-                raise ValueError("evidence reference must name an assessment candidate")
-            observation_ids = {
-                observation.observation_id for observation in candidate.evidence
-            }
-            if reference.observation_id not in observation_ids:
-                raise ValueError(
-                    "evidence reference must name an observation on its candidate"
-                )

@@ -70,7 +70,7 @@ class UCSCResourceBundle:
     ``COMPARATIVE`` means all v1 comparative resources represented here were
     observed in UCSC's directory listings.  ``LIFTOVER_ONLY`` carries only the
     liftOver chain.  This is an evidence-*availability* statement; it says
-    nothing about the support for any candidate or eventual assessment verdict.
+    nothing about candidate correctness or an aggregate result verdict.
     """
 
     source_db: str

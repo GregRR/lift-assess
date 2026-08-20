@@ -224,14 +224,14 @@ def _run(
     )
     if progress_callback is not None:
         progress_display.finish(
-            candidates_exist=bool(report.assessment.candidates),
+            candidates_exist=bool(report.candidates),
         )
     if args.json_output:
         rendered = render_assessment_json(report)
     elif args.details:
         rendered = render_assessment_details(report)
     else:
-        rendered = render_assessment_summary(report.assessment)
+        rendered = render_assessment_summary(report)
     print(rendered, file=stdout)
     return 0
 

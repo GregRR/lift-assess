@@ -13,11 +13,14 @@ from liftassess import (
     ChainGapSummary,
     EvidenceAvailabilityTier,
     EvidenceKind,
+    FactualHeadline,
     GenomicInterval,
     MappingCoverageStatus,
     MappingCoverageSummary,
     MappingOrientation,
     NetHierarchySummary,
+    OrientationState,
+    ProjectionCountState,
     ProvenanceIdentifierKind,
     ProvenanceSource,
     ProviderChecksum,
@@ -25,8 +28,8 @@ from liftassess import (
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
     ResourceChecksumAlgorithm,
-    Verdict,
-    assess_candidates,
+    SourceCoverageState,
+    build_result_profile,
     build_ucsc_candidates_from_cached_bundle,
     iter_chain_file,
     ucsc_resource_terms,
@@ -341,39 +344,6 @@ def _rbest(candidate: NormalizedCandidate) -> ReciprocalBestMembershipSummary:
     return cast(ReciprocalBestMembershipSummary, value)
 
 
-def _derive_expected_comparative_verdict(
-    candidates: tuple[NormalizedCandidate, ...],
-) -> tuple[Verdict, tuple[str, ...]]:
-    """Derive this fixture's expected verdict without using assessor logic.
-
-    This verifier intentionally re-derives only the categorical condition needed by
-    this real fixture: under the documented COMPARATIVE rule, a candidate remains
-    materially in play when it has FULL source-locus coverage or non-NONE
-    reciprocal-best membership. Two or more such candidates require CONTESTED.
-
-    The derivation reads the already-extracted public evidence observations directly;
-    it does not call ``assess_candidates`` or any private assessor helper. The
-    production assessor is invoked only afterward, as the implementation being
-    cross-checked against this independently derived expectation.
-    """
-
-    material_candidate_ids: list[str] = []
-    for candidate in candidates:
-        coverage = _coverage(candidate)
-        reciprocal_best = _rbest(candidate)
-        if coverage.status is MappingCoverageStatus.FULL or reciprocal_best.status in {
-            ReciprocalBestMembershipStatus.FULL,
-            ReciprocalBestMembershipStatus.PARTIAL,
-        }:
-            material_candidate_ids.append(candidate.candidate_id)
-
-    _check(
-        len(material_candidate_ids) >= 2,
-        "fixture no longer has at least two material comparative candidates",
-    )
-    return Verdict.CONTESTED, tuple(material_candidate_ids)
-
-
 def main() -> None:
     args = parse_args()
     bundle = _load_bundle(args.cache_root)
@@ -553,27 +523,35 @@ def main() -> None:
         "chain 2692 chains_examined disagrees with direct rbest pair count",
     )
 
-    expected_verdict, material_candidate_ids = _derive_expected_comparative_verdict(
-        candidates
-    )
-    _check(
-        primary.candidate_id in material_candidate_ids,
-        "chain 573 must remain material in the independent verdict derivation",
-    )
-    _check(
-        alternative.candidate_id in material_candidate_ids,
-        "chain 2692 must remain material in the independent verdict derivation",
-    )
-    production_assessment = assess_candidates(
+    production_profile = build_result_profile(
         interval,
         candidates,
         evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        consumed_resource_roles=("CHAIN", "NET", "RECIPROCAL_BEST_CHAIN"),
     )
     _check(
-        production_assessment.verdict is expected_verdict,
-        "production assessor verdict disagrees with independently derived fixture "
-        f"verdict: expected {expected_verdict.value}, got "
-        f"{production_assessment.verdict.value}",
+        production_profile.projection_count is ProjectionCountState.MULTIPLE,
+        "fixture result profile must report multiple chain projections",
+    )
+    _check(
+        production_profile.source_coverage is SourceCoverageState.COMPLETE,
+        "fixture result profile must report complete maximum candidate coverage",
+    )
+    _check(
+        production_profile.maximum_candidate_covered_source_bases == 100,
+        "fixture maximum candidate source coverage changed",
+    )
+    _check(
+        production_profile.union_covered_source_bases == 100,
+        "fixture union source coverage changed",
+    )
+    _check(
+        production_profile.orientation is OrientationState.MIXED,
+        "fixture result profile must preserve mixed candidate orientations",
+    )
+    _check(
+        production_profile.headline is FactualHeadline.MULTIPLE_CHAIN_PROJECTIONS,
+        "fixture factual headline changed",
     )
 
     chain_sha = RESOURCE_EXPECTATIONS["chain"][1]
@@ -634,9 +612,16 @@ def main() -> None:
         "complete acquisition; exact consumed bytes SHA-verified by production path"
     )
     print(
-        "independent_verdict_crosscheck="
-        f"expected={expected_verdict.value} production={production_assessment.verdict.value} "
-        f"material_candidates={len(material_candidate_ids)}"
+        "result_profile_crosscheck="
+        f"headline={production_profile.headline.value} "
+        f"projection_count={production_profile.projection_count.value} "
+        f"source_coverage={production_profile.source_coverage.value} "
+        f"maximum_candidate_coverage="
+        f"{production_profile.maximum_candidate_covered_source_bases}/"
+        f"{production_profile.source_bases} "
+        f"union_source_coverage={production_profile.union_covered_source_bases}/"
+        f"{production_profile.source_bases} "
+        f"orientation={production_profile.orientation.value}"
     )
     print("biological_ground_truth_claim=no")
     print()

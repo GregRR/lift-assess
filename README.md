@@ -1,32 +1,30 @@
 # liftAssess
 
-**liftAssess** is a Python command-line tool and library for assessing ambiguous genomic coordinate liftOver mappings between genome assemblies. It uses transparent, provenance- and dependency-aware evidence to report whether mappings are **well supported**, **contested**, or **indeterminate**.
+**liftAssess** is a Python command-line tool and library for assessing ambiguous genomic coordinate liftOver mappings between genome assemblies. It reports factual projection geometry, evidence availability, provenance, and bounded interpretation without collapsing those facts into a single confidence verdict.
 
-> **Status:** First public alpha (`0.1.0a1`). Core candidate generation, evidence extraction, deterministic assessment, cached-bundle orchestration, the common-case CLI, and human-readable detailed plus machine-readable JSON reporting are implemented and tested. This remains early scientific software; the schema-v1 compatibility boundary and biological-correctness caveats described below apply.
+> **Status:** Early public alpha development. Core candidate generation, evidence extraction, cached-bundle orchestration, a derived factual result profile, progressive human reporting, and schema-v2 JSON reporting are implemented and tested. The current redesign intentionally breaks the original alpha result schema; this remains early scientific software.
 
 **New to liftAssess?** Start with [`GETTING_STARTED.md`](docs/GETTING_STARTED.md). See [`FEATURES.md`](docs/FEATURES.md) for the complete catalog of implemented capabilities, expert APIs, and current limitations.
 
 ## Why liftAssess exists
 
-Coordinate liftOver tools answer an important question: *where can this interval map in another assembly?* They do not, by themselves, explain how much support an ambiguous result deserves when there are multiple candidate targets, split mappings, duplicated sequence, alternative or unplaced scaffolds, or disagreement between methods.
+Coordinate liftOver tools answer an important question: *where can this interval map in another assembly?* They do not, by themselves, explain exact source coverage, split or discontinuous geometry, competing projections, which comparative resources were examined, or how those observations depend on one another.
 
-Use liftAssess when genome assembly or genome build coordinate conversion produces one-to-many mappings, split mappings, or competing target loci and you need an auditable assessment of the alternatives.
+Use liftAssess when genome assembly or genome build coordinate conversion produces one-to-many mappings, split mappings, surprising target spans, or other cases where a coordinate alone does not tell the whole story.
 
 liftAssess is intended to sit downstream of or alongside coordinate-conversion tools and answer a different question:
 
-> **What does the available evidence say about the competing mappings, and how dependent are those lines of evidence on one another?**
+> **What physically happened to this interval in the consumed mapping resources, what evidence was examined, and what does that evidence not establish?**
 
-liftAssess is an **assessor, not a resolver**. It does not claim that a locus is biologically “correct.” A `WELL_SUPPORTED` verdict means that the available informative evidence favors one candidate without material contradiction; it does **not** establish biological truth.
+liftAssess is an **assessor, not a resolver**. It does not claim that a locus is biologically “correct,” and it does not produce a composite numeric confidence score.
 
-## Verdicts
+## Result model
 
-v1 uses exactly three qualitative verdicts:
+The current result model is facts-first rather than verdict-first. It derives orthogonal factual states from the scientific report, including projection count, exact source coverage, mapped-segment geometry, target discontinuity, orientation, evidence availability, resource consumption, and provenance.
 
-- `WELL_SUPPORTED` — available informative evidence favors one candidate, with no material evidence contradicting it.
-- `CONTESTED` — multiple candidates retain meaningful support, or informative evidence materially disagrees.
-- `INDETERMINATE` — available evidence is insufficient, non-discriminating, or too mutually dependent to distinguish candidates.
+A deterministic factual headline summarizes the dominant mapping event, for example `ONE COMPLETE CHAIN PROJECTION`, `PARTIAL SOURCE COVERAGE`, or `MULTIPLE CHAIN PROJECTIONS`. A bounded interpretation explains that event without turning it into a claim of biological truth or candidate correctness.
 
-liftAssess deliberately does **not** produce a composite numeric confidence score in v1.
+The result profile also has explicit boundaries for dimensions that are not yet assessed automatically, such as actual reverse mapping, point-neighborhood context, target sequence role, batch relationships, and typed external context.
 
 ## Scientific principles
 
@@ -34,7 +32,7 @@ A few rules are central to the project:
 
 - **Evidence provenance is part of the result.** Every observation records where it came from.
 - **Dependent observations are not treated as independent confirmation.** For example, UCSC chain, net, and reciprocal-best evidence derived from the same upstream alignment remain linked through provenance.
-- **Evidence availability is separate from evidentiary support.** A richly resourced assembly pair can still yield an `INDETERMINATE` result, while a sparse evidence tier can sometimes support a clear conclusion.
+- **Evidence availability is separate from factual result state.** `COMPARATIVE` and `LIFTOVER-ONLY` say what resource families were available, not whether a mapping is good, bad, correct, or confident.
 - **Interpretation stays close to the evidence.** liftAssess reports what the data support without automatically promoting an evidence pattern to a specific biological mechanism such as paralogy or pseudogene status.
 - **Internal coordinates are 0-based, half-open.** Input and output boundaries must state or explicitly convert coordinate conventions rather than guessing them.
 - **Same-species assembly comparisons are the v1 operational envelope.** Differences between assemblies from different individuals may represent real structural variation and are not automatically errors.
@@ -43,7 +41,7 @@ A few rules are central to the project:
 
 The current development code includes:
 
-- typed assembly, interval, candidate, evidence, verdict, and provenance models;
+- typed assembly, interval, candidate, evidence, result-profile, and provenance models;
 - a minimal streaming UCSC chain reader;
 - forward- and reverse-strand chain geometry with 0-based half-open internal coordinates;
 - chain-backed candidate projection, including split mappings;
@@ -78,8 +76,10 @@ The current development code includes:
   `Range` + `If-Range`, while contract mismatches restart fresh rather than splicing representations;
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
 - a real `canFam3`→`canFam4` comparative mechanical fixture, replayed through the production cached-bundle path from exact externally cached UCSC resources without committing provider data to the repository.
-- a reviewed deterministic assessor core that assigns the three v1 verdicts and one explicit terminal `decision_reason` from categorical mapping-coverage and reciprocal-best evidence without a numeric score.
-- reviewed cached-bundle assessment orchestration that connects acquired UCSC resources to candidate/evidence generation and the assessor while preserving evidence tier, resource-consumption metadata, retrieval context, and shared provenance.
+- a dedicated derived result-profile layer that validates durable candidate/evidence invariants and deterministically summarizes projection count, coverage, geometry, orientation, evidence availability, and scope boundaries without an aggregate verdict.
+- progressive human rendering that stays compact for uncomplicated results and expands for currently detectable partial, fragmented/discontinuous, or multiple-projection states.
+- schema-v2 JSON reporting from the same result profile, retaining exact candidates, evidence, resources, and provenance while removing the legacy `verdict`, verdict-derived `decision_reason`, and preferred-candidate fields.
+- cached-bundle orchestration that connects acquired UCSC resources to candidate/evidence generation and result-profile derivation while preserving evidence tier, resource-consumption metadata, retrieval context, and shared provenance.
 
 ## Not implemented yet
 
@@ -95,7 +95,7 @@ The project now implements the common-case CLI, concise summary, human-readable 
 
 ## Evidence-availability tiers
 
-liftAssess distinguishes **how much evidence can be checked** from the eventual verdict.
+liftAssess distinguishes **which evidence resources are available** from the factual mapping result.
 
 - `COMPARATIVE` — a full comparative resource set is available, including chain/net context and reciprocal-best resources needed by the v1 UCSC evidence path.
 - `LIFTOVER-ONLY` — only a liftOver chain resource is available, so candidate generation and chain-derived evidence can still proceed but comparative evidence is unavailable.
@@ -105,28 +105,30 @@ These are evidence-availability tiers, **not confidence tiers**.
 ## Architecture
 
 ```text
-Candidate-generation engine
+Candidate/evidence engine
         |
         v
-NormalizedCandidate[] + provenance
+NormalizedCandidate[] + evidence/provenance
         |
         v
-Assessor core
-(evidence extraction, dependency/provenance labeling, verdict + decision reason)
+UCSC scientific report
         |
         v
-Assessment report
-(summary + detailed dossier)
+Derived ResultProfile
+(factual states + headline + bounded interpretation)
+        |                 |
+        v                 v
+Human renderer        Schema-v2 JSON
 ```
 
-The assessor core is designed to consume normalized candidates plus provenance without knowing how those candidates were generated.
+Candidate generation and evidence extraction remain separate from result-language synthesis. The derived result profile is the single boundary used by both human and machine renderers, so renderers do not independently rediscover result semantics.
 
-v1 intentionally has **one** concrete candidate-generation engine: an internal minimal UCSC chain/net reader. The interface boundary is kept clean so another engine can be added later if a real need appears, but liftAssess does not currently include a plugin registry, engine auto-discovery, or other speculative plugin infrastructure.
+The candidate/evidence engine is designed around normalized candidates plus explicit provenance. The current implementation intentionally has **one** concrete candidate-generation engine: an internal minimal UCSC chain/net reader. liftAssess does not include a plugin registry, engine auto-discovery, or other speculative plugin infrastructure.
 
 Chains and nets have different responsibilities:
 
 - **chains generate candidate mappings**;
-- **nets annotate and evaluate those candidates**.
+- **nets annotate those candidates with comparative context**.
 
 Net availability is therefore not required for basic chain-backed candidate generation.
 
@@ -160,7 +162,7 @@ Before resource acquisition, the command displays the applicable UCSC terms and 
 
 The default cache is the platform user cache (`~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` or `~/.cache/liftassess` on other platforms). The documented `canFam3`→`canFam4` example is the real comparative mechanical fixture and requires a complete approximately 2.50 GiB UCSC comparative bundle; initial acquisition and the current streaming verification/assessment path can therefore take substantial time depending on storage and CPU performance. Once that bundle is cached, `--offline` reuses and re-verifies the exact cached resources without contacting UCSC. Current single-locus assessment streams the relevant comparative resources rather than using a prebuilt genomic index, so runtime can depend strongly on resource size. See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for measured examples, profiling results, and the scope of current performance conclusions.
 
-The default command emits the concise assessment summary, including a plain-language rendering of the assessor-owned terminal `decision_reason`. `COMPARATIVE` summaries also state that comparative observations are not assumed to be independent and point to `--details` / `--json` for dependency provenance; `LIFTOVER-ONLY` summaries do not receive that qualification. `--details` emits the full human-readable evidence dossier, including the exact decision-reason code, mapped segments, categorical verdict-evidence roles, resource URLs/checksums and consumed-vs-unconsumed status, and the complete provenance dependency graph. `--json` emits schema version 1 of the same report semantics using canonical 0-based, half-open interval objects, the required categorical `decision_reason`, structured evidence values, exact resource metadata, and explicit provenance dependency edges. `--details` and `--json` are mutually exclusive. All report modes retain the explicit caveat that evidentiary support is not proof of biological correctness.
+The default command emits a concise facts-first summary headed by a deterministic mapping headline. Uncomplicated results stay compact; currently detectable partial coverage, fragmented/discontinuous geometry, and multiple projections expand automatically with the material geometry. `COMPARATIVE` summaries also state that UCSC-derived observations may share upstream alignment lineage and are not independent votes. `--details` emits the complete currently available factual profile, exact mapped segments and gaps, evidence observations, resource URLs/checksums and consumed-vs-unconsumed status, scope boundaries, and the provenance dependency graph. `--json` emits schema version 2 of the same result semantics using canonical 0-based, half-open interval objects. Schema v2 intentionally omits the legacy aggregate `verdict`, verdict-derived `decision_reason`, and preferred-candidate fields. `--details` and `--json` are mutually exclusive. All report modes retain the explicit caveat that coordinate/evidence observations do not establish biological correctness.
 
 For machine use, stdout remains the JSON document while status/progress stays on stderr, so normal shell redirection is safe:
 
@@ -174,7 +176,7 @@ Validation uses two complementary tracks.
 
 ### Mechanical evidence fixture
 
-`canFam3` ↔ `canFam4` is now the real mechanical fixture for verifying extraction of chain/net/reciprocal-best evidence. The selected source interval is `chrUn_JH373233:1845735-1845835` in 0-based, half-open coordinates (CLI display locus `chrUn_JH373233:1845736-1845835`). The production cached-bundle path reproduces 170 candidate mappings across 114 target sequences, including a reverse, split, net-annotated, reciprocal-best-supported candidate and contrasting partial/reciprocal-best-absent alternatives. A post-hardening run on 2026-08-17 reported `COMPARATIVE`, `CONTESTED`, and 170 candidates; the independent verifier separately derived the same `CONTESTED` verdict from 138 material candidates without calling the production verdict logic. These assemblies come from different dogs, so the fixture establishes **mechanical correctness of evidence extraction and deterministic assessment behavior**, not biological ground truth.
+`canFam3` ↔ `canFam4` is now the real mechanical fixture for verifying extraction of chain/net/reciprocal-best evidence. The selected source interval is `chrUn_JH373233:1845735-1845835` in 0-based, half-open coordinates (CLI display locus `chrUn_JH373233:1845736-1845835`). The production cached-bundle path reproduces 170 candidate mappings across 114 target sequences, including a reverse, split, net-annotated, reciprocal-best-supported candidate and contrasting partial/reciprocal-best-absent alternatives. A historical pre-redesign run on 2026-08-17 reported the legacy `CONTESTED` result and 170 candidates; that legacy label is retained only as benchmark history. The durable fixture facts are the candidate/evidence/provenance observations themselves. These assemblies come from different dogs, so the fixture establishes **mechanical correctness of evidence extraction and deterministic result derivation**, not biological ground truth.
 
 The exact multi-gigabyte UCSC resources remain outside the repository. Developers with the acquired cache can replay the frozen verification with `scripts/verify_canFam3_canFam4_mechanical_fixture.py`.
 
@@ -205,7 +207,7 @@ Non-obvious genomic, coordinate, provenance, and evidence decisions should be do
 
 The goal is for researchers to be able to inspect not only **what** liftAssess concluded, but also **what evidence was examined, where it came from, which observations share upstream sources, and what assumptions the implementation made**.
 
-[`docs/DESIGN.md`](docs/DESIGN.md) is the authoritative v1 design document and contains the detailed scientific rationale, scope, invariants, validation plan, and open questions.
+[`docs/DESIGN.md`](docs/DESIGN.md) is the authoritative design document and contains the detailed scientific rationale, result semantics, scope, invariants, validation plan, and open questions.
 
 ## External resources
 

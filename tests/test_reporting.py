@@ -5,14 +5,13 @@ from pathlib import Path
 
 from liftassess import (
     AssemblyIdentifier,
-    AssessmentDecisionReason,
     CachedResource,
     ChainGap,
     ChainGapSummary,
     EvidenceAvailabilityTier,
     EvidenceKind,
     EvidenceObservation,
-    EvidenceReference,
+    FactualHeadline,
     GenomicInterval,
     MappingCoverageStatus,
     MappingCoverageSummary,
@@ -31,10 +30,11 @@ from liftassess import (
     UCSCAssessmentReport,
     UCSCAssessmentResource,
     UCSCBundleResourceRole,
-    assess_candidates,
+    build_result_profile,
     reporting,
     ucsc_resource_terms,
 )
+from liftassess.chain import chain_candidate_id
 from liftassess.reporting import (
     format_display_interval,
     render_assessment_details,
@@ -45,99 +45,250 @@ SOURCE_ASSEMBLY = AssemblyIdentifier("sourceAsm", "test")
 TARGET_ASSEMBLY = AssemblyIdentifier("targetAsm", "test")
 SOURCE = GenomicInterval(SOURCE_ASSEMBLY, "chr1", 100, 200)
 ALIGNMENT = ProvenanceSource("alignment", "shared test alignment")
-CHAIN = ProvenanceSource("chain", "chain resource", derived_from=(ALIGNMENT,))
-RBEST = ProvenanceSource("rbest", "reciprocal-best resource", derived_from=(ALIGNMENT,))
+CHAIN = ProvenanceSource(
+    "chain-file",
+    "chain resource",
+    identifiers=(
+        ProvenanceIdentifier(ProvenanceIdentifierKind.SHA256, "sha256:" + "a" * 64),
+    ),
+    derived_from=(ALIGNMENT,),
+)
+NET = ProvenanceSource(
+    "net-file",
+    "net resource",
+    identifiers=(
+        ProvenanceIdentifier(ProvenanceIdentifierKind.SHA256, "sha256:" + "b" * 64),
+    ),
+    derived_from=(ALIGNMENT,),
+)
+RBEST = ProvenanceSource(
+    "rbest-file",
+    "reciprocal-best resource",
+    identifiers=(
+        ProvenanceIdentifier(ProvenanceIdentifierKind.SHA256, "sha256:" + "c" * 64),
+    ),
+    derived_from=(ALIGNMENT,),
+)
 
 
 def _candidate(
-    candidate_id: str,
+    chain_id: int,
     *,
-    covered_end: int = 200,
-    target_start: int = 1000,
+    source_spans: tuple[tuple[int, int], ...] = ((100, 200),),
+    target_spans: tuple[tuple[int, int], ...] = ((1000, 1100),),
+    orientation: MappingOrientation = MappingOrientation.SAME,
+    target_gaps: tuple[tuple[int, int], ...] = (),
     reciprocal_best: ReciprocalBestMembershipStatus | None = None,
+    extra_evidence: tuple[EvidenceObservation, ...] = (),
 ) -> NormalizedCandidate:
-    covered_bases = covered_end - SOURCE.start
-    coverage_status = (
-        MappingCoverageStatus.FULL
-        if covered_end == SOURCE.end
-        else MappingCoverageStatus.PARTIAL
-    )
-    uncovered = (
-        ()
-        if coverage_status is MappingCoverageStatus.FULL
-        else (GenomicInterval(SOURCE_ASSEMBLY, "chr1", covered_end, SOURCE.end),)
-    )
-    evidence = [
-        EvidenceObservation(
-            observation_id=f"{candidate_id}:coverage",
-            kind=EvidenceKind.MAPPING_COVERAGE,
-            value=MappingCoverageSummary(
-                status=coverage_status,
-                covered_source_bases=covered_bases,
-                source_bases=SOURCE.length,
-                uncovered_source_intervals=uncovered,
-            ),
-            provenance=CHAIN,
+    candidate_id = chain_candidate_id(CHAIN.source_id, chain_id)
+    segments = tuple(
+        MappingSegment(
+            GenomicInterval(SOURCE_ASSEMBLY, "chr1", source_start, source_end),
+            GenomicInterval(TARGET_ASSEMBLY, "chrA", target_start, target_end),
         )
-    ]
+        for (source_start, source_end), (target_start, target_end) in zip(
+            source_spans, target_spans, strict=True
+        )
+    )
+    covered = sum(end - start for start, end in source_spans)
+    uncovered: list[GenomicInterval] = []
+    cursor = SOURCE.start
+    for start, end in source_spans:
+        if cursor < start:
+            uncovered.append(GenomicInterval(SOURCE_ASSEMBLY, "chr1", cursor, start))
+        cursor = end
+    if cursor < SOURCE.end:
+        uncovered.append(GenomicInterval(SOURCE_ASSEMBLY, "chr1", cursor, SOURCE.end))
 
+    evidence: list[EvidenceObservation] = [
+        EvidenceObservation(
+            f"{candidate_id}:coverage",
+            EvidenceKind.MAPPING_COVERAGE,
+            MappingCoverageSummary(
+                status=(
+                    MappingCoverageStatus.FULL
+                    if covered == SOURCE.length
+                    else MappingCoverageStatus.PARTIAL
+                ),
+                covered_source_bases=covered,
+                source_bases=SOURCE.length,
+                uncovered_source_intervals=tuple(uncovered),
+            ),
+            CHAIN,
+        ),
+        EvidenceObservation(
+            f"{candidate_id}:gaps",
+            EvidenceKind.CHAIN_GAPS,
+            ChainGapSummary(
+                tuple(
+                    ChainGap(
+                        source_boundary=source_spans[
+                            min(index + 1, len(source_spans) - 1)
+                        ][0],
+                        target_gap_interval=GenomicInterval(
+                            TARGET_ASSEMBLY, "chrA", gap_start, gap_end
+                        ),
+                    )
+                    for index, (gap_start, gap_end) in enumerate(target_gaps)
+                )
+            ),
+            CHAIN,
+        ),
+    ]
+    evidence.extend(extra_evidence)
     if reciprocal_best is not None:
-        reciprocal_intervals: tuple[GenomicInterval, ...]
         if reciprocal_best is ReciprocalBestMembershipStatus.FULL:
-            reciprocal_covered = covered_bases
-            reciprocal_intervals = (
-                GenomicInterval(SOURCE_ASSEMBLY, "chr1", SOURCE.start, covered_end),
-            )
+            rbest_covered = covered
+            intervals = tuple(segment.source_interval for segment in segments)
         elif reciprocal_best is ReciprocalBestMembershipStatus.PARTIAL:
-            reciprocal_covered = covered_bases - 1
-            reciprocal_intervals = (
+            rbest_covered = covered - 1
+            intervals = (
                 GenomicInterval(
                     SOURCE_ASSEMBLY,
                     "chr1",
-                    SOURCE.start,
-                    SOURCE.start + reciprocal_covered,
+                    source_spans[0][0],
+                    source_spans[0][1] - 1,
                 ),
             )
         else:
-            reciprocal_covered = 0
-            reciprocal_intervals = ()
+            rbest_covered = 0
+            intervals = ()
         evidence.append(
             EvidenceObservation(
-                observation_id=f"{candidate_id}:rbest",
-                kind=EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP,
-                value=ReciprocalBestMembershipSummary(
+                f"{candidate_id}:rbest",
+                EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP,
+                ReciprocalBestMembershipSummary(
                     status=reciprocal_best,
                     resource_completeness=(
                         ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE
                     ),
-                    chains_examined=1,
-                    covered_source_bases=reciprocal_covered,
-                    candidate_source_bases=covered_bases,
-                    covered_source_intervals=reciprocal_intervals,
+                    chains_examined=2,
+                    covered_source_bases=rbest_covered,
+                    candidate_source_bases=covered,
+                    covered_source_intervals=intervals,
                 ),
-                provenance=RBEST,
+                RBEST,
             )
         )
 
-    target_end = target_start + covered_bases
     return NormalizedCandidate(
         candidate_id=candidate_id,
         target_interval=GenomicInterval(
-            TARGET_ASSEMBLY, "chrA", target_start, target_end
+            TARGET_ASSEMBLY,
+            "chrA",
+            min(start for start, _ in target_spans),
+            max(end for _, end in target_spans),
         ),
-        orientation=MappingOrientation.SAME,
+        orientation=orientation,
         mapping_provenance=CHAIN,
-        segments=(
-            MappingSegment(
-                source_interval=GenomicInterval(
-                    SOURCE_ASSEMBLY, "chr1", SOURCE.start, covered_end
-                ),
-                target_interval=GenomicInterval(
-                    TARGET_ASSEMBLY, "chrA", target_start, target_end
-                ),
-            ),
-        ),
+        segments=segments,
         evidence=tuple(evidence),
+    )
+
+
+def _cached_resource(
+    role: UCSCBundleResourceRole,
+    *,
+    digest_char: str,
+) -> CachedResource:
+    return CachedResource(
+        path=Path(f"/cache/{role.value.lower()}.gz"),
+        source_url=f"https://example.test/{role.value.lower()}.gz",
+        retrieved_at="2026-08-19T00:00:00Z",
+        sha256="sha256:" + digest_char * 64,
+        size_bytes=123,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(
+            "https://hgdownload.soe.ucsc.edu/goldenPath/sourceAsm/liftOver/"
+            "sourceAsmToTargetAsm.over.chain.gz"
+        ),
+        cache_hit=True,
+    )
+
+
+def _resource(
+    role: UCSCBundleResourceRole,
+    *,
+    consumed: bool,
+    provenance: ProvenanceSource | None,
+    digest_char: str,
+) -> UCSCAssessmentResource:
+    return UCSCAssessmentResource(
+        role=role,
+        resource=_cached_resource(role, digest_char=digest_char),
+        consumed_by_engine=consumed,
+        file_provenance=provenance,
+    )
+
+
+def _report(
+    candidates: tuple[NormalizedCandidate, ...],
+    *,
+    tier: EvidenceAvailabilityTier = EvidenceAvailabilityTier.LIFTOVER_ONLY,
+) -> UCSCAssessmentReport:
+    resources: tuple[UCSCAssessmentResource, ...]
+    if tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
+        resources = (
+            _resource(
+                UCSCBundleResourceRole.CHAIN,
+                consumed=True,
+                provenance=CHAIN,
+                digest_char="a",
+            ),
+        )
+    else:
+        resources = (
+            _resource(
+                UCSCBundleResourceRole.CHAIN,
+                consumed=True,
+                provenance=CHAIN,
+                digest_char="a",
+            ),
+            _resource(
+                UCSCBundleResourceRole.NET,
+                consumed=bool(candidates),
+                provenance=NET if candidates else None,
+                digest_char="b",
+            ),
+            _resource(
+                UCSCBundleResourceRole.SYNTENIC_NET,
+                consumed=False,
+                provenance=None,
+                digest_char="d",
+            ),
+            _resource(
+                UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN,
+                consumed=bool(candidates),
+                provenance=RBEST if candidates else None,
+                digest_char="c",
+            ),
+            _resource(
+                UCSCBundleResourceRole.RECIPROCAL_BEST_NET,
+                consumed=False,
+                provenance=None,
+                digest_char="e",
+            ),
+        )
+    consumed_roles = tuple(
+        resource.role.value for resource in resources if resource.consumed_by_engine
+    )
+    profile = build_result_profile(
+        SOURCE,
+        candidates,
+        evidence_tier=tier,
+        consumed_resource_roles=consumed_roles,
+    )
+    return UCSCAssessmentReport(
+        source_interval=SOURCE,
+        target_assembly=TARGET_ASSEMBLY,
+        candidates=candidates,
+        evidence_tier=tier,
+        result_profile=profile,
+        source_db="sourceAsm",
+        target_db="targetAsm",
+        alignment_provenance=ALIGNMENT,
+        resources=resources,
     )
 
 
@@ -147,452 +298,243 @@ def test_format_display_interval_makes_coordinate_convention_explicit() -> None:
     assert format_display_interval(interval) == "chr1:12345-12400 (1-based inclusive)"
 
 
-def test_liftover_only_well_supported_summary_is_concise_and_explicit() -> None:
-    assessment = assess_candidates(
-        SOURCE,
-        (_candidate("only"),),
-        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
-    )
-
-    summary = render_assessment_summary(assessment)
+def test_clean_default_summary_is_compact_facts_first_and_verdict_free() -> None:
+    summary = render_assessment_summary(_report((_candidate(42),)))
 
     assert summary.splitlines()[:4] == [
-        "Source locus: chr1:101-200 (1-based inclusive)",
-        "Evidence availability: LIFTOVER-ONLY — chain mapping evidence only",
-        "Assessment: WELL SUPPORTED",
-        "Preferred candidate: chrA:1001-1100 (1-based inclusive; same orientation)",
+        "ONE COMPLETE CHAIN PROJECTION",
+        "Source: chr1:101-200 (1-based inclusive)",
+        "Source coverage: 100/100 source bases",
+        "Target: chrA:1001-1100 (1-based inclusive; same orientation)",
     ]
-    assert "Why: full source-locus mapping coverage" in summary
-    assert "Comparative observations are not assumed to be independent" not in summary
-    assert summary.endswith("This does not establish biological correctness.")
+    assert "Assessment:" not in summary
+    assert "WELL SUPPORTED" not in summary
+    assert "Preferred candidate" not in summary
+    assert "LIFTOVER-ONLY" in summary
+    assert "named-variant and gene/transcript identity not assessed" in summary
 
 
-def test_comparative_well_supported_summary_names_both_verdict_driving_states() -> None:
-    assessment = assess_candidates(
-        SOURCE,
-        (_candidate("only", reciprocal_best=ReciprocalBestMembershipStatus.FULL),),
-        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
-    )
-
-    summary = render_assessment_summary(assessment)
-
-    assert (
-        "Evidence availability: COMPARATIVE — mapping plus comparative evidence "
-        "available" in summary
-    )
-    assert (
-        "Why: full source-locus mapping coverage and full reciprocal-best membership"
-        in summary
-    )
-    assert (
-        "Comparative observations are not assumed to be independent; dependency "
-        "provenance is available with --details or --json." in summary
-    )
-
-
-def test_contested_multi_candidate_summary_does_not_imply_candidate_ranking() -> None:
-    assessment = assess_candidates(
-        SOURCE,
-        (_candidate("first"), _candidate("second", target_start=2000)),
-        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
-    )
-
-    summary = render_assessment_summary(assessment)
-
-    assert "Assessment: CONTESTED" in summary
-    assert "Candidates assessed: 2" in summary
-    assert "Preferred candidate:" not in summary
-    assert "chrA:1001-1100" not in summary
-    assert "Why: multiple chain-derived candidate mappings remain" in summary
-
-
-def test_indeterminate_zero_candidate_summary_states_why() -> None:
-    assessment = assess_candidates(
-        SOURCE,
-        (),
-        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
-    )
-
-    summary = render_assessment_summary(assessment)
-
-    assert "Assessment: INDETERMINATE" in summary
-    assert "Candidates assessed: 0" in summary
-    assert "Why: no candidate mapping was generated for the requested locus" in summary
-
-
-def test_indeterminate_partial_candidate_summary_reports_partial_mapping() -> None:
-    assessment = assess_candidates(
-        SOURCE,
-        (_candidate("partial", covered_end=190),),
-        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
-    )
-
-    summary = render_assessment_summary(assessment)
-
-    assert "Assessment: INDETERMINATE" in summary
-    assert "Why: candidate maps only part of the requested source locus" in summary
-
-
-def test_summary_does_not_confuse_raw_multiplicity_with_material_multiplicity() -> None:
-    material_partial = _candidate(
-        "material-partial",
-        covered_end=190,
-        reciprocal_best=ReciprocalBestMembershipStatus.FULL,
-    )
-    rejected_partial = _candidate(
-        "rejected-partial",
-        covered_end=180,
-        target_start=2000,
-        reciprocal_best=ReciprocalBestMembershipStatus.NONE,
-    )
-    assessment = assess_candidates(
-        SOURCE,
-        (material_partial, rejected_partial),
-        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
-    )
-
-    summary = render_assessment_summary(assessment)
-
-    assert (
-        assessment.decision_reason
-        is AssessmentDecisionReason.COMPARATIVE_SOLE_MATERIAL_PARTIAL
-    )
-    assert (
-        "Why: one material candidate maps only part of the requested source locus; "
-        "other raw candidates are not material under the v1 comparative rule" in summary
-    )
-    assert "does not materially distinguish the candidate mappings" not in summary
-
-
-def test_split_candidate_summary_labels_target_interval_as_bounding_span() -> None:
-    first_source = GenomicInterval(SOURCE_ASSEMBLY, "chr1", 100, 150)
-    second_source = GenomicInterval(SOURCE_ASSEMBLY, "chr1", 150, 200)
-    first_target = GenomicInterval(TARGET_ASSEMBLY, "chrA", 1000, 1050)
-    second_target = GenomicInterval(TARGET_ASSEMBLY, "chrA", 1100, 1150)
-    candidate = NormalizedCandidate(
-        candidate_id="split",
-        target_interval=GenomicInterval(TARGET_ASSEMBLY, "chrA", 1000, 1150),
-        orientation=MappingOrientation.SAME,
-        mapping_provenance=CHAIN,
-        segments=(
-            MappingSegment(first_source, first_target),
-            MappingSegment(second_source, second_target),
-        ),
-        evidence=(
-            EvidenceObservation(
-                observation_id="split:coverage",
-                kind=EvidenceKind.MAPPING_COVERAGE,
-                value=MappingCoverageSummary(
-                    status=MappingCoverageStatus.FULL,
-                    covered_source_bases=100,
-                    source_bases=100,
-                ),
-                provenance=CHAIN,
+def test_partial_fragmented_summary_expands_with_exact_coverage_and_gaps() -> None:
+    report = _report(
+        (
+            _candidate(
+                42,
+                source_spans=((100, 150), (160, 190)),
+                target_spans=((1000, 1050), (1060, 1090)),
+                target_gaps=((1050, 1060),),
             ),
-        ),
-    )
-    assessment = assess_candidates(
-        SOURCE,
-        (candidate,),
-        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        )
     )
 
-    summary = render_assessment_summary(assessment)
+    summary = render_assessment_summary(report)
 
-    assert (
-        "Preferred candidate: chrA:1001-1150 (1-based inclusive; same orientation; "
-        "bounding span of 2 mapped segments)" in summary
-    )
+    assert summary.startswith("PARTIAL AND FRAGMENTED PROJECTION")
+    assert "Source coverage: 80/100 source bases" in summary
+    assert "Geometric mapped segments: 2" in summary
+    assert "Uncovered source: chr1:151-160" in summary
+    assert "chr1:191-200" in summary
+    assert "Target gaps: chrA:1051-1060" in summary
+    assert "bounding span of 2 geometric mapped segments" in summary
 
 
-def _detailed_liftover_report(
-    *, orientation: MappingOrientation = MappingOrientation.SAME
-) -> UCSCAssessmentReport:
-    sha256 = f"sha256:{'a' * 64}"
-    alignment = ProvenanceSource("alignment", "shared test alignment")
-    chain_provenance = ProvenanceSource(
-        f"file:{sha256}",
-        "test UCSC chain resource",
-        identifiers=(ProvenanceIdentifier(ProvenanceIdentifierKind.SHA256, sha256),),
-        derived_from=(alignment,),
-    )
-    candidate_id = f"{chain_provenance.source_id}:chain:42"
-    coverage = EvidenceObservation(
-        observation_id=f"{candidate_id}:coverage",
-        kind=EvidenceKind.MAPPING_COVERAGE,
-        value=MappingCoverageSummary(
-            status=MappingCoverageStatus.FULL,
-            covered_source_bases=SOURCE.length,
-            source_bases=SOURCE.length,
-        ),
-        provenance=chain_provenance,
-    )
-    chain_score = EvidenceObservation(
-        observation_id=f"{candidate_id}:score",
-        kind=EvidenceKind.CHAIN_SCORE,
-        value=12345,
-        provenance=chain_provenance,
-    )
-    candidate = NormalizedCandidate(
-        candidate_id=candidate_id,
-        target_interval=GenomicInterval(TARGET_ASSEMBLY, "chrA", 1000, 1100),
-        orientation=orientation,
-        mapping_provenance=chain_provenance,
-        segments=(
-            MappingSegment(
-                source_interval=SOURCE,
-                target_interval=GenomicInterval(TARGET_ASSEMBLY, "chrA", 1000, 1100),
+def test_multiple_projection_summary_leads_with_coverage_before_count() -> None:
+    report = _report(
+        (
+            _candidate(
+                1,
+                source_spans=((100, 160),),
+                target_spans=((1000, 1060),),
             ),
-        ),
-        evidence=(chain_score, coverage),
-    )
-    assessment = assess_candidates(
-        SOURCE,
-        (candidate,),
-        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
-    )
-    url = (
-        "https://hgdownload.soe.ucsc.edu/goldenPath/sourceAsm/liftOver/"
-        "sourceAsmToTargetAsm.over.chain.gz"
-    )
-    resource = CachedResource(
-        path=Path("/cache/chain.gz"),
-        source_url=url,
-        retrieved_at="2026-08-17T00:00:00Z",
-        sha256=sha256,
-        size_bytes=321,
-        provider_checksum=None,
-        terms=ucsc_resource_terms(url),
-        cache_hit=True,
-    )
-    return UCSCAssessmentReport(
-        assessment=assessment,
-        source_db="sourceAsm",
-        target_db="targetAsm",
-        alignment_provenance=alignment,
-        resources=(
-            UCSCAssessmentResource(
-                role=UCSCBundleResourceRole.CHAIN,
-                resource=resource,
-                consumed_by_engine=True,
-                file_provenance=chain_provenance,
+            _candidate(
+                2,
+                source_spans=((160, 200),),
+                target_spans=((3000, 3040),),
             ),
-        ),
+        )
     )
 
+    lines = render_assessment_summary(report).splitlines()
 
-def test_detailed_report_exposes_evidence_resources_and_provenance_without_ranking() -> (
+    assert lines[0] == "SOURCE INTERVAL SPLITS ACROSS MULTIPLE PROJECTIONS"
+    assert lines.index("Maximum candidate source coverage: 60/100 bases") < lines.index(
+        "Chain projections: 2"
+    )
+    assert "Source bases represented across all projections: 100/100" in lines
+    assert "Projection order: reproducibility only; not rank." in lines
+
+
+def test_large_multiple_projection_summary_is_bounded_without_candidate_sampling() -> (
     None
 ):
-    report = _detailed_liftover_report()
-    candidate_id = report.assessment.candidates[0].candidate_id
-    sha256 = report.resources[0].resource.sha256
+    report = _report(
+        tuple(
+            _candidate(
+                chain_id,
+                target_spans=((1000 + chain_id * 200, 1100 + chain_id * 200),),
+            )
+            for chain_id in range(1, 6)
+        )
+    )
+
+    summary = render_assessment_summary(report)
+    lines = summary.splitlines()
+
+    assert "Chain projections: 5" in lines
+    assert "Target sequences represented: 1" in lines
+    assert "Projection orientations: SAME" in lines
+    assert "Geometric mapped segments per projection: 1" in lines
+    assert "Projections at maximum source coverage: 5" in lines
+    assert not any(line.startswith("  - ") for line in lines)
+    assert (
+        "Projection details: omitted from default output for this candidate set; "
+        "use --details or --json for every projection." in lines
+    )
+
+
+def test_summary_distinguishes_exact_blocks_from_geometric_fragmentation() -> None:
+    candidate = _candidate(
+        41,
+        source_spans=((100, 150), (150, 200)),
+        target_spans=((1000, 1050), (1050, 1100)),
+    )
+    report = _report((candidate,))
+
+    summary = render_assessment_summary(report)
+    details = render_assessment_details(report)
+
+    candidate_profile = report.result_profile.candidate_profiles[0]
+    assert (
+        report.result_profile.headline is FactualHeadline.ONE_COMPLETE_CHAIN_PROJECTION
+    )
+    assert candidate_profile.exact_mapped_segment_count == 2
+    assert candidate_profile.geometric_segment_count == 1
+    assert "Geometric mapped segments: 2" not in summary
+    assert "bounding span of 2" not in summary
+    assert "Geometric mapped segments: 1" in details
+    assert "Exact chain-derived mapped segments (2):" in details
+
+
+def test_comparative_summary_names_consumed_resources_and_dependency_boundary() -> None:
+    report = _report(
+        (_candidate(42, reciprocal_best=ReciprocalBestMembershipStatus.FULL),),
+        tier=EvidenceAvailabilityTier.COMPARATIVE,
+    )
+
+    summary = render_assessment_summary(report)
+
+    assert "COMPARATIVE" in summary
+    assert "CHAIN, NET, RECIPROCAL_BEST_CHAIN" in summary
+    assert "not independent votes" in summary
+    assert (
+        report.result_profile.headline is FactualHeadline.ONE_COMPLETE_CHAIN_PROJECTION
+    )
+
+
+def test_details_exposes_profile_evidence_resources_and_scope() -> None:
+    report = _report((_candidate(42),))
 
     details = render_assessment_details(report)
 
-    assert "Detailed evidence dossier" in details
-    assert "Decision reason: LIFTOVER_SINGLE_FULL_MAPPING" in details
+    assert "Detailed factual result dossier" in details
+    assert "Headline: ONE COMPLETE CHAIN PROJECTION" in details
+    assert "Actual reverse mapping: NOT_RUN" in details
+    assert "Point/neighborhood context: NOT_RUN" in details
+    assert "Comparative relationship synthesis: NOT_ASSESSED" in details
     assert "Chain 42" in details
-    assert "Candidate 1" not in details
-    assert (
-        "Candidate order is preserved for reproducibility and does not indicate rank "
-        "or preference." in details
-    )
-    assert f"Candidate ID: {candidate_id}" in details
-    assert (
-        "MAPPING_COVERAGE [supporting]: FULL; 100/100 source bases covered" in details
-    )
-    assert "CHAIN_SCORE [context]: 12345" in details
+    assert "MAPPING_COVERAGE: FULL; 100/100 source bases covered" in details
+    assert "CHAIN_GAPS: 0 chain gap(s)" in details
     assert "CHAIN [consumed]" in details
-    assert f"SHA-256: {sha256}" in details
-    assert f"Derived from: {report.alignment_provenance.source_id}" in details
-    assert "categorical roles, not additive scores" in details
+    assert "Candidate order is preserved for reproducibility" in details
+    assert "verdict" not in details.lower()
     assert details.endswith("This does not establish biological correctness.")
 
 
-def test_machine_evidence_roles_cover_all_categorical_states() -> None:
-    reference = EvidenceReference("candidate", "observation")
-    role = reporting._evidence_role
-
-    assert role(reference, supporting=set(), contradicting=set()) == "CONTEXT"
-    assert role(reference, supporting={reference}, contradicting=set()) == "SUPPORTING"
-    assert (
-        role(reference, supporting=set(), contradicting={reference}) == "CONTRADICTING"
-    )
-    assert (
-        role(reference, supporting={reference}, contradicting={reference})
-        == "SUPPORTING_AND_CONTRADICTING"
-    )
-
-
-def test_json_report_preserves_assessment_resource_and_provenance_semantics() -> None:
-    report = _detailed_liftover_report()
+def test_json_schema_v2_uses_result_profile_and_removes_legacy_verdict_fields() -> None:
+    report = _report((_candidate(42),))
 
     payload = json.loads(reporting.render_assessment_json(report))
 
-    assert payload["schema_version"] == 1
-    assert payload["report_type"] == "liftassess.ucsc_assessment"
-    assert payload["semantics"] == {
-        "candidate_order": "reproducibility_only_not_rank",
-        "evidence_roles": "categorical_not_additive",
-        "interval_coordinates": "0-based-half-open",
-        "provenance_edges": "dependence_not_independent_confirmation",
-    }
-    assert payload["ucsc_database_pair"] == {
-        "source_db": "sourceAsm",
-        "target_db": "targetAsm",
-    }
-
-    assessment = payload["assessment"]
-    assert assessment["source_interval"]["start"] == 100
-    assert assessment["source_interval"]["end"] == 200
-    assert assessment["source_interval"]["coordinate_system"] == "0-based-half-open"
-    assert assessment["evidence_tier"] == "LIFTOVER_ONLY"
-    assert assessment["verdict"] == "WELL_SUPPORTED"
-    assert assessment["decision_reason"] == "LIFTOVER_SINGLE_FULL_MAPPING"
-
-    candidate = assessment["candidates"][0]
-    assert candidate["ucsc_chain_id"] == 42
-    assert candidate["target_bounding_interval"]["start"] == 1000
-    assert candidate["target_bounding_interval"]["end"] == 1100
-    assert candidate["segments"][0]["source_interval"]["start"] == 100
-    evidence_by_kind = {item["kind"]: item for item in candidate["evidence"]}
-    assert evidence_by_kind["MAPPING_COVERAGE"]["assessment_role"] == "SUPPORTING"
-    assert evidence_by_kind["MAPPING_COVERAGE"]["value"] == {
-        "covered_source_bases": 100,
+    assert payload["schema_version"] == 2
+    assert payload["report_type"] == "liftassess.ucsc_result"
+    assert "aggregate_verdict" not in payload["semantics"]
+    assert "assessment" not in payload
+    assert "verdict" not in payload["result_profile"]
+    assert "decision_reason" not in payload["result_profile"]
+    assert "preferred_candidate_id" not in payload["result_profile"]
+    assert payload["result_profile"]["headline"] == "ONE_COMPLETE_CHAIN_PROJECTION"
+    assert payload["result_profile"]["source_coverage"] == {
+        "maximum_candidate_covered_source_bases": 100,
+        "maximum_coverage_candidate_ids": [chain_candidate_id(CHAIN.source_id, 42)],
         "source_bases": 100,
-        "status": "FULL",
-        "type": "MAPPING_COVERAGE_SUMMARY",
-        "uncovered_source_intervals": [],
+        "state": "COMPLETE",
+        "union_covered_source_bases": 100,
     }
-    assert evidence_by_kind["CHAIN_SCORE"]["assessment_role"] == "CONTEXT"
-    assert evidence_by_kind["CHAIN_SCORE"]["value"] == {
-        "type": "SCALAR",
-        "value": 12345,
-    }
-
-    resource = payload["resources"][0]
-    assert resource["role"] == "CHAIN"
-    assert resource["consumed_by_engine"] is True
-    assert resource["sha256"] == report.resources[0].resource.sha256
-    assert resource["file_provenance_source_id"] is not None
-    assert resource["provider_checksum"] is None
-
-    provenance_by_id = {
-        source["source_id"]: source for source in payload["provenance"]["sources"]
-    }
-    file_provenance = report.resources[0].file_provenance
-    assert file_provenance is not None
-    file_source_id = file_provenance.source_id
-    assert provenance_by_id[file_source_id]["derived_from_source_ids"] == ["alignment"]
-    assert payload["caveat"] == "This does not establish biological correctness."
+    assert payload["result_profile"]["scope"]["actual_reverse_mapping"] == "NOT_RUN"
+    assert (
+        payload["candidates"][0]["target_bounding_interval"]["coordinate_system"]
+        == "0-based-half-open"
+    )
+    assert "assessment_role" not in payload["candidates"][0]["evidence"][0]
 
 
-def test_json_and_details_preserve_reverse_orientation_with_forward_coordinates() -> (
-    None
-):
-    report = _detailed_liftover_report(orientation=MappingOrientation.REVERSE)
+def test_json_and_details_preserve_reverse_orientation_coordinates() -> None:
+    report = _report(
+        (
+            _candidate(
+                42,
+                orientation=MappingOrientation.REVERSE,
+                target_spans=((1000, 1100),),
+            ),
+        )
+    )
 
     payload = json.loads(reporting.render_assessment_json(report))
-    candidate = payload["assessment"]["candidates"][0]
+    candidate = payload["candidates"][0]
 
     assert candidate["orientation"] == "REVERSE"
     assert candidate["target_bounding_interval"]["start"] == 1000
     assert candidate["target_bounding_interval"]["end"] == 1100
-    assert candidate["segments"][0]["source_interval"]["start"] == 100
-    assert candidate["segments"][0]["source_interval"]["end"] == 200
-    assert candidate["segments"][0]["target_interval"]["start"] == 1000
-    assert candidate["segments"][0]["target_interval"]["end"] == 1100
-
-    details = render_assessment_details(report)
-    assert "reverse orientation" in details
+    assert "reverse orientation" in render_assessment_details(report)
 
 
-def test_structured_comparative_evidence_and_provider_checksum_rendering() -> None:
-    gap_observation = EvidenceObservation(
-        observation_id="gap",
-        kind=EvidenceKind.CHAIN_GAPS,
-        value=ChainGapSummary(
-            gaps=(
-                ChainGap(
-                    source_boundary=150,
-                    target_gap_interval=GenomicInterval(
-                        TARGET_ASSEMBLY, "chrA", 1050, 1060
-                    ),
-                ),
-            )
-        ),
-        provenance=CHAIN,
-    )
+def test_comparative_json_keeps_exact_observations() -> None:
     net_observation = EvidenceObservation(
-        observation_id="net",
-        kind=EvidenceKind.NET_HIERARCHY,
-        value=NetHierarchySummary(
+        "net",
+        EvidenceKind.NET_HIERARCHY,
+        NetHierarchySummary(
             depth=3,
             source_fill_interval=GenomicInterval(SOURCE_ASSEMBLY, "chr1", 90, 210),
         ),
-        provenance=CHAIN,
+        NET,
     )
-    reciprocal_observation = EvidenceObservation(
-        observation_id="rbest",
-        kind=EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP,
-        value=ReciprocalBestMembershipSummary(
-            status=ReciprocalBestMembershipStatus.FULL,
-            resource_completeness=ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE,
-            chains_examined=3,
-            covered_source_bases=100,
-            candidate_source_bases=100,
-            covered_source_intervals=(SOURCE,),
-        ),
-        provenance=RBEST,
-    )
-
-    assert reporting._evidence_value_lines(gap_observation) == [
-        "1 chain gap(s) through the requested locus",
+    report = _report(
         (
-            "source boundary=150 (0-based boundary); source gap=none; "
-            "target gap=chrA:1051-1060 (1-based inclusive)"
+            _candidate(
+                42,
+                reciprocal_best=ReciprocalBestMembershipStatus.FULL,
+                extra_evidence=(net_observation,),
+            ),
         ),
-    ]
-    assert reporting._evidence_value_lines(net_observation) == [
-        "depth=3; fill span=chr1:91-210 (1-based inclusive)"
-    ]
-    assert reporting._evidence_value_lines(reciprocal_observation) == [
-        (
-            "FULL; 100/100 candidate mapped source bases covered; "
-            "completeness=COMPLETE_RESOURCE; chains examined=3"
-        ),
-        "covered source intervals: chr1:101-200 (1-based inclusive)",
-    ]
-
-    gap_json = json.loads(
-        json.dumps(reporting._evidence_value_json(gap_observation.value))
+        tier=EvidenceAvailabilityTier.COMPARATIVE,
     )
-    assert gap_json["type"] == "CHAIN_GAP_SUMMARY"
-    assert gap_json["gaps"][0]["source_boundary_0_based"] == 150
-    assert gap_json["gaps"][0]["target_gap_interval"]["start"] == 1050
 
-    net_json = json.loads(
-        json.dumps(reporting._evidence_value_json(net_observation.value))
-    )
-    assert net_json["type"] == "NET_HIERARCHY_SUMMARY"
-    assert net_json["depth"] == 3
-    assert net_json["source_fill_interval"]["coordinate_system"] == "0-based-half-open"
+    payload = json.loads(reporting.render_assessment_json(report))
+    evidence_by_kind = {
+        item["kind"]: item for item in payload["candidates"][0]["evidence"]
+    }
 
-    reciprocal_json = json.loads(
-        json.dumps(reporting._evidence_value_json(reciprocal_observation.value))
-    )
-    assert reciprocal_json["type"] == "RECIPROCAL_BEST_MEMBERSHIP_SUMMARY"
-    assert reciprocal_json["status"] == "FULL"
-    assert reciprocal_json["resource_completeness"] == "COMPLETE_RESOURCE"
-    assert reciprocal_json["covered_source_intervals"][0]["start"] == 100
+    assert evidence_by_kind["NET_HIERARCHY"]["value"]["depth"] == 3
+    assert evidence_by_kind["RECIPROCAL_BEST_MEMBERSHIP"]["value"]["status"] == "FULL"
+    assert payload["provenance"]["sources"]
 
+
+def test_provider_checksum_text_and_resource_json_preserve_transfer_metadata() -> None:
     checksum_url = "https://example.test/md5sum.txt"
     resource = CachedResource(
         path=Path("/cache/chain.gz"),
         source_url="https://example.test/chain.gz",
-        retrieved_at="2026-08-17T00:00:00Z",
-        sha256=f"sha256:{'b' * 64}",
+        retrieved_at="2026-08-19T00:00:00Z",
+        sha256="sha256:" + "f" * 64,
         size_bytes=321,
         provider_checksum=ProviderChecksum(
             algorithm=ResourceChecksumAlgorithm.MD5,
@@ -605,29 +547,24 @@ def test_structured_comparative_evidence_and_provider_checksum_rendering() -> No
         ),
         cache_hit=True,
     )
-    assert reporting._provider_checksum_text(resource) == (
-        f"md5:{'c' * 32} (from {checksum_url})"
-    )
-
-    checksum_provenance = ProvenanceSource(
+    provenance = ProvenanceSource(
         "checksum-resource",
         "checksum resource",
         identifiers=(
             ProvenanceIdentifier(ProvenanceIdentifierKind.SHA256, resource.sha256),
         ),
     )
-    resource_json = json.loads(
-        json.dumps(
-            reporting._assessment_resource_json(
-                UCSCAssessmentResource(
-                    role=UCSCBundleResourceRole.CHAIN,
-                    resource=resource,
-                    consumed_by_engine=True,
-                    file_provenance=checksum_provenance,
-                )
-            )
-        )
+    assessment_resource = UCSCAssessmentResource(
+        role=UCSCBundleResourceRole.CHAIN,
+        resource=resource,
+        consumed_by_engine=True,
+        file_provenance=provenance,
     )
+
+    assert reporting._provider_checksum_text(resource) == (
+        f"md5:{'c' * 32} (from {checksum_url})"
+    )
+    resource_json = reporting._assessment_resource_json(assessment_resource)
     assert resource_json["provider_checksum"] == {
         "algorithm": "md5",
         "source_url": checksum_url,

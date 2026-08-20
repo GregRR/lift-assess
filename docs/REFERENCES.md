@@ -139,7 +139,7 @@ provenance rather than being duplicated as static bibliography entries here.
 
 The sources in this section are evidence that researchers encounter recurring liftover ambiguity
 and interpretation problems. They are **not** treated as biological ground truth or as validation
-of a particular liftAssess verdict.
+of a particular liftAssess result or interpretation.
 
 25. Biostars. Which locus should be considered the true ortholog after liftOver disagreement
     between chrUn and chr16 in canFam4 miRNA mapping? [Internet].

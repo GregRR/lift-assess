@@ -1,28 +1,22 @@
-"""Assessment/report orchestration for already-acquired UCSC resources.
+"""Scientific report orchestration for already-acquired UCSC resources.
 
-This module is the first end-to-end assessment boundary in v1. It connects one exact
-cached UCSC resource bundle to the existing file-backed candidate engine and then to
-the deterministic assessor. It deliberately does not discover or download resources;
-network policy, terms acknowledgement, and transfer confirmation remain separate
-boundaries that the CLI composes around this function.
+This module connects one exact cached UCSC resource bundle to the file-backed
+candidate/evidence engine and the derived factual result profile.  It deliberately
+does not discover or download resources; network policy, terms acknowledgement, and
+transfer confirmation remain separate CLI boundaries.
 
-The report retains every artifact in the acquired bundle as retrieval context, but it
-marks resource consumption explicitly. This distinction matters scientifically:
-``COMPARATIVE`` bundles contain syntenic-net and reciprocal-best-net files that the
-current engine does not parse, and when chain projection produces no candidates the
-engine returns before consuming the ordinary net or reciprocal-best chain. Cached
-presence must therefore never be presented as evidence that a file contributed to a
-verdict.
+The report retains every artifact in the acquired bundle as retrieval context while
+marking actual engine consumption explicitly. Cached presence is never presented as
+scientific evidence unless the engine consumed the resource.
 """
 
 from dataclasses import dataclass
 
-from .assessor import assess_candidates
 from .models import (
     AssemblyIdentifier,
-    Assessment,
     EvidenceAvailabilityTier,
     GenomicInterval,
+    NormalizedCandidate,
     ProvenanceIdentifierKind,
     ProvenanceSource,
 )
@@ -36,20 +30,12 @@ from .resource_files import (
     _cached_bundle_resource_provenance,
     build_ucsc_candidates_from_cached_bundle,
 )
+from .result_profile import ResultProfile, build_result_profile
 
 
 @dataclass(frozen=True)
 class UCSCAssessmentResource:
-    """One cached bundle artifact and its actual role in an assessment run.
-
-    ``resource`` preserves retrieval metadata such as source URL, retrieval time,
-    provider checksum information, terms references, and exact cache content digest.
-    ``consumed_by_engine`` says whether the current run actually parsed that artifact.
-    ``file_provenance`` is present only for consumed artifacts, preventing retrieval
-    context from being mistaken for evidence provenance. Chain and reciprocal-best
-    observations use their file provenance directly; net observations add a per-fill
-    provenance node whose parent is the net file provenance recorded here.
-    """
+    """One cached bundle artifact and its actual role in a result run."""
 
     role: UCSCBundleResourceRole
     resource: CachedResource
@@ -83,26 +69,30 @@ class UCSCAssessmentResource:
 
 @dataclass(frozen=True)
 class UCSCAssessmentReport:
-    """End-to-end v1 assessment plus auditable UCSC retrieval context."""
+    """Scientific candidate/evidence report plus the derived factual result profile."""
 
-    assessment: Assessment
+    source_interval: GenomicInterval
+    target_assembly: AssemblyIdentifier
+    candidates: tuple[NormalizedCandidate, ...]
+    evidence_tier: EvidenceAvailabilityTier
+    result_profile: ResultProfile
     source_db: str
     target_db: str
     alignment_provenance: ProvenanceSource
     resources: tuple[UCSCAssessmentResource, ...]
 
     def __post_init__(self) -> None:
-        expected_roles = _resource_roles_for_tier(self.assessment.evidence_tier)
+        expected_roles = _resource_roles_for_tier(self.evidence_tier)
         actual_roles = tuple(resource.role for resource in self.resources)
         if actual_roles != expected_roles:
             raise ValueError(
                 "UCSC assessment report resources must preserve the complete ordered "
-                "bundle roles for the assessment evidence tier"
+                "bundle roles for the evidence tier"
             )
 
         expected_consumed_roles = _consumed_resource_roles(
-            self.assessment.evidence_tier,
-            candidates_exist=bool(self.assessment.candidates),
+            self.evidence_tier,
+            candidates_exist=bool(self.candidates),
         )
         actual_consumed_roles = {
             resource.role for resource in self.resources if resource.consumed_by_engine
@@ -110,23 +100,42 @@ class UCSCAssessmentReport:
         if actual_consumed_roles != expected_consumed_roles:
             raise ValueError(
                 "UCSC assessment report resource-consumption metadata does not match "
-                "the v1 engine path"
+                "the engine path"
             )
+
+        if self.result_profile.source_interval != self.source_interval:
+            raise ValueError("result profile source interval must match the report")
+        if self.result_profile.evidence_tier is not self.evidence_tier:
+            raise ValueError("result profile evidence tier must match the report")
+        expected_profile_consumed_roles = tuple(
+            resource.role.value
+            for resource in self.resources
+            if resource.consumed_by_engine
+        )
+        if (
+            self.result_profile.consumed_resource_roles
+            != expected_profile_consumed_roles
+        ):
+            raise ValueError(
+                "result profile consumed resource roles must match the report"
+            )
+        profile_candidate_ids = tuple(
+            profile.candidate_id for profile in self.result_profile.candidate_profiles
+        )
+        report_candidate_ids = tuple(
+            candidate.candidate_id for candidate in self.candidates
+        )
+        if profile_candidate_ids != report_candidate_ids:
+            raise ValueError("result profile candidates must match report candidates")
 
         for resource in self.resources:
             if resource.file_provenance is not None and (
                 resource.file_provenance.derived_from != (self.alignment_provenance,)
             ):
                 raise ValueError(
-                    "consumed UCSC file provenance must derive from the report alignment "
-                    "provenance"
+                    "consumed UCSC file provenance must derive from the report "
+                    "alignment provenance"
                 )
-
-    @property
-    def evidence_tier(self) -> EvidenceAvailabilityTier:
-        """Expose evidence availability separately from the assessment verdict."""
-
-        return self.assessment.evidence_tier
 
 
 def assess_ucsc_cached_bundle(
@@ -137,13 +146,7 @@ def assess_ucsc_cached_bundle(
     alignment_provenance: ProvenanceSource,
     progress_callback: ResourceReadProgressCallback | None = None,
 ) -> UCSCAssessmentReport:
-    """Run the v1 candidate engine and assessor over one cached UCSC bundle.
-
-    ``target_assembly`` is intentionally forwarded to the existing cached-bundle
-    bridge, which owns assembly-pair validation. The report's evidence tier comes from
-    the verified bundle shape and is passed independently to the assessor; it is never
-    inferred from the resulting verdict.
-    """
+    """Run candidate/evidence generation and derive the factual result profile."""
 
     candidates = build_ucsc_candidates_from_cached_bundle(
         source_interval,
@@ -152,18 +155,26 @@ def assess_ucsc_cached_bundle(
         alignment_provenance=alignment_provenance,
         progress_callback=progress_callback,
     )
-    assessment = assess_candidates(
-        source_interval,
-        candidates,
-        evidence_tier=bundle.evidence_tier,
-    )
     resources = _assessment_resources(
         bundle,
         alignment_provenance=alignment_provenance,
         candidates_exist=bool(candidates),
     )
+    consumed_resource_roles = tuple(
+        resource.role.value for resource in resources if resource.consumed_by_engine
+    )
+    result_profile = build_result_profile(
+        source_interval,
+        candidates,
+        evidence_tier=bundle.evidence_tier,
+        consumed_resource_roles=consumed_resource_roles,
+    )
     return UCSCAssessmentReport(
-        assessment=assessment,
+        source_interval=source_interval,
+        target_assembly=target_assembly,
+        candidates=candidates,
+        evidence_tier=bundle.evidence_tier,
+        result_profile=result_profile,
         source_db=bundle.source_db,
         target_db=bundle.target_db,
         alignment_provenance=alignment_provenance,

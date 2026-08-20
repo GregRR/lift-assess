@@ -4,7 +4,7 @@ This guide is for someone who wants to run liftAssess without first learning the
 internal architecture of UCSC chain/net files.
 
 For the complete implemented capability list, see [`FEATURES.md`](FEATURES.md). For the
-scientific rules behind the verdicts, see [`DESIGN.md`](DESIGN.md).
+scientific result semantics and invariants, see [`DESIGN.md`](DESIGN.md).
 
 ## 1. What liftAssess does
 
@@ -14,20 +14,13 @@ A normal liftOver operation asks:
 
 liftAssess asks a different follow-up question:
 
-> What does the available evidence say about those candidate mappings?
+> What physically happened to this interval in the consumed mapping resources, what evidence was examined, and what does that evidence not establish?
 
-It can report one of three results:
+The current result is a factual profile rather than a single quality verdict. It reports dimensions such as projection count, exact source coverage, split/discontinuous geometry, orientation, evidence availability, resource consumption, and provenance.
 
-- `WELL_SUPPORTED` — the available informative evidence favors one candidate without
-  material contradiction under the v1 rules;
-- `CONTESTED` — more than one candidate remains materially supported, or the available
-  evidence materially disagrees; or
-- `INDETERMINATE` — the available evidence is not sufficient or discriminating enough
-  for either of the other conclusions.
+The default human report begins with a deterministic factual headline such as `ONE COMPLETE CHAIN PROJECTION`, `PARTIAL SOURCE COVERAGE`, or `MULTIPLE CHAIN PROJECTIONS`. It then gives the few facts needed to understand that headline and a bounded interpretation.
 
-`WELL_SUPPORTED` does **not** mean "biologically proven correct." liftAssess assesses
-support in the available evidence; it is not a truth oracle and it does not output a
-numeric confidence score.
+liftAssess does **not** claim that a target is the biologically correct locus, and it does not produce a numeric confidence score.
 
 ## 2. What you give the command
 
@@ -130,7 +123,7 @@ A first automatic run goes through these stages:
 6. **Acquire and verify resources.** Verified artifacts are stored outside the source
    tree in the liftAssess cache.
 7. **Assess the locus.** Candidate mappings and evidence are extracted and passed to
-   the deterministic assessor.
+   deterministic result-profile derivation.
 8. **Print the report.** The default is the concise human-readable summary.
 
 Cancelling either acknowledgement stops before the corresponding network/resource
@@ -138,87 +131,62 @@ operation.
 
 ## 5. How to read the default result
 
-A concise report has this general shape:
+A concise uncomplicated report has this general shape:
 
 ```text
-Source locus: chr1:10000001-10000100 (1-based inclusive)
-Evidence availability: COMPARATIVE — mapping plus comparative evidence available
-Assessment: WELL SUPPORTED
-Preferred candidate: chr1:10027740-10027839 (1-based inclusive; same orientation)
-Why: ...
-...
+ONE COMPLETE CHAIN PROJECTION
+Source: chr1:10000001-10000100 (1-based inclusive)
+Source coverage: 100/100 bases
+Target: chr1:10027740-10027839 (1-based inclusive; same orientation)
+Evidence: COMPARATIVE — ...
+Interpretation: ...
+Scope: coordinate projection/structure assessed; variant/gene identity not assessed.
 This does not establish biological correctness.
+Use --details for the complete factual profile and evidence dossier.
 ```
 
 The lines answer different questions.
 
-### `Source locus`
+### Factual headline
 
-Confirms exactly what interval was assessed and states the display coordinate
-convention.
+Names the observed mapping event. It is deterministic result language, not a confidence rating or biological verdict.
 
-### `Evidence availability`
+### `Source` and `Source coverage`
 
-Tells you what kind of evidence liftAssess could examine for this assembly pair.
+Confirm exactly what interval was assessed and how many requested source bases are represented. For unusual results, the summary expands with uncovered source intervals, mapped-segment counts, target gaps, or multiple projections as needed.
 
-- `COMPARATIVE` means the full comparative resource bundle was available.
-- `LIFTOVER-ONLY` means only chain mapping evidence was available.
+### `Target`
 
-This is **not a confidence rating**. A `COMPARATIVE` run can still be
-`INDETERMINATE`, and a `LIFTOVER-ONLY` run can sometimes be `WELL_SUPPORTED`.
+Shows the target coordinate for a single projection. When a projection contains multiple mapped segments, the report explicitly identifies the displayed target interval as a **bounding span** rather than implying continuous alignment.
 
-### `Assessment`
+### `Evidence`
 
-The final categorical verdict: `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE`.
+Tells you what kind of evidence liftAssess examined for this assembly pair and which resource roles were consumed.
 
-### `Preferred candidate`
+- `COMPARATIVE` means comparative UCSC resources were available for the current evidence path.
+- `LIFTOVER-ONLY` means only directional chain mapping evidence was available.
 
-Appears only when the assessor's deterministic rules support one candidate. If the
-rules do not support a preferred candidate, the report gives candidate context instead
-of pretending that candidate order is a ranking.
+These are evidence-availability concepts, **not confidence tiers**. For `COMPARATIVE`, the report also warns that UCSC-derived observations may share upstream alignment lineage and are not independent votes.
 
-### `Why`
+### `Interpretation`
 
-A plain-language rendering of the exact assessor `decision_reason`. The detailed and
-JSON reports expose the machine-readable reason code itself.
+A deterministic sentence that stays close to the measured geometry/evidence. It does not choose a biologically correct locus.
 
-### Final caveat
+### `Scope`
 
-Every report retains the reminder that evidence support does not establish biological
-correctness.
+States important evidence boundaries so an untested identity question is not implied to have been answered by coordinate projection.
 
-## 6. The three verdicts in practical terms
+## 6. Progressive disclosure
 
-### `WELL_SUPPORTED`
+Routine one-complete-projection results stay compact. The current first result-profile slice expands automatically when it can already detect:
 
-Read this as:
+- partial source coverage;
+- fragmented or target-discontinuous projection geometry; or
+- multiple chain projections.
 
-> Under the evidence that was available and the v1 categorical rules, one candidate is
-> favored without material contradiction.
+For large intervals and multiple projections, source coverage leads the story. The report gives actual measured coverage; it does not apply a built-in 90% or other quality threshold.
 
-Do **not** read it as:
-
-> liftAssess proved this is the biologically correct locus.
-
-### `CONTESTED`
-
-Read this as:
-
-> There is a real reason not to collapse the result to one unqualified mapping.
-
-Typical v1 causes include multiple material candidates or a full mapping that conflicts
-with reciprocal-best evidence.
-
-### `INDETERMINATE`
-
-Read this as:
-
-> The evidence does not justify either a well-supported or contested conclusion under
-> the current rules.
-
-Examples include no candidate, an incomplete single mapping in liftOver-only evidence,
-or comparative evidence that is mixed but not sufficient for a stronger categorical
-conclusion.
+Later roadmap capabilities will add additional progressive-disclosure triggers such as actual reverse disagreement, automatic point-neighborhood disagreement, paired filtered/all-chain comparison, batch relationships, target-role metadata, and typed contextual evidence. Those checks are not silently implied by the current output.
 
 ## 7. Ask for the full human-readable dossier
 
@@ -232,21 +200,22 @@ assess-liftover \
 
 The detailed report includes:
 
-- the exact `decision_reason` code;
+- the complete currently available factual result profile;
+- explicit states for result dimensions that were not run or are not yet assessed;
 - every candidate and exact mapped segment;
+- exact uncovered source intervals and target gaps;
 - mapping orientation;
 - every evidence observation;
-- whether each observation is supporting, contradicting, both, or context;
 - chain/net/reciprocal-best detail;
 - resource URLs, cache paths, retrieval metadata, and checksums;
 - which cached resources were actually consumed by the engine; and
 - the provenance dependency graph showing which observations share upstream sources.
 
-Use this mode when a concise verdict is not enough for scientific review.
+Use this mode when the compact progressive summary omits detail needed for scientific review.
 
 ## 8. Get JSON for scripts and pipelines
 
-Use `--json` for the complete schema-versioned machine-readable report:
+Use `--json` for the complete schema-v2 machine-readable report:
 
 ```bash
 assess-liftover \
@@ -255,9 +224,12 @@ assess-liftover \
 ```
 
 The JSON document goes to **stdout**. Status and progress messages go to **stderr**, so
-normal shell redirection does not mix progress text into the JSON file. Detailed and
-JSON reports include local cache paths as run context, so inspect that metadata before
-publishing a report if local filesystem paths are information you do not want to share.
+normal shell redirection does not mix progress text into the JSON file. Schema v2 carries
+the same factual profile, exact candidates/evidence, resources, and provenance used by the
+human renderer. It intentionally omits the legacy aggregate `verdict`, verdict-derived
+`decision_reason`, and preferred-candidate field. Detailed and JSON reports include local
+cache paths as run context, so inspect that metadata before publishing a report if local
+filesystem paths are information you do not want to share.
 
 Important coordinate difference:
 
@@ -362,7 +334,7 @@ flags.
 | `--acknowledge-ucsc-terms` | Supplies the explicit terms acknowledgement without a prompt | Non-interactive workflows after terms review |
 | `--accept-transfer-plan` | Supplies the separate transfer-plan acknowledgement without a prompt | Non-interactive workflows after reviewing the planned transfer |
 | `--details` | Prints the full human-readable evidence/resource/provenance dossier | Scientific inspection and debugging |
-| `--json` | Prints schema-v1 machine-readable output | Scripts, archives, downstream analysis |
+| `--json` | Prints schema-v2 machine-readable output | Scripts, archives, downstream analysis |
 | `--quiet` | Suppresses nonessential terminal progress/status | Logs, scripts, or less terminal output |
 
 `--offline` and `--refresh` are mutually exclusive. `--details` and `--json` are also
@@ -404,7 +376,7 @@ assess-liftover \
   --json > assessment.json
 ```
 
-### Inspect why a result was contested or indeterminate
+### Inspect the complete factual profile and evidence
 
 ```bash
 assess-liftover \
@@ -429,13 +401,14 @@ end.
 
 ### Treating `COMPARATIVE` as "high confidence"
 
-It is only an evidence-availability tier. Always read the verdict separately.
+It is only an evidence-availability tier. Read the factual mapping profile and exact
+evidence separately.
 
-### Treating a preferred candidate as biological truth
+### Treating one complete projection as biological truth
 
-A preferred candidate means the v1 evidence rules support that mapping over the
-alternatives that remained material. It is not an orthology call or proof that the
-locus is biologically correct.
+A complete chain projection means every requested source base is represented in that
+chain relationship. It is not an orthology call, identity check, uniqueness claim, or
+proof that the locus is biologically correct.
 
 ### Assuming candidate order is rank
 
@@ -454,7 +427,7 @@ acknowledgements remain explicit.
 ### Reading progress as percent of the scientific algorithm
 
 Progress bars measure exact bytes transferred, hashed, or read. They are not an ETA or
-an estimate of how close the assessment logic is to a verdict.
+an estimate of how close the scientific computation is to completion.
 
 ## 17. Current performance warning
 
@@ -499,7 +472,7 @@ verified cached resource bundle.
 
 The main boundaries are:
 
-- `assess_candidates()` — assess normalized candidates;
+- `build_result_profile()` — derive the factual profile from normalized candidates and evidence;
 - `build_ucsc_candidates_from_files()` — build candidates from explicit local UCSC
   resources plus provenance;
 - `assess_ucsc_cached_bundle()` — assess a verified cached bundle;

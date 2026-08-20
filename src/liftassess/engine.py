@@ -1,7 +1,7 @@
 """Single-pass orchestration for the v1 UCSC candidate-generation engine.
 
 This module connects the already-validated mechanical layers without assigning an
-assessment verdict.  It consumes chain/net/reciprocal-best record streams once,
+aggregate result verdict.  It consumes chain/net/reciprocal-best record streams once,
 generates normalized candidates from chains, and attaches the comparative evidence
 that can be established from the supplied records.
 

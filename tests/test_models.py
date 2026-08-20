@@ -2,12 +2,9 @@ import pytest
 
 from liftassess import (
     AssemblyIdentifier,
-    Assessment,
-    AssessmentDecisionReason,
     EvidenceAvailabilityTier,
     EvidenceKind,
     EvidenceObservation,
-    EvidenceReference,
     GenomicInterval,
     MappingOrientation,
     MappingSegment,
@@ -18,7 +15,6 @@ from liftassess import (
     ReciprocalBestMembershipStatus,
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
-    Verdict,
 )
 
 
@@ -132,113 +128,11 @@ def test_candidate_can_carry_multiple_distinct_observations_from_one_source(
     assert candidate.evidence[0].provenance is candidate.evidence[1].provenance
 
 
-def test_assessment_references_candidate_supporting_and_contradicting_evidence(
-    source_assembly: AssemblyIdentifier,
-    target_assembly: AssemblyIdentifier,
-) -> None:
-    source = ProvenanceSource("alignment", "alignment source")
-    support = EvidenceObservation(
-        "support",
-        EvidenceKind.MAPPING_COVERAGE,
-        "full",
-        source,
-    )
-    contradiction = EvidenceObservation(
-        "contradiction",
-        EvidenceKind.CHAIN_GAPS,
-        True,
-        source,
-    )
-    candidate = NormalizedCandidate(
-        candidate_id="candidate-a",
-        target_interval=GenomicInterval(target_assembly, "chr16", 100, 150),
-        orientation=MappingOrientation.SAME,
-        mapping_provenance=source,
-        segments=(_segment(source_assembly, target_assembly),),
-        evidence=(support, contradiction),
-    )
-
-    assessment = Assessment(
-        source_interval=GenomicInterval(source_assembly, "chr16", 10, 60),
-        verdict=Verdict.CONTESTED,
-        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
-        decision_reason=AssessmentDecisionReason.LIFTOVER_MULTIPLE_CANDIDATES,
-        candidates=(candidate,),
-        preferred_candidate_id="candidate-a",
-        supporting_evidence=(EvidenceReference("candidate-a", "support"),),
-        contradicting_evidence=(EvidenceReference("candidate-a", "contradiction"),),
-    )
-
-    assert assessment.supporting_evidence[0].candidate_id == "candidate-a"
-    assert assessment.supporting_evidence[0].observation_id == "support"
-    assert assessment.contradicting_evidence[0].observation_id == "contradiction"
-
-
-def test_verdict_enum_contains_exactly_the_three_v1_labels() -> None:
-    assert set(Verdict) == {
-        Verdict.WELL_SUPPORTED,
-        Verdict.CONTESTED,
-        Verdict.INDETERMINATE,
+def test_evidence_availability_is_separate_from_result_state() -> None:
+    assert set(EvidenceAvailabilityTier) == {
+        EvidenceAvailabilityTier.COMPARATIVE,
+        EvidenceAvailabilityTier.LIFTOVER_ONLY,
     }
-
-
-def test_assessment_rejects_evidence_tier_that_disagrees_with_decision_reason(
-    source_assembly: AssemblyIdentifier,
-) -> None:
-    with pytest.raises(ValueError, match="evidence tier"):
-        Assessment(
-            source_interval=GenomicInterval(source_assembly, "chr16", 10, 60),
-            verdict=Verdict.CONTESTED,
-            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
-            decision_reason=AssessmentDecisionReason.LIFTOVER_MULTIPLE_CANDIDATES,
-            candidates=(),
-        )
-
-
-def test_assessment_rejects_verdict_that_disagrees_with_decision_reason(
-    source_assembly: AssemblyIdentifier,
-) -> None:
-    with pytest.raises(ValueError, match="decision reason"):
-        Assessment(
-            source_interval=GenomicInterval(source_assembly, "chr16", 10, 60),
-            verdict=Verdict.CONTESTED,
-            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
-            decision_reason=AssessmentDecisionReason.NO_CANDIDATES,
-            candidates=(),
-        )
-
-
-def test_well_supported_assessment_is_representable(
-    source_assembly: AssemblyIdentifier,
-    target_assembly: AssemblyIdentifier,
-) -> None:
-    source = ProvenanceSource("alignment", "alignment source")
-    observation = EvidenceObservation(
-        "coverage",
-        EvidenceKind.MAPPING_COVERAGE,
-        "full",
-        source,
-    )
-    candidate = NormalizedCandidate(
-        candidate_id="candidate-a",
-        target_interval=GenomicInterval(target_assembly, "chr16", 100, 150),
-        orientation=MappingOrientation.SAME,
-        mapping_provenance=source,
-        segments=(_segment(source_assembly, target_assembly),),
-        evidence=(observation,),
-    )
-
-    assessment = Assessment(
-        source_interval=GenomicInterval(source_assembly, "chr16", 10, 60),
-        verdict=Verdict.WELL_SUPPORTED,
-        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
-        decision_reason=AssessmentDecisionReason.LIFTOVER_SINGLE_FULL_MAPPING,
-        candidates=(candidate,),
-        preferred_candidate_id="candidate-a",
-        supporting_evidence=(EvidenceReference("candidate-a", "coverage"),),
-    )
-
-    assert assessment.verdict is Verdict.WELL_SUPPORTED
 
 
 def test_distinct_sources_can_be_related_through_shared_upstream_provenance(
@@ -292,64 +186,6 @@ def test_distinct_sources_can_be_related_through_shared_upstream_provenance(
     assert chain_observation.provenance.derived_from == (alignment,)
     assert net_observation.provenance.derived_from == (alignment,)
     assert len(candidate.evidence) == 2
-
-
-def test_dependent_evidence_can_remain_indeterminate(
-    source_assembly: AssemblyIdentifier,
-    target_assembly: AssemblyIdentifier,
-) -> None:
-    alignment = ProvenanceSource("alignment", "shared upstream alignment")
-    chain_source = ProvenanceSource(
-        "chain",
-        "chain derived from alignment",
-        derived_from=(alignment,),
-    )
-    net_source = ProvenanceSource(
-        "net",
-        "net derived from alignment",
-        derived_from=(alignment,),
-    )
-    candidate = NormalizedCandidate(
-        candidate_id="candidate-a",
-        target_interval=GenomicInterval(target_assembly, "chr16", 100, 150),
-        orientation=MappingOrientation.SAME,
-        mapping_provenance=chain_source,
-        segments=(_segment(source_assembly, target_assembly),),
-        evidence=(
-            EvidenceObservation(
-                "chain-score",
-                EvidenceKind.CHAIN_SCORE,
-                19000,
-                chain_source,
-            ),
-            EvidenceObservation(
-                "net-class",
-                EvidenceKind.NET_CLASSIFICATION,
-                "syn",
-                net_source,
-            ),
-        ),
-    )
-
-    assessment = Assessment(
-        source_interval=GenomicInterval(source_assembly, "chr16", 10, 60),
-        verdict=Verdict.INDETERMINATE,
-        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
-        decision_reason=AssessmentDecisionReason.COMPARATIVE_NO_MATERIAL_CANDIDATE,
-        candidates=(candidate,),
-        supporting_evidence=(
-            EvidenceReference("candidate-a", "chain-score"),
-            EvidenceReference("candidate-a", "net-class"),
-        ),
-    )
-
-    assert assessment.verdict is Verdict.INDETERMINATE
-    assert len(assessment.supporting_evidence) == 2
-    upstream_sources = {
-        observation.provenance.derived_from[0].source_id
-        for observation in candidate.evidence
-    }
-    assert upstream_sources == {"alignment"}
 
 
 def test_mapping_segment_requires_equal_nonzero_lengths(

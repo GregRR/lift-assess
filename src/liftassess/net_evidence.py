@@ -3,7 +3,7 @@
 This module lives on the candidate-generation side of the architecture boundary.
 It matches parsed net fills to an already-normalized chain candidate, preserves
 all relevant fill contexts, and attaches raw typed observations without ranking,
-aggregating, or assigning an assessment verdict.
+aggregating, or assigning an aggregate result verdict.
 """
 
 from collections.abc import Iterable

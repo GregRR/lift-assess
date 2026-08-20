@@ -1,7 +1,7 @@
 """Mechanical projection of source intervals through parsed UCSC chains.
 
 This module performs candidate generation only. It does not annotate candidates
-with nets, rank candidates, interpret evidence, or assign assessment verdicts.
+with nets, rank candidates, interpret evidence, or assign aggregate result verdicts.
 For UCSC liftOver map chains, the old/source assembly is the chain target side
 (``t*`` fields) and the new/destination assembly is the query side (``q*``
 fields).
@@ -121,7 +121,7 @@ def iter_candidates_from_chains(
 
     Candidates are not ranked or filtered by score here. The function preserves
     the chain iterable's order and leaves comparative interpretation to later
-    assessor logic.
+    result-profile/comparative-synthesis layers.
     """
 
     for chain in chains:

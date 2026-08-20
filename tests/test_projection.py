@@ -192,6 +192,37 @@ def test_split_mapping_remains_one_candidate_with_exact_segments(
     )
 
 
+def test_zero_gap_block_boundary_preserves_exact_chain_segments(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+) -> None:
+    chain = _chain(
+        chain_id=91,
+        blocks=(
+            ChainBlock(size=5, target_gap=0, query_gap=0),
+            ChainBlock(size=3),
+        ),
+    )
+    candidate = _project(
+        GenomicInterval(source_assembly, "chr1", 103, 107),
+        chain,
+        target_assembly,
+        chain_provenance,
+    )
+
+    assert candidate is not None
+    assert len(candidate.segments) == 2
+    assert (
+        candidate.segments[0].source_interval.end
+        == candidate.segments[1].source_interval.start
+    )
+    assert (
+        candidate.segments[0].target_interval.end
+        == candidate.segments[1].target_interval.start
+    )
+
+
 def test_reverse_split_segments_stay_ordered_by_source_coordinates(
     source_assembly: AssemblyIdentifier,
     target_assembly: AssemblyIdentifier,

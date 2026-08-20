@@ -5,7 +5,7 @@ codebase. It is a user-facing inventory, not the scientific specification or
 development roadmap.
 
 - [`DESIGN.md`](DESIGN.md) is authoritative for scientific semantics, invariants,
-  verdict definitions, coordinate rules, and v1 scope.
+  result semantics, coordinate rules, and current scope.
 - [`ROADMAP.md`](ROADMAP.md) is authoritative for implementation status and planned
   work.
 - [`GETTING_STARTED.md`](GETTING_STARTED.md) explains how to use the current CLI.
@@ -25,7 +25,7 @@ liftAssess can currently run a complete single-locus UCSC assessment from:
 
 The `assess-liftover` CLI composes resource discovery or verified cache reuse,
 resource integrity checks, candidate generation, evidence extraction, deterministic
-assessment, and report rendering.
+result-profile derivation, and report rendering.
 
 The common form is:
 
@@ -82,30 +82,29 @@ upstream alignment are therefore not presented as independent confirmation.
 
 ### Evidence-kind implementation matrix
 
-The public `EvidenceKind` enum includes current and planned v1 vocabulary. The exact
-implementation status is:
+The public `EvidenceKind` enum includes current and planned vocabulary. The exact implementation status is:
 
-| `EvidenceKind` | Current status | Current assessment role |
+| `EvidenceKind` | Current status | Current result use |
 | --- | --- | --- |
-| `MAPPING_COVERAGE` | Implemented | Verdict-driving |
-| `CHAIN_GAPS` | Implemented | Context |
+| `MAPPING_COVERAGE` | Implemented | Factual profile/headline |
+| `CHAIN_GAPS` | Implemented | Factual geometry/context |
 | `CANDIDATE_RANK` | Not yet emitted | None yet |
 | `TARGET_PLACEMENT` | Not yet emitted | None yet |
-| `CHAIN_SCORE` | Implemented | Context |
-| `ALIGNED_BASES` | Implemented | Context |
-| `DUPLICATED_QUERY_BASES` | Implemented | Context |
-| `NET_CLASSIFICATION` | Implemented | Context |
-| `NET_HIERARCHY` | Implemented | Context |
-| `RECIPROCAL_BEST_MEMBERSHIP` | Implemented for `COMPARATIVE` | Verdict-driving |
+| `CHAIN_SCORE` | Implemented | Reported context |
+| `ALIGNED_BASES` | Implemented | Reported comparative context |
+| `DUPLICATED_QUERY_BASES` | Implemented | Reported comparative context |
+| `NET_CLASSIFICATION` | Implemented | Reported comparative context |
+| `NET_HIERARCHY` | Implemented | Reported comparative context |
+| `RECIPROCAL_BEST_MEMBERSHIP` | Implemented for `COMPARATIVE` | Reported comparative relationship |
 | `FLANKING_GENE_SYNTENY` | Not yet emitted | None yet |
 
-`TARGET_PLACEMENT` refers to future interpretation of target-sequence role/context. It
-is distinct from the already implemented target coordinates and target bounding
-interval recorded for every candidate.
+`TARGET_PLACEMENT` refers to future interpretation of target-sequence role/context. It is distinct from the already implemented target coordinates and target bounding interval recorded for every candidate.
+
+No evidence kind is converted into a numeric score or hidden weighted vote.
 
 ## Evidence-availability tiers
 
-liftAssess reports evidence availability separately from the assessment verdict.
+liftAssess reports evidence availability separately from the factual mapping result.
 
 ### `COMPARATIVE`
 
@@ -134,90 +133,72 @@ available.
 
 These tiers describe **what could be checked**, not how confident liftAssess is.
 
-## Deterministic assessment
+## Deterministic factual result profile
 
-v1 uses exactly three verdicts:
+The active result path does **not** assign `WELL_SUPPORTED`, `CONTESTED`, or `INDETERMINATE`, and it does not replace them with another aggregate verdict.
 
-- `WELL_SUPPORTED`
-- `CONTESTED`
-- `INDETERMINATE`
+A dedicated derived `ResultProfile` sits between scientific candidate/evidence data and both renderers. It deterministically records currently available dimensions including:
 
-The assessor is deterministic and deliberately has **no numeric confidence score**.
-It currently drives verdicts from categorical source-locus mapping coverage and, in the
-`COMPARATIVE` tier, reciprocal-best membership.
+- projection count;
+- source coverage with exact numerator/denominator;
+- mapped-segment count and uncovered source intervals;
+- target bounding span and target gaps;
+- orientation;
+- maximum candidate source coverage when multiple projections exist;
+- evidence tier and consumed resource roles; and
+- explicit not-yet-assessed/not-run boundaries for later result dimensions.
 
-Raw chain score, net `ali`, net `qDup`, net classification, and net hierarchy are
-reported as scientifically useful context, but v1 does not convert them into arbitrary
-weights or thresholds.
+The profile also derives a factual headline such as `NO CHAIN PROJECTION`, `ONE COMPLETE CHAIN PROJECTION`, `PARTIAL SOURCE COVERAGE`, `COMPLETE BUT DISCONTINUOUS PROJECTION`, or `MULTIPLE CHAIN PROJECTIONS`, plus a bounded deterministic interpretation.
 
-Every assessment records one assessor-owned terminal `decision_reason`. The current
-reason vocabulary is:
-
-- `NO_CANDIDATES`
-- `LIFTOVER_MULTIPLE_CANDIDATES`
-- `LIFTOVER_SINGLE_FULL_MAPPING`
-- `LIFTOVER_SINGLE_PARTIAL_MAPPING`
-- `COMPARATIVE_MULTIPLE_MATERIAL_CANDIDATES`
-- `COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_FULL`
-- `COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_NONE`
-- `COMPARATIVE_SOLE_MATERIAL_FULL_RBEST_PARTIAL`
-- `COMPARATIVE_SOLE_MATERIAL_PARTIAL`
-- `COMPARATIVE_NO_MATERIAL_CANDIDATE`
-
-A preferred candidate is reported only when the deterministic rules support one. A
-`WELL_SUPPORTED` result still does not establish biological correctness.
+Raw chain score, net `ali`, net `qDup`, net classification, net hierarchy, and reciprocal-best membership remain exact reported observations. They are not combined through arbitrary weights or thresholds, and shared UCSC provenance is preserved.
 
 ## Human-readable reporting
 
-The default CLI output is a concise summary containing:
+The default CLI output is a facts-first progressive summary containing:
 
-- the source locus with its display coordinate convention;
-- evidence availability;
-- the verdict;
-- the preferred candidate when one exists, otherwise candidate count/context;
-- a plain-language explanation derived from the recorded `decision_reason`; and
+- the deterministic factual headline;
+- the source interval and coordinate convention;
+- exact source coverage and target geometry needed to understand the result;
+- evidence tier and consumed-resource context;
+- bounded deterministic interpretation;
+- relevant scope/identity boundaries; and
 - the unconditional biological-correctness caveat.
 
-For `COMPARATIVE` assessments, the summary also states that comparative observations
-are not assumed to be independent and points to the detailed outputs for dependency
-provenance.
+Uncomplicated one-complete-projection cases stay compact. The current first slice expands automatically for partial source coverage, fragmented or target-discontinuous geometry, and multiple projections.
 
-`--details` emits the full human-readable dossier, including:
+For `COMPARATIVE` results, the summary states that UCSC-derived comparative observations may share upstream alignment lineage and are not independent votes.
 
-- exact verdict and `decision_reason`;
+`--details` emits the complete currently available factual dossier, including:
+
+- every result-profile field and explicit scope boundary;
 - candidate IDs and UCSC chain IDs where applicable;
-- exact mapped segments and orientation;
+- exact mapped segments, uncovered source intervals, target gaps, and orientation;
 - every evidence observation;
-- categorical assessment roles for observations;
-- net hierarchy context;
+- net hierarchy and reciprocal-best context;
 - resource URLs, cache paths, retrieval times, sizes, checksums, and terms context;
 - consumed-versus-unconsumed resource status; and
 - the complete provenance dependency graph.
 
 ## Machine-readable JSON reporting
 
-`--json` renders schema version 1 from the same completed assessment/report model used
-by the human-readable reports. It is not a second assessment path.
+`--json` renders schema version 2 from the same completed report and derived `ResultProfile` used by the human-readable reports. It is not a second result-derivation path.
 
-Schema v1 includes:
+Schema v2 includes:
 
 - the UCSC database pair;
 - source interval and explicit coordinate-system metadata;
-- evidence tier, verdict, and required `decision_reason`;
-- preferred-candidate reference when one exists;
-- supporting and contradicting evidence references;
-- ordered candidate records;
-- exact mapping segments and target bounding intervals;
-- typed evidence values and categorical assessment roles;
-- resource consumption, retrieval, checksum, and provider-terms metadata;
-- flattened provenance sources and dependency edges; and
+- factual headline, bounded interpretation, projection count, and exact source-coverage summary;
+- complete candidate result profiles;
+- ordered candidate records with exact mapping segments and target bounding intervals;
+- typed evidence values without verdict-derived supporting/contradicting roles;
+- evidence tier and exact resource-consumption metadata;
+- flattened provenance sources and dependency edges;
+- explicit scope states for result dimensions not yet assessed; and
 - the biological-correctness caveat.
 
-All JSON genomic intervals use canonical **0-based, half-open** coordinates. The
-human-facing tier name `LIFTOVER-ONLY` is serialized as the enum token `LIFTOVER_ONLY`
-in schema-v1 JSON and is exposed as `EvidenceAvailabilityTier.LIFTOVER_ONLY` in Python.
-Status and progress remain on stderr, so stdout can be redirected directly to a JSON
-file.
+Schema v2 intentionally does **not** preserve the legacy aggregate `verdict`, verdict-derived `decision_reason`, or preferred-candidate field.
+
+All JSON genomic intervals use canonical **0-based, half-open** coordinates. The human-facing tier name `LIFTOVER-ONLY` is serialized as the enum token `LIFTOVER_ONLY` in JSON and is exposed as `EvidenceAvailabilityTier.LIFTOVER_ONLY` in Python. Status and progress remain on stderr, so stdout can be redirected directly to a JSON file.
 
 `--json` and `--details` are mutually exclusive.
 
@@ -235,8 +216,8 @@ Automatic resource discovery:
 - distinguishes a genuine absence from a provider/network failure so a transient
   transport error cannot silently downgrade evidence availability.
 
-Automatic UCSC discovery is a convenience layer, not a requirement of the assessor
-core. Expert callers can supply local resources and provenance directly.
+Automatic UCSC discovery is a convenience layer, not a requirement of the candidate/
+evidence engine. Expert callers can supply local resources and provenance directly.
 
 ## Resource terms and transfer planning
 
@@ -329,7 +310,7 @@ Current capabilities include:
 - `build_ucsc_candidates_from_files()` for explicitly supplied local resources and
   provenance;
 - `build_ucsc_candidates_from_cached_bundle()` for verified cached bundles;
-- `assess_candidates()` for already-normalized candidates;
+- `build_result_profile()` for already-normalized candidates plus their evidence;
 - `assess_ucsc_cached_bundle()` for end-to-end assessment of an acquired bundle;
 - `discover_ucsc_resources()` for provider discovery;
 - transfer planning and metadata inspection APIs;
@@ -337,8 +318,8 @@ Current capabilities include:
 - cached-bundle loading and verification APIs; and
 - checksum, SHA-256 identity, and file-provenance helpers.
 
-The public model includes typed assembly, interval, mapping-segment, candidate,
-evidence, provenance, assessment, resource, and report objects.
+The public model includes typed assembly, interval, mapping-segment, candidate, evidence,
+provenance, result-profile, resource, and report objects.
 
 ### Public package version
 
@@ -349,7 +330,7 @@ metadata.
 
 The package currently exports these callable boundaries:
 
-- assessment/orchestration: `assess_candidates()`, `assess_ucsc_cached_bundle()`;
+- result/orchestration: `build_result_profile()`, `assess_ucsc_cached_bundle()`;
 - candidate/file handling: `build_ucsc_candidates()`,
   `build_ucsc_candidates_from_files()`, `build_ucsc_candidates_from_cached_bundle()`,
   `iter_chain_file()`, `iter_net_file()`;
@@ -366,9 +347,11 @@ The package currently exports these callable boundaries:
 The package currently exports these model/resource types and errors:
 
 - core models: `AssemblyIdentifier`, `GenomicInterval`, `MappingSegment`,
-  `MappingOrientation`, `NormalizedCandidate`, `Assessment`, `Verdict`,
-  `AssessmentDecisionReason`, and `EvidenceAvailabilityTier`;
-- evidence: `EvidenceKind`, `EvidenceObservation`, `EvidenceReference`,
+  `MappingOrientation`, `NormalizedCandidate`, and `EvidenceAvailabilityTier`;
+- result profile: `ResultProfile`, `CandidateResultProfile`, `ResultScopeProfile`,
+  `FactualHeadline`, `ProjectionCountState`, `SourceCoverageState`, and the explicit
+  not-yet-assessed state enums for later dimensions;
+- evidence: `EvidenceKind`, `EvidenceObservation`,
   `MappingCoverageStatus`, `MappingCoverageSummary`, `ChainGap`, `ChainGapSummary`,
   `NetHierarchySummary`, `ReciprocalBestMembershipStatus`,
   `ReciprocalBestMembershipSummary`, and `ReciprocalBestResourceCompleteness`;

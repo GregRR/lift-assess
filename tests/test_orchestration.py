@@ -9,11 +9,11 @@ from liftassess import (
     CachedUCSCResourceBundle,
     EvidenceAvailabilityTier,
     EvidenceKind,
+    FactualHeadline,
     GenomicInterval,
     ProvenanceSource,
     UCSCAssessmentReport,
     UCSCBundleResourceRole,
-    Verdict,
     assess_ucsc_cached_bundle,
     sha256_identifier_for_file,
     ucsc_resource_terms,
@@ -147,7 +147,7 @@ def _assemblies() -> tuple[AssemblyIdentifier, AssemblyIdentifier]:
     )
 
 
-def test_cached_comparative_bundle_runs_engine_and_assessor_end_to_end(
+def test_cached_comparative_bundle_runs_engine_and_profile_end_to_end(
     tmp_path: Path,
 ) -> None:
     source, target = _assemblies()
@@ -165,10 +165,12 @@ def test_cached_comparative_bundle_runs_engine_and_assessor_end_to_end(
     assert report.source_db == "canFam3"
     assert report.target_db == "canFam4"
     assert report.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
-    assert report.assessment.verdict is Verdict.WELL_SUPPORTED
-    assert report.assessment.preferred_candidate_id is not None
-    assert len(report.assessment.candidates) == 1
-    candidate = report.assessment.candidates[0]
+    assert (
+        report.result_profile.headline is FactualHeadline.ONE_COMPLETE_CHAIN_PROJECTION
+    )
+    assert report.result_profile.maximum_coverage_candidate_ids
+    assert len(report.candidates) == 1
+    candidate = report.candidates[0]
     assert any(
         observation.kind is EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP
         for observation in candidate.evidence
@@ -223,7 +225,7 @@ def test_report_distinguishes_consumed_evidence_inputs_from_bundle_context(
         for resource in report.resources
     )
 
-    candidate = report.assessment.candidates[0]
+    candidate = report.candidates[0]
     chain_resource = report.resources[0]
     assert chain_resource.file_provenance == candidate.mapping_provenance
 
@@ -258,7 +260,7 @@ def test_no_candidate_report_does_not_claim_comparative_files_were_consumed(
     source, target = _assemblies()
     alignment = ProvenanceSource("alignment", "shared UCSC alignment")
     # The invalid net bytes are content-addressed honestly in the cached resource.
-    # If orchestration tried to parse them despite having no candidates, assessment
+    # If orchestration tried to parse them despite having no candidates, profile
     # construction would fail instead of returning a report.
     bundle = _comparative_bundle(tmp_path, chain_start=200, valid_net=False)
 
@@ -269,14 +271,14 @@ def test_no_candidate_report_does_not_claim_comparative_files_were_consumed(
         alignment_provenance=alignment,
     )
 
-    assert report.assessment.verdict is Verdict.INDETERMINATE
-    assert report.assessment.candidates == ()
+    assert report.result_profile.headline is FactualHeadline.NO_CHAIN_PROJECTION
+    assert report.candidates == ()
     assert {
         resource.role for resource in report.resources if resource.consumed_by_engine
     } == {UCSCBundleResourceRole.CHAIN}
 
 
-def test_liftover_only_report_keeps_tier_separate_from_supported_verdict(
+def test_liftover_only_report_keeps_tier_separate_from_result_state(
     tmp_path: Path,
 ) -> None:
     source, target = _assemblies()
@@ -294,7 +296,9 @@ def test_liftover_only_report_keeps_tier_separate_from_supported_verdict(
     )
 
     assert report.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY
-    assert report.assessment.verdict is Verdict.WELL_SUPPORTED
+    assert (
+        report.result_profile.headline is FactualHeadline.ONE_COMPLETE_CHAIN_PROJECTION
+    )
     assert len(report.resources) == 1
     assert report.resources[0].consumed_by_engine
     assert report.resources[0].resource is bundle.chain
@@ -303,7 +307,7 @@ def test_liftover_only_report_keeps_tier_separate_from_supported_verdict(
     assert report.resources[0].resource.terms.restricted_liftover_chain
 
 
-def test_comparative_consumption_is_independent_of_contested_verdict(
+def test_comparative_consumption_is_independent_of_multiple_projection_state(
     tmp_path: Path,
 ) -> None:
     source, target = _assemblies()
@@ -326,7 +330,7 @@ def test_comparative_consumption_is_independent_of_contested_verdict(
         alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
     )
 
-    assert report.assessment.verdict is Verdict.CONTESTED
+    assert report.result_profile.headline is FactualHeadline.MULTIPLE_CHAIN_PROJECTIONS
     assert _consumed_roles(report) == {
         UCSCBundleResourceRole.CHAIN,
         UCSCBundleResourceRole.NET,
@@ -334,7 +338,7 @@ def test_comparative_consumption_is_independent_of_contested_verdict(
     }
 
 
-def test_comparative_consumption_is_independent_of_indeterminate_verdict(
+def test_comparative_consumption_is_independent_of_rbest_membership_state(
     tmp_path: Path,
 ) -> None:
     source, target = _assemblies()
@@ -356,7 +360,9 @@ def test_comparative_consumption_is_independent_of_indeterminate_verdict(
         alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
     )
 
-    assert report.assessment.verdict is Verdict.INDETERMINATE
+    assert (
+        report.result_profile.headline is FactualHeadline.ONE_COMPLETE_CHAIN_PROJECTION
+    )
     assert _consumed_roles(report) == {
         UCSCBundleResourceRole.CHAIN,
         UCSCBundleResourceRole.NET,
@@ -381,7 +387,7 @@ def test_liftover_only_multi_candidate_report_marks_only_chain_consumed(
         alignment_provenance=ProvenanceSource("alignment", "upstream UCSC alignment"),
     )
 
-    assert report.assessment.verdict is Verdict.CONTESTED
+    assert report.result_profile.headline is FactualHeadline.MULTIPLE_CHAIN_PROJECTIONS
     assert _consumed_roles(report) == {UCSCBundleResourceRole.CHAIN}
 
 
@@ -401,8 +407,8 @@ def test_liftover_only_zero_candidate_report_marks_only_chain_consumed(
         alignment_provenance=ProvenanceSource("alignment", "upstream UCSC alignment"),
     )
 
-    assert report.assessment.verdict is Verdict.INDETERMINATE
-    assert report.assessment.candidates == ()
+    assert report.result_profile.headline is FactualHeadline.NO_CHAIN_PROJECTION
+    assert report.candidates == ()
     assert _consumed_roles(report) == {UCSCBundleResourceRole.CHAIN}
 
 
@@ -421,7 +427,7 @@ def test_zero_candidate_progress_never_consumes_comparative_evidence_resources(
         progress_callback=lambda role, read, total: events.append((role, read, total)),
     )
 
-    assert report.assessment.candidates == ()
+    assert report.candidates == ()
     assert {role for role, _, _ in events} == {UCSCBundleResourceRole.CHAIN}
     assert events[-1] == (
         UCSCBundleResourceRole.CHAIN,
@@ -445,7 +451,7 @@ def test_cached_bundle_progress_reports_exact_consumed_raw_byte_totals(
         progress_callback=lambda role, read, total: events.append((role, read, total)),
     )
 
-    assert report.assessment.candidates
+    assert report.candidates
     assert bundle.net is not None
     assert bundle.reciprocal_best_chain is not None
     final_by_role = {role: (read, total) for role, read, total in events}
