@@ -2,11 +2,13 @@
 
 This roadmap tracks implementation status and sequencing for **liftAssess**. It is a development-status document, not the scientific specification.
 
-[`DESIGN.md`](DESIGN.md) remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, verdict meanings, v1 scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
+[`DESIGN.md`](DESIGN.md) remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, result-model semantics, current scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
 
-## Current status — 2026-08-17
+## Current status — 2026-08-19
 
 liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
+
+The post-alpha 50-case real-world validation / UX program and subsequent design review are now complete enough to set the next implementation direction. The approved redesign removes the legacy aggregate verdict taxonomy from the target model, adopts a facts-first orthogonal result profile with progressive disclosure, deliberately permits a new pre-release schema version, and starts scalable/indexed resource-access work immediately after the first renderer/profile slice. The released alpha code remains the historical baseline until those milestones are implemented.
 
 The project now has an integrated UCSC evidence pipeline plus a completed real comparative mechanical fixture. The current code can:
 
@@ -298,7 +300,7 @@ The deterministic assessor core is implemented and reviewed. It transforms norma
 candidates plus provenance-aware evidence into exactly one of `WELL_SUPPORTED`, `CONTESTED`, or
 `INDETERMINATE` without a numeric score or biological-correctness claim.
 
-Current verdict-driving rules are intentionally limited to categorical, locus-specific evidence
+The alpha verdict-driving rules are intentionally limited to categorical, locus-specific evidence
 whose direction is already explicit: source-locus mapping coverage and, for `COMPARATIVE`,
 reciprocal-best membership. Raw chain score, `ali`, `qDup`, net classification, and net hierarchy
 remain report context and do not silently become weights or thresholds.
@@ -380,14 +382,14 @@ This focused correctness/compatibility slice was discovered during the final pro
 Implemented and reviewed:
 
 - fixed the confirmed concise-summary bug in which an `INDETERMINATE` comparative assessment with multiple raw candidates but only one material partial candidate can be described as though the evidence failed to distinguish the candidates; the remaining uncertainty is incomplete source-locus coverage, not unresolved material multiplicity;
-- added one required assessor-owned categorical `decision_reason` to every `Assessment`, using the ten exhaustive/mutually-exclusive terminal conditions specified in [`DESIGN.md`](DESIGN.md) rather than mixing biological findings with evidence-rule names;
+- added one required assessor-owned categorical `decision_reason` to every `Assessment`, using the ten exhaustive/mutually-exclusive terminal conditions specified in the pre-alpha design baseline rather than mixing biological findings with evidence-rule names;
 - split the final comparative fallback into `COMPARATIVE_SOLE_MATERIAL_PARTIAL` versus `COMPARATIVE_NO_MATERIAL_CANDIDATE` using the already-defined material-candidate predicate, and regression-tested the exact boundary (`PARTIAL` coverage with reciprocal-best `FULL`/`PARTIAL` is material; reciprocal-best `NONE` is not);
 - made reporting consume the recorded decision reason instead of reconstructing assessor semantics from candidate count, verdict, or evidence values;
 - required every `Assessment` construction to supply a decision reason, handle every declared decision-reason enum member explicitly in reason/verdict/reporting mappings without wildcard fallback, and test that assessor coverage reaches the complete declared reason vocabulary; branch-specific regression tests must still verify that each semantic boundary selects the correct reason;
 - included the required decision reason in human detail and JSON output and finalized schema v1 before alpha; private pre-alpha schema v1 remains mutable, while the first public alpha freezes it as an external compatibility surface and later incompatible structural/semantic changes require a new schema version;
 - added a concise dependence qualification only for `COMPARATIVE` summaries: comparative observations are not assumed to be independent, with dependency provenance available in `--details` / `--json`. `LIFTOVER-ONLY` output should not receive that context-free qualification.
 
-The slice preserves the existing three verdicts, two evidence tiers, no-score policy, and assessor-not-resolver boundary. The routine suite now contains 316 passing tests; Ruff, Ruff formatting, strict mypy, package build, and `git diff --check` all passed. A post-hardening offline CLI run on 2026-08-17 reported `COMPARATIVE`, 170 candidates, and `CONTESTED` with the new dependence qualification and biological-correctness caveat. The independently derived mechanical-fixture verifier then passed against the same cached bundle, deriving `CONTESTED` from 138 material candidates and matching the production assessor without calling its verdict logic.
+At that historical alpha-hardening point, the slice preserved the legacy three-verdict model, two evidence tiers, no-score policy, and assessor-not-resolver boundary. The routine suite now contains 316 passing tests; Ruff, Ruff formatting, strict mypy, package build, and `git diff --check` all passed. A post-hardening offline CLI run on 2026-08-17 reported `COMPARATIVE`, 170 candidates, and `CONTESTED` with the new dependence qualification and biological-correctness caveat. The independently derived mechanical-fixture verifier then passed against the same cached bundle, deriving `CONTESTED` from 138 material candidates and matching the production assessor without calling its verdict logic.
 
 ### 16. First public alpha milestone
 
@@ -400,49 +402,204 @@ The public-transition milestone is defined by:
 - README usage commands are real and reproducible;
 - the project clearly labels itself alpha and states that well-supported does not mean biologically correct.
 
-As of 2026-08-17, Milestone 16 is complete. v0.1.0a1 was tagged and published to PyPI as the first public alpha, and the documented external PyPI install path was verified successfully. The public-alpha compatibility period begins with this release.
+As of 2026-08-17, Milestone 16 is complete. v0.1.0a1 was tagged and published to PyPI as the first public alpha, and the documented external PyPI install path was verified successfully. The public-alpha compatibility period began with this release; the post-50-case owner decision below deliberately allows the upcoming redesign to break that early-alpha schema rather than preserve obsolete result semantics.
 
-## Remaining v1 work after the first public alpha
+## Post-alpha redesign after the 50-case program
 
-### Historical-resolution sanity fixture
+The first public alpha proved that liftAssess can discover/acquire UCSC resources, build candidates,
+extract comparative evidence, preserve provenance, and produce end-to-end CLI/JSON output. The
+completed 50-case real-world validation / UX program then established that the legacy aggregate
+verdict interface is not an adequate primary explanation of what happened to a locus.
 
-Identify one concrete, independently established `canFam3.1` → `canFam6` locus from the same-individual Tasha pedigree. This should test sensible behavior under sparse evidence and later assembly resolution without being used as a calibration set.
+The corpus was deliberately enriched for difficult/support-question cases and controls. It is not a
+prevalence, sensitivity, specificity, or general accuracy benchmark. The `38 YES / 10 MOSTLY / 2 NO`
+language replay is same-corpus design evidence, not held-out validation. Likewise, counts of legacy
+`WELL_SUPPORTED` misses demonstrate that the old label can conceal known failure modes in this
+corpus; they are not estimates of how often arbitrary real-world mappings have hidden problems.
 
-### Assembly identity/canonicalization boundary — v1 rule defined
+### Approved post-alpha policy changes
 
-Milestone 15 defines the first external-identifier construction rule narrowly: an explicit UCSC database identifier is canonicalized to `AssemblyIdentifier(name=<db>, provider="UCSC")`. The CLI does not infer accessions or biological aliases from that string, and it threads the same structured assembly object into the canonical source interval / target engine call.
+The owner review on 2026-08-19 closes the main design-policy questions:
 
-`AssemblyIdentifier` structural equality therefore remains an internal consistency check rather than a speculative general alias resolver. The cached-bundle bridge continues to validate a UCSC db against an explicitly recorded name/alias when callers supply richer assembly metadata. General cross-provider identity resolution remains outside v1 scope and should only be added against a concrete requirement.
+- remove `WELL_SUPPORTED`, `CONTESTED`, and `INDETERMINATE` from the target result model; do not
+  introduce a replacement one-word aggregate verdict;
+- use orthogonal factual states, evidence/provenance, deterministic factual headlines, and bounded
+  interpretation;
+- deliberately make a pre-release machine-schema compatibility break rather than carrying the
+  legacy verdict schema through the redesign;
+- use progressive disclosure: keep the full result profile structured, keep uncomplicated terminal
+  output compact, and expand materially unusual results;
+- begin indexing/shared-traversal work immediately after the first factual renderer slice while
+  assembly metadata/preflight and contextual-evidence work may proceed in parallel;
+- use categorical, provenance-aware comparative relationships with no hidden numeric weighting;
+  human output must explain *how* mixed/conflicting evidence differs rather than print an opaque
+  `MIXED` label alone;
+- initially add automatic centered 101-bp local context to 1-bp point queries once the scalable
+  resource-access path makes it practical;
+- make BED/simple interval-table input first-class with batch support, with batch relationships in a
+  separate result layer;
+- treat nonzero exit status as usage/input/operational failure, not as a scientific ambiguity/no-
+  projection classifier;
+- allow constrained BED12/custom-track export and Genome Browser links as visualization/navigation,
+  not evidence; and
+- begin the difficult-region pilot now, modeling each source as typed, provenance-bearing context
+  rather than one generic warning. Start with UCSC segmental-duplication context where source,
+  terms, and assembly coverage are verified; evaluate GIAB/excluderanges categories separately.
 
-### Candidate-rank evidence
+### 17. Factual result profile, new schema, and progressive renderer
 
-Candidate rank remains intentionally deferred until a defensible locus-scoped definition exists. Raw chain-score ordering is not an acceptable substitute for a scientifically justified candidate-rank concept.
+**Goal:** replace the target aggregate-verdict interface without rewriting candidate generation.
 
-### Target-sequence role and ambiguity context
+Implement a dedicated derived result-profile/view-model layer over the existing scientific report
+and new composite-analysis results. The profile should represent input validity, projection count,
+source coverage, continuity/geometry, target role, orientation, reverse result, query-scale context,
+comparative relationships, batch relationships, typed external context, evidence tier/resource
+consumption, and provenance/dependence.
 
-Add categorical target-sequence context only from a defined evidence source rather than treating sequence-name patterns as biological truth. Prefer authoritative per-sequence assembly metadata when available. NCBI's genome sequence report exposes sequence role, assembly unit, chromosome name, GenBank/RefSeq sequence accessions, and UCSC-style sequence name, providing an explicit bridge from assembly metadata to UCSC names (`https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/using-dataformat/genome-data-reports/`). Provider-specific naming conventions may be used only as an explicitly labeled fallback when authoritative metadata is unavailable. Keep this context descriptive; it must not silently become a verdict rule or claim that ambiguity was biologically caused by duplication/alternate sequence.
+First-slice work:
 
-### Performance and scalable batch assessment
+- define the new machine schema version and explicitly document the alpha-v1 compatibility break;
+- remove legacy verdict/`decision_reason`/preferred-candidate semantics from the target model rather
+  than carrying them forward solely for compatibility;
+- derive literal factual headlines from evidence already computed;
+- add coverage/fragmentation and large-region summaries, including maximum candidate source coverage,
+  uncovered bases/spans, segment count, target gaps, and alternatives;
+- implement progressive-disclosure default output plus complete detail/JSON output;
+- preserve the six common-use lenses as scope/model concepts without forcing six invariant terminal
+  lines on every clean result;
+- reserve explicit input/preflight states in the result-profile/schema so Milestone 18 can populate
+  them from authoritative metadata;
+- retain the no-score, assessor-not-resolver, provenance-dependence, coordinate, and target-bounding-
+  span invariants;
+- keep Genome Browser/locus links as optional navigation aids;
+- keep a compact profile-vector string deferred unless real workflow demand appears.
 
-Initial single-locus performance characterization completed 2026-08-17 on commit `e1e0472c` and is documented in [`PERFORMANCE.md`](PERFORMANCE.md). On an Apple M4, two offline `canFam3`→`canFam4` mechanical-fixture runs took 641.17 and 625.71 seconds. A simple `WELL_SUPPORTED` locus on the same 2.47 GiB all-chain took 640.74 seconds, while a zero-candidate `canFam6`→`mm39` locus using a 157.0 MiB all-chain took 42.50 seconds. A mapped locus on that smaller pair took 103.12 seconds. The cross-species `canFam6`→`mm39` runs are computational probes only, not scientific validation within v1's same-species operational envelope. `cProfile` independently identified Python-level chain parsing/object construction as the dominant hotspot in the large-chain mechanical-fixture workload. These measurements are scoped performance evidence, not a universal scaling law.
+The 50-case work does **not** justify a candidate-generation rewrite. Existing candidate semantics
+should change only in response to a separately measured defect.
 
-Treat avoiding unnecessary whole-resource parsing as a single-locus performance requirement as well as a future batch requirement. Add BED/simple interval-table batch assessment only with an architecture that reuses work across loci. Do not implement batch mode as a naive outer loop that reparses multi-gigabyte comparative resources once per locus. The design should either evaluate many intervals during shared resource traversal or introduce an indexed/preprocessed local representation while preserving the same single-locus assessor semantics, exact resource/provenance identities, and per-locus provenance.
+### 18. Start scalable resource access; assembly metadata and difficult-region context in parallel
 
-After a structural reuse/indexing approach is implemented and benchmarked, profile again before deciding whether parser micro-optimization or safe multicore execution is the next bottleneck. Any parallel path must preserve deterministic assessment results, coordinate semantics, evidence completeness, and provenance.
+**Trigger:** begin this work immediately after the first Milestone-17 renderer/profile slice is
+working. Do not wait until reverse/neighborhood/batch features have already multiplied scans.
 
-### Reproducible case manifests and portable packets
+Measured performance background (2026-08-17): on the tested implementation, a 2.47-GiB
+canFam3→canFam4 all-chain single-locus run took roughly 10.5 minutes on an Apple M4 regardless of
+whether the final legacy result was complex or simple, while profiling showed Python-level chain
+parsing/object construction dominating. The smaller-resource probes scaled roughly with chain size,
+and mapped comparative processing added material additional cost. These measurements establish the
+problem, not the final architecture.
 
-Define a portable case manifest containing the schema-versioned assessment, exact resource SHA-256 identities, source URLs, retrieval/checksum/terms metadata, and provenance graph. A later archive/packet form may embed byte-identical cached resources only when their applicable redistribution terms permit it; resource bytes must not be bundled merely because they are already cached locally.
+Required work:
 
-### Optional flanking-gene synteny context
+- prototype region-addressable/indexed/shared-traversal approaches and benchmark them against the
+  frozen performance probes;
+- preserve exact coordinate, candidate, evidence-completeness, resource-identity, and provenance
+  semantics;
+- add authoritative assembly-sequence metadata for source-name validation, bounds, aliases, and
+  target role; chain-file names alone are not sufficient;
+- reject invalid source names and out-of-range coordinates before scientific mapping; expose
+  reusable preflight metadata for later BED/batch intake;
+- begin the typed difficult-region pilot, first against the duplication/paralogy cases using UCSC
+  segmental-duplication context when its source/terms/assembly coverage are verified;
+- evaluate GIAB stratifications and relevant `excluderanges` categories separately rather than
+  treating them as interchangeable.
 
-Select and verify a real source, likely an external orthology/synteny provider, and model its provenance/dependencies explicitly. Do not assume orthology calls are independent merely because they come from a different API or file.
+No particular index design is frozen. Local interval index, header index, compact parsed
+representation, shared traversal, or another design remains eligible until measured prototype
+results select one.
 
-### Schema-v1 compatibility after alpha
+### 19. Actual reverse-mapping context
 
-The pre-alpha hardening slice finalizes schema v1, including the assessor-owned decision reason. The first public alpha is the compatibility boundary: after that release, v1 must not receive incompatible structural or semantic redefinitions. Proposed additions still require explicit compatibility review rather than being assumed safe merely because they are additive. Candidate array order remains reproducibility-only, not rank, and the biological-correctness caveat remains explicit.
+Add reverse assessment as its own structured result dimension.
 
-## Deliberately deferred beyond v1
+- distinguish `returns to original source`, `returns elsewhere`, `unavailable`, and `not run`;
+- never relabel current UCSC reciprocal-best membership as actual reverse mapping;
+- treat non-reciprocity as context, not automatic proof that the forward projection is wrong;
+- reuse the scalable resource-access architecture rather than launching another exhaustive scan per
+  candidate/query.
+
+### 20. Point neighborhood / multi-scale context
+
+Add automatic local context for 1-bp point queries:
+
+- centered 101-bp window (±50 bases when source bounds permit);
+- exact tested window always reported;
+- 101 bp described as a product/context default, not a confidence threshold or universal biological
+  scale;
+- ordinary interval queries are not automatically widened;
+- explicit larger-context controls remain available;
+- a point/context disagreement is reported directly and does not silently trigger recursive 1-kb/
+  10-kb widening.
+
+Corpus B provides six matched clean 101-bp controls showing that widening can remain neutral when
+local geometry is uncomplicated; difficult cases show that context can also expose fragmentation or
+cross-record relationships. Revisit the default after held-out/outside-user testing.
+
+### 21. Filtered/all-chain comparison and comparative relationships
+
+Make ordinary filtered liftOver versus all-chain candidate inventory explicit comparative context.
+
+Initial categorical interpretation must support at least:
+
+- comparative evidence favors one placement;
+- comparative evidence does not separate placements; and
+- comparative evidence is mixed/conflicting.
+
+The first accepted `favors one placement` pattern is the B14-style relationship: multiple
+full all-chain placements, exactly one retained by the ordinary filtered chain, that same
+placement top-net + full reciprocal-best, and no competing full placement with equivalent
+categorical top-net + full reciprocal-best support.
+
+Do not create hidden weights from chain score, `ali`, `qDup`, net hierarchy, or reciprocal-best
+membership. `ali`/`qDup` remain descriptive until a separately justified deterministic rule exists.
+When evidence is mixed/conflicting, human output must list the material relationship—what the
+filtered chain retained, what net/rbest supports, and what conflicts—instead of stopping at a vague
+label. Shared UCSC alignment lineage remains explicit; these observations are not independent votes.
+
+### 22. BED/table batch input and cross-record relationships
+
+Add first-class BED/simple interval-table batch assessment only on top of shared traversal/indexed
+resource access.
+
+- validate BED semantics at intake, including zero-width/empty intervals;
+- retain the existing single-locus CLI syntax;
+- represent exact target collisions separately from overlapping-but-offset projections;
+- keep batch relationships in a batch result layer rather than candidate-level evidence;
+- support neighborhood-level collision relationships when point-context analysis is available;
+- preserve per-record exact resources/provenance and deterministic results;
+- do not implement batch as a naive outer loop that reparses multi-gigabyte resources per row.
+
+Optional BED12/custom-track export may visualize one candidate whose blocks share a target sequence;
+it must not collapse multiple candidates/target sequences or replace source-coverage reporting.
+
+### 23. Held-out result-language and outside-user gate
+
+Before describing the redesigned language as validated or release-ready:
+
+- run a small set of real cases not used to derive the language;
+- include uncomplicated controls and difficult/ambiguous examples;
+- exercise the 101-bp point-context default and typed contextual observations;
+- obtain outside-user/domain feedback on whether the factual headline, expanded unusual-case output,
+  comparative explanations, and scope boundaries answer the practical question without implying
+  biological certainty.
+
+This gate tests communication/usefulness, not a numeric confidence model. The existing 50 cases
+remain same-corpus design evidence.
+
+### Parallel / non-blocking research items
+
+These remain useful but should not disrupt the sequence above:
+
+- identify one concrete independently established `canFam3.1` → `canFam6` same-individual locus to
+  turn the historical-resolution pedigree into a truth-bearing sanity fixture;
+- define portable case manifests and any later byte-containing packets under provenance and
+  redistribution-term constraints;
+- select and verify a real optional flanking-gene synteny/orthology source;
+- build a curated worked-examples gallery from the 50 cases for onboarding, clearly labeled as
+  examples rather than independent validation;
+- revisit candidate-rank evidence only when a defensible locus-scoped semantics exists.
+
+## Deliberately deferred beyond the current redesign
 
 The following should not distract from making the first version scientifically useful:
 
@@ -454,7 +611,10 @@ The following should not distract from making the first version scientifically u
 - composite numeric confidence scores;
 - automatic biological orthology claims;
 - large bundled species databases;
-- hosted service infrastructure.
+- hosted service infrastructure;
+- compact profile-vector strings unless a real workflow demonstrates need for a second compact
+  compatibility surface;
+- VCF-specific vocabulary/API commitments until a VCF data model exists.
 
 ## Development and review discipline
 
