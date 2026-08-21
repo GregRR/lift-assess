@@ -135,3 +135,79 @@ That older run was **not** captured under the same frozen benchmark protocol: it
 Python/tool environment, machine specification, and cached resource identities were not recorded
 together with the timing. It is therefore an informal development observation, not a controlled
 cross-hardware benchmark and not a performance claim about liftAssess releases.
+
+## Milestone 18 chain-index prototype results
+
+A second performance investigation on 2026-08-20 used the same M4 Mac mini and exact
+2.47-GiB `canFam3` → `canFam4` all-chain resource to select the reusable chain-access
+architecture for Milestone 18. These measurements are engineering benchmarks, not scientific
+validation. Every indexed/selective result below was required to reproduce the exact candidate
+tuple from the full parser for both the 170-candidate mechanical fixture and the ordinary
+single-candidate control.
+
+| Access path | 170-candidate locus | 1-candidate locus | Notes |
+|---|---:|---:|---|
+| Full traversal | 626.376 s | 632.612 s | Current parser baseline |
+| Selective materialization after header scan | 348.127 s | 359.255 s | Still scans the full 2.47-GiB resource |
+| Per-source-sequence shard | 10.339 s | 7.774 s | Reuses a one-time sequence partition |
+| 65,536-bp bin index over sequence shards | 0.309 s | 0.101 s | 948 and 1 chain records selected, respectively |
+| Single-copy blocked store over the bin index | 0.350 s | 0.104 s | Same lookup semantics with substantially smaller derived storage |
+| Full-resource blocked/bin index | 1.353 s | 0.106 s | 948 and 1 chain records selected; exact candidate equivalence |
+
+The full-resource prototype indexed **33,486,862 chain records** into **35,067,017 bin
+memberships** and **8,346 independently compressed blocks**. The index itself took 1,234.746
+seconds (20.6 minutes) of active build time and occupied 3.844 GiB (1.365 GiB SQLite metadata plus
+2.478 GiB compressed record blocks).
+
+The enclosing `/usr/bin/time` process initially reported 2,242.47 seconds (37.4 minutes), but that
+wall-clock figure is **not** a valid compute-time measurement. A later `pmset -g log` check showed
+that the M4 entered sleep twice during the benchmark, for 318 seconds and 692 seconds respectively
+(1,010 seconds total). That almost exactly explains the 1,007.724-second difference between the
+external wall clock and the script's build timer. The 37.4-minute value should therefore not be used
+as an index-build performance result.
+
+Follow-up M4 measurements also ruled out cache-integrity hashing as the source of that gap. SHA-256
+verification of the 1.365-GiB index database took 1.27 seconds immediately after `sudo purge` and
+0.60 seconds on an immediate warm rerun. Loading/verifying the complete cached `canFam3` →
+`canFam4` COMPARATIVE bundle took 1.232 seconds after `sudo purge` and 1.192 seconds on a warm
+rerun on that M4/SSD system.
+
+A later cold-cache check on the older development iMac, whose cache resides on a comparatively slow
+HDD, measured **95.976 seconds** inside `load_cached_ucsc_resource_bundle()` for the same complete
+COMPARATIVE bundle after `sudo purge`. That measurement is hardware/storage-specific, not a general
+liftAssess runtime, but it demonstrates that unconditional multi-gigabyte rehashing can dominate an
+indexed query on slower storage even when cryptographic computation itself is cheap. The indexed
+production path therefore keeps the integrity contract while avoiding a redundant reread of the
+original chain: index build/rebuild verifies the full source chain; subsequent indexed assessment
+verifies a compact lookup-integrity catalog, authenticates the membership/record-locator rows for
+the exact queried genomic bins, and validates selected compressed blocks; the other cached bundle
+artifacts continue to receive their normal direct verification. The full SQLite database SHA-256 is
+retained for explicit deep verification but is not a prerequisite for every indexed query. This
+prevents the integrity mechanism from merely moving the slow-storage bottleneck from the original
+2.53-GiB chain to the roughly 1.365-GiB lookup database.
+
+A targeted two-sequence blocked-store experiment reduced the corresponding derived representation
+from about 732 MiB to about 311 MiB while retaining 0.10–0.35-second queries. A competing design
+that duplicated complete record payloads into compressed genomic-bin frames had less predictable
+storage behavior, especially for long chains crossing many bins, and was not selected.
+
+A focused iMac follow-up measured the still-exhaustive comparative evidence parsers after chain
+indexing had made candidate lookup cheap. Parsing the 10.03-MiB ordinary net produced 847,501
+records in **8.174 seconds**; parsing the 5.15-MiB reciprocal-best chain produced 7,570 records in
+**4.841 seconds**, for **13.015 seconds combined**. These are parser timings on the older iMac, not
+M4-comparable end-to-end timings. They establish that comparative scans are material once chain
+lookup is indexed, but they do not by themselves select another persistent index format. Future
+reverse, point-context, comparative-expansion, and batch work must share or index this traversal
+rather than multiplying the same whole-resource scans per derived query.
+
+**Measured architecture decision:** use 65,536-bp source-coordinate bin memberships for spatial
+selection and store each serialized chain record exactly once in encounter-order compressed blocks.
+Bind the derived artifact to the canonical SHA-256 of the original chain, preserve original record
+order for reproducibility, and keep the existing parser/projection logic authoritative for selected
+records. The production path may reuse a validated index when present and fall back to the original
+verified traversal otherwise. Initial index construction is deliberately explicit through
+`prepare-liftassess-index SOURCE_DB TARGET_DB`: the command uses only an already verified local
+bundle and never turns an ordinary first query into an implicit multi-minute preprocessing job.
+
+For future long-running macOS benchmarks, run the timed command under `caffeinate` (unless sleep is
+itself part of the experiment) so system idle sleep cannot silently inflate wall-clock timing.

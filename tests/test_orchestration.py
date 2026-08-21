@@ -15,6 +15,7 @@ from liftassess import (
     UCSCAssessmentReport,
     UCSCBundleResourceRole,
     assess_ucsc_cached_bundle,
+    build_cached_chain_index,
     sha256_identifier_for_file,
     ucsc_resource_terms,
 )
@@ -175,6 +176,30 @@ def test_cached_comparative_bundle_runs_engine_and_profile_end_to_end(
         observation.kind is EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP
         for observation in candidate.evidence
     )
+
+
+def test_assessment_with_chain_index_matches_full_report(tmp_path: Path) -> None:
+    source, target = _assemblies()
+    bundle = _comparative_bundle(tmp_path)
+    alignment = ProvenanceSource("alignment", "shared UCSC alignment")
+    interval = GenomicInterval(source, "chr1", 105, 115)
+    full = assess_ucsc_cached_bundle(
+        interval,
+        bundle,
+        target_assembly=target,
+        alignment_provenance=alignment,
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+
+    indexed = assess_ucsc_cached_bundle(
+        interval,
+        bundle,
+        target_assembly=target,
+        alignment_provenance=alignment,
+        chain_index=index,
+    )
+
+    assert indexed == full
 
 
 def test_report_distinguishes_consumed_evidence_inputs_from_bundle_context(

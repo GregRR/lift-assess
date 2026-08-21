@@ -50,6 +50,8 @@ from liftassess.resource_cache import (
     _inspect_ucsc_bundle_transfer_plan,
     _inspect_ucsc_resource,
     _write_url_index,
+    load_cached_ucsc_resource_bundle_for_indexed_assessment,
+    resolve_cached_ucsc_resource_bundle_metadata,
 )
 
 
@@ -1418,6 +1420,122 @@ def test_cached_bundle_loader_prefers_complete_comparative_bundle(
     assert result.reciprocal_best_chain.cache_hit is True
     assert result.reciprocal_best_net is not None
     assert result.reciprocal_best_net.cache_hit is True
+
+
+def test_cached_bundle_metadata_resolver_checks_structure_without_hashing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _comparative_bundle()
+    for index, url in enumerate(
+        (
+            bundle.chain_url,
+            bundle.net_url,
+            bundle.syntenic_net_url,
+            bundle.reciprocal_best_chain_url,
+            bundle.reciprocal_best_net_url,
+        )
+    ):
+        assert url is not None
+        _publish_cached_index_entry(tmp_path, url, f"resource-{index}".encode())
+
+    def forbidden_hash(*args: object, **kwargs: object) -> str:
+        raise AssertionError("metadata resolution must not hash artifact bytes")
+
+    monkeypatch.setattr(
+        "liftassess.resource_cache.compute_resource_checksum",
+        forbidden_hash,
+    )
+
+    result = resolve_cached_ucsc_resource_bundle_metadata(
+        tmp_path, "canFam3", "canFam4"
+    )
+
+    assert result is not None
+    assert result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+
+
+def test_cached_bundle_loader_can_trust_exact_chain_identity_from_derived_index(
+    tmp_path: Path,
+) -> None:
+    bundle = _comparative_bundle()
+    resources = tuple(
+        (url, f"resource-{index}".encode())
+        for index, url in enumerate(
+            (
+                bundle.chain_url,
+                bundle.net_url,
+                bundle.syntenic_net_url,
+                bundle.reciprocal_best_chain_url,
+                bundle.reciprocal_best_net_url,
+            )
+        )
+        if url is not None
+    )
+    for url, data in resources:
+        _publish_cached_index_entry(tmp_path, url, data)
+
+    chain_url, chain_data = resources[0]
+    chain_digest = hashlib.sha256(chain_data).hexdigest()
+    chain_artifact = tmp_path / "artifacts" / "sha256" / chain_digest[:2] / chain_digest
+    chain_artifact.write_bytes(b"X" * len(chain_data))
+
+    assert load_cached_ucsc_resource_bundle(tmp_path, "canFam3", "canFam4") is None
+
+    progress: list[tuple[int, int, bool]] = []
+    trusted = load_cached_ucsc_resource_bundle_for_indexed_assessment(
+        tmp_path,
+        "canFam3",
+        "canFam4",
+        trusted_artifact_sha256_identifiers=frozenset({f"sha256:{chain_digest}"}),
+        progress_callback=lambda hashed, total, complete: progress.append(
+            (hashed, total, complete)
+        ),
+    )
+
+    assert trusted is not None
+    assert trusted.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+    assert trusted.chain.source_url == chain_url
+    assert trusted.chain.sha256 == f"sha256:{chain_digest}"
+    expected_hashed = sum(len(data) for _, data in resources[1:])
+    assert progress[0] == (0, expected_hashed, False)
+    assert progress[-1] == (expected_hashed, expected_hashed, True)
+
+
+def test_trusted_chain_identity_does_not_bypass_other_resource_integrity(
+    tmp_path: Path,
+) -> None:
+    bundle = _comparative_bundle()
+    resources = tuple(
+        (url, f"resource-{index}".encode())
+        for index, url in enumerate(
+            (
+                bundle.chain_url,
+                bundle.net_url,
+                bundle.syntenic_net_url,
+                bundle.reciprocal_best_chain_url,
+                bundle.reciprocal_best_net_url,
+            )
+        )
+        if url is not None
+    )
+    for url, data in resources:
+        _publish_cached_index_entry(tmp_path, url, data)
+
+    chain_digest = hashlib.sha256(resources[0][1]).hexdigest()
+    net_data = resources[1][1]
+    net_digest = hashlib.sha256(net_data).hexdigest()
+    net_artifact = tmp_path / "artifacts" / "sha256" / net_digest[:2] / net_digest
+    net_artifact.write_bytes(b"N" * len(net_data))
+
+    result = load_cached_ucsc_resource_bundle_for_indexed_assessment(
+        tmp_path,
+        "canFam3",
+        "canFam4",
+        trusted_artifact_sha256_identifiers=frozenset({f"sha256:{chain_digest}"}),
+    )
+
+    assert result is None
 
 
 def test_cached_bundle_loader_reports_aggregate_sha256_verification_progress(

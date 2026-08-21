@@ -44,8 +44,7 @@ SOURCE_END = 1_845_835
 
 FORWARD_BASE = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
 RBEST_BASE = (
-    "https://hgdownload.soe.ucsc.edu/goldenPath/"
-    "canFam4/vsCanFam3/reciprocalBest/"
+    "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/reciprocalBest/"
 )
 
 RESOURCE_EXPECTATIONS = {
@@ -156,11 +155,7 @@ def _load_cached_resource(
     expected_size: int,
 ) -> CachedResource:
     artifact_path = (
-        cache_root
-        / "artifacts"
-        / "sha256"
-        / expected_sha256[:2]
-        / expected_sha256
+        cache_root / "artifacts" / "sha256" / expected_sha256[:2] / expected_sha256
     )
     if not artifact_path.is_file():
         raise SystemExit(f"missing cached artifact: {artifact_path}")
@@ -279,9 +274,7 @@ def _candidate_for_chain(
 ) -> NormalizedCandidate:
     suffix = f":chain:{chain_id}"
     matches = [
-        candidate
-        for candidate in candidates
-        if candidate.candidate_id.endswith(suffix)
+        candidate for candidate in candidates if candidate.candidate_id.endswith(suffix)
     ]
     _check(
         len(matches) == 1,
@@ -294,9 +287,7 @@ def _observations(
     candidate: NormalizedCandidate, kind: EvidenceKind
 ) -> list[EvidenceObservation]:
     return [
-        observation
-        for observation in candidate.evidence
-        if observation.kind is kind
+        observation for observation in candidate.evidence if observation.kind is kind
     ]
 
 
@@ -391,9 +382,12 @@ def main() -> None:
     )
 
     primary = _candidate_for_chain(candidates, 573)
-    _check(primary.target_interval.sequence_name == "chr35", "chain 573 target sequence")
     _check(
-        (primary.target_interval.start, primary.target_interval.end) == (925_644, 925_938),
+        primary.target_interval.sequence_name == "chr35", "chain 573 target sequence"
+    )
+    _check(
+        (primary.target_interval.start, primary.target_interval.end)
+        == (925_644, 925_938),
         "chain 573 target interval",
     )
     _check(primary.orientation is MappingOrientation.REVERSE, "chain 573 orientation")
@@ -404,8 +398,13 @@ def main() -> None:
     )
 
     primary_coverage = _coverage(primary)
-    _check(primary_coverage.status is MappingCoverageStatus.FULL, "chain 573 coverage status")
-    _check(primary_coverage.covered_source_bases == 100, "chain 573 covered source bases")
+    _check(
+        primary_coverage.status is MappingCoverageStatus.FULL,
+        "chain 573 coverage status",
+    )
+    _check(
+        primary_coverage.covered_source_bases == 100, "chain 573 covered source bases"
+    )
     _check(primary_coverage.source_bases == 100, "chain 573 source bases")
 
     primary_gaps = _single_observation(primary, EvidenceKind.CHAIN_GAPS).value
@@ -414,11 +413,15 @@ def main() -> None:
     _check(len(primary_gaps.gaps) == 1, "chain 573 gap count")
 
     _check(
-        [item.value for item in _observations(primary, EvidenceKind.ALIGNED_BASES)] == [3603],
+        [item.value for item in _observations(primary, EvidenceKind.ALIGNED_BASES)]
+        == [3603],
         "chain 573 ali",
     )
     _check(
-        [item.value for item in _observations(primary, EvidenceKind.DUPLICATED_QUERY_BASES)]
+        [
+            item.value
+            for item in _observations(primary, EvidenceKind.DUPLICATED_QUERY_BASES)
+        ]
         == [4098],
         "chain 573 qDup",
     )
@@ -452,30 +455,44 @@ def main() -> None:
         "chain 573 reciprocal-best summary type",
     )
     primary_rbest = cast(ReciprocalBestMembershipSummary, primary_rbest)
-    _check(primary_rbest.status is ReciprocalBestMembershipStatus.FULL, "chain 573 rbest status")
+    _check(
+        primary_rbest.status is ReciprocalBestMembershipStatus.FULL,
+        "chain 573 rbest status",
+    )
     _check(
         primary_rbest.resource_completeness
         is ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE,
         "chain 573 rbest completeness",
     )
     _check(primary_rbest.covered_source_bases == 100, "chain 573 rbest covered bases")
-    _check(primary_rbest.candidate_source_bases == 100, "chain 573 rbest candidate bases")
+    _check(
+        primary_rbest.candidate_source_bases == 100, "chain 573 rbest candidate bases"
+    )
     _check(
         primary_rbest.chains_examined == direct_rbest_counts[573],
         "chain 573 chains_examined disagrees with direct rbest pair count",
     )
 
     partial = _candidate_for_chain(candidates, 5170)
-    _check(partial.target_interval.sequence_name == "chrUn_MU018764v1", "chain 5170 target sequence")
     _check(
-        (partial.target_interval.start, partial.target_interval.end) == (171_661, 171_760),
+        partial.target_interval.sequence_name == "chrUn_MU018764v1",
+        "chain 5170 target sequence",
+    )
+    _check(
+        (partial.target_interval.start, partial.target_interval.end)
+        == (171_661, 171_760),
         "chain 5170 target interval",
     )
     _check(partial.orientation is MappingOrientation.SAME, "chain 5170 orientation")
     _check(len(partial.segments) == 2, "chain 5170 segment count")
     partial_coverage = _coverage(partial)
-    _check(partial_coverage.status is MappingCoverageStatus.PARTIAL, "chain 5170 coverage status")
-    _check(partial_coverage.covered_source_bases == 99, "chain 5170 covered source bases")
+    _check(
+        partial_coverage.status is MappingCoverageStatus.PARTIAL,
+        "chain 5170 coverage status",
+    )
+    _check(
+        partial_coverage.covered_source_bases == 99, "chain 5170 covered source bases"
+    )
     _check(partial_coverage.source_bases == 100, "chain 5170 source bases")
     _check(
         len(partial_coverage.uncovered_source_intervals) == 1,
@@ -486,9 +503,14 @@ def main() -> None:
     partial_gaps = cast(ChainGapSummary, partial_gaps)
     _check(len(partial_gaps.gaps) == 1, "chain 5170 gap count")
     partial_rbest = _rbest(partial)
-    _check(partial_rbest.status is ReciprocalBestMembershipStatus.NONE, "chain 5170 rbest status")
+    _check(
+        partial_rbest.status is ReciprocalBestMembershipStatus.NONE,
+        "chain 5170 rbest status",
+    )
     _check(partial_rbest.covered_source_bases == 0, "chain 5170 rbest covered bases")
-    _check(partial_rbest.candidate_source_bases == 99, "chain 5170 rbest candidate bases")
+    _check(
+        partial_rbest.candidate_source_bases == 99, "chain 5170 rbest candidate bases"
+    )
     _check(
         partial_rbest.chains_examined == direct_rbest_counts[5170],
         "chain 5170 chains_examined disagrees with direct rbest pair count",
@@ -500,7 +522,8 @@ def main() -> None:
         "chain 2692 target sequence",
     )
     _check(
-        (alternative.target_interval.start, alternative.target_interval.end) == (62_326, 62_622),
+        (alternative.target_interval.start, alternative.target_interval.end)
+        == (62_326, 62_622),
         "chain 2692 target interval",
     )
     _check(alternative.orientation is MappingOrientation.SAME, "chain 2692 orientation")
@@ -515,9 +538,17 @@ def main() -> None:
     alternative_gaps = cast(ChainGapSummary, alternative_gaps)
     _check(len(alternative_gaps.gaps) == 1, "chain 2692 gap count")
     alternative_rbest = _rbest(alternative)
-    _check(alternative_rbest.status is ReciprocalBestMembershipStatus.NONE, "chain 2692 rbest status")
-    _check(alternative_rbest.covered_source_bases == 0, "chain 2692 rbest covered bases")
-    _check(alternative_rbest.candidate_source_bases == 100, "chain 2692 rbest candidate bases")
+    _check(
+        alternative_rbest.status is ReciprocalBestMembershipStatus.NONE,
+        "chain 2692 rbest status",
+    )
+    _check(
+        alternative_rbest.covered_source_bases == 0, "chain 2692 rbest covered bases"
+    )
+    _check(
+        alternative_rbest.candidate_source_bases == 100,
+        "chain 2692 rbest candidate bases",
+    )
     _check(
         alternative_rbest.chains_examined == direct_rbest_counts[2692],
         "chain 2692 chains_examined disagrees with direct rbest pair count",
@@ -564,7 +595,9 @@ def main() -> None:
     )
 
     net_file_provenance = hierarchy_observation.provenance.derived_from
-    _check(len(net_file_provenance) == 1, "net fill provenance should have one file parent")
+    _check(
+        len(net_file_provenance) == 1, "net fill provenance should have one file parent"
+    )
     _assert_file_sha256(net_file_provenance[0], net_sha)
     _check(
         net_file_provenance[0].derived_from == (alignment,),

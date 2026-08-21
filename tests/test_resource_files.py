@@ -20,6 +20,7 @@ from liftassess import (
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
     ResourceIdentityMismatchError,
+    build_cached_chain_index,
     build_ucsc_candidates_from_cached_bundle,
     build_ucsc_candidates_from_files,
     iter_chain_file,
@@ -420,6 +421,97 @@ def test_cached_liftover_bundle_bridges_to_chain_engine(
     assert candidate.candidate_id == f"file:{bundle.chain.sha256}:chain:17"
     assert candidate.mapping_provenance.identifiers[0].value == bundle.chain.sha256
     assert candidate.mapping_provenance.derived_from == (alignment,)
+
+
+def test_cached_liftover_bundle_indexed_lookup_matches_full_traversal(
+    tmp_path: Path,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    chain_path = tmp_path / "chain-artifact"
+    _write_gzip(chain_path, _chain_text(chain_id=17))
+    url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/"
+        "canFam3ToCanFam4.over.chain.gz"
+    )
+    bundle = CachedUCSCResourceBundle(
+        source_db="canFam3",
+        target_db="canFam4",
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        chain=_cached_resource(chain_path, url),
+    )
+    alignment = ProvenanceSource("alignment", "upstream UCSC alignment")
+    interval = GenomicInterval(source_assembly, "chr1", 105, 115)
+    full = build_ucsc_candidates_from_cached_bundle(
+        interval,
+        bundle,
+        target_assembly=target_assembly,
+        alignment_provenance=alignment,
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+
+    indexed = build_ucsc_candidates_from_cached_bundle(
+        interval,
+        bundle,
+        target_assembly=target_assembly,
+        alignment_provenance=alignment,
+        chain_index=index,
+    )
+
+    assert indexed == full
+    assert indexed[0].mapping_provenance.identifiers[0].value == bundle.chain.sha256
+
+
+def test_cached_comparative_bundle_indexed_lookup_preserves_evidence(
+    tmp_path: Path,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    bundle = _comparative_cached_bundle(tmp_path)
+    alignment = ProvenanceSource("alignment", "shared UCSC alignment")
+    interval = GenomicInterval(source_assembly, "chr1", 105, 115)
+    full = build_ucsc_candidates_from_cached_bundle(
+        interval,
+        bundle,
+        target_assembly=target_assembly,
+        alignment_provenance=alignment,
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+
+    indexed = build_ucsc_candidates_from_cached_bundle(
+        interval,
+        bundle,
+        target_assembly=target_assembly,
+        alignment_provenance=alignment,
+        chain_index=index,
+    )
+
+    assert indexed == full
+
+
+def test_cached_bundle_bridge_rejects_index_for_different_chain_resource(
+    tmp_path: Path,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+) -> None:
+    bundle = _comparative_cached_bundle(tmp_path)
+    other_path = tmp_path / "other-chain"
+    _write_gzip(other_path, _chain_text(chain_id=999))
+    other = _cached_resource(
+        other_path,
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/"
+        "other.over.chain.gz",
+    )
+    index = build_cached_chain_index(tmp_path / "cache", other).index
+
+    with pytest.raises(ValueError, match="chain index source identity"):
+        build_ucsc_candidates_from_cached_bundle(
+            GenomicInterval(source_assembly, "chr1", 105, 115),
+            bundle,
+            target_assembly=target_assembly,
+            alignment_provenance=ProvenanceSource("alignment", "upstream alignment"),
+            chain_index=index,
+        )
 
 
 def test_cached_comparative_bundle_bridges_only_engine_input_resources(

@@ -188,7 +188,7 @@ Implemented in the first acquisition slice:
 - reads the resource directory's `md5sum.txt` and verifies MD5 when an exact filename entry is published; an existing `md5sum.txt` without that filename is treated as checksum unavailable, not as corruption;
 - streams downloads into a temporary file while computing liftAssess's canonical SHA-256 and any provider MD5, validates HTTP `Content-Length` when supplied, then publishes the artifact atomically under a content-addressed `artifacts/sha256/...` path;
 - writes an atomic URL index retaining source URL, retrieval timestamp, SHA-256, provider checksum metadata when available, and applicable terms references;
-- reuses a cached artifact only after re-verifying its local SHA-256; retains the provider checksum recorded at acquisition time without requiring a network freshness check;
+- reuses directly consumed cached provider bytes only after SHA-256 verification; a validated exact-resource derived chain index may carry the source-chain identity for indexed assessment without rereading the unused original chain, while index build/rebuild still verifies the complete source bytes; retains the provider checksum recorded at acquisition time without requiring a network freshness check;
 - supports `refresh=True` to contact the provider and reacquire the current representation, which is especially relevant when the provider publishes no checksum for that exact file;
 - cleans ordinary temporary downloads on failure; identical bytes acquired from different URLs converge on one artifact.
 
@@ -491,8 +491,19 @@ problem, not the final architecture.
 
 Required work:
 
-- prototype region-addressable/indexed/shared-traversal approaches and benchmark them against the
-  frozen performance probes;
+- **prototype/architecture selection complete:** real M4 benchmarks selected 65,536-bp
+  source-coordinate bin memberships plus encounter-order chain records stored exactly once in
+  independently compressed blocks; exact candidate tuples matched the full traversal on both frozen
+  canFam3→canFam4 probes;
+- **production index core + opportunistic assessment integration complete:** the
+  resource-identity-bound reusable index is validated against the exact cached chain and may replace
+  only the mechanical chain-record access path; the CLI falls back to the existing full traversal
+  for absence/corruption while lower-level library callers receive `ChainIndexCorruptionError` and
+  choose their own recovery policy; scientific provenance continues to identify the original chain
+  bytes;
+- **explicit preparation UX complete:** `prepare-liftassess-index SOURCE_DB TARGET_DB` builds the
+  derived chain index only from an already verified local bundle, never contacts UCSC, reports
+  source-byte progress, and keeps the potentially long build out of ordinary first-query behavior;
 - preserve exact coordinate, candidate, evidence-completeness, resource-identity, and provenance
   semantics;
 - add authoritative assembly-sequence metadata for source-name validation, bounds, aliases, and
@@ -504,9 +515,20 @@ Required work:
 - evaluate GIAB stratifications and relevant `excluderanges` categories separately rather than
   treating them as interchangeable.
 
-No particular index design is frozen. Local interval index, header index, compact parsed
-representation, shared traversal, or another design remains eligible until measured prototype
-results select one.
+The chain-access architecture is now selected by measurement: 65,536-bp genomic bin memberships
+identify candidate chain records, while each record is stored once in encounter order inside
+independently compressed blocks. The index is bound to the source chain's canonical SHA-256.
+Measured M4 follow-up showed that verifying the 1.365-GiB index database took 0.60–1.27 seconds
+and loading/verifying the complete cached COMPARATIVE bundle took about 1.2 seconds on that machine.
+A cold follow-up on the older iMac HDD measured 95.976 seconds for the same full-bundle verification,
+showing that repeated whole-artifact validation is strongly storage-sensitive. The production index
+format therefore keeps the full database SHA-256 for explicit deep verification while normal indexed
+queries authenticate a compact lookup catalog, validate only the queried bin membership/locator rows,
+and verify selected compressed blocks. This avoids mandatory full reads of both the unused source
+chain and the large SQLite lookup database on every query; the other cached bundle artifacts retain
+their normal direct checks. Chain-index construction remains an explicit cache-only preparation command.
+The remaining access-layer question is how the same reusable principles extend to net and
+reciprocal-best resources where profiling demonstrates a material need.
 
 ### 19. Actual reverse-mapping context
 

@@ -360,6 +360,36 @@ assess-liftover SOURCE_DB TARGET_DB CHR:START-END
 If a complete verified bundle is already cached, the default path uses it without
 contacting UCSC.
 
+### Prepare a reusable chain index for repeated work
+
+After the assembly-pair resources have been acquired and verified at least once:
+
+```bash
+prepare-liftassess-index SOURCE_DB TARGET_DB
+```
+
+This command is cache-only: it never contacts UCSC and does not require a locus. It verifies the
+existing cached bundle, then parses the complete source chain once to build a reusable local index
+bound to that chain's exact SHA-256 identity. Large resources can take many minutes and several GiB
+of additional cache space to prepare, so this is an explicit action rather than an automatic
+first-query pause. Later `assess-liftover` runs use the matching index automatically when present. A
+validated index establishes the exact source-chain identity for indexed lookup, so the original
+chain file is not redundantly reread merely to rehash unused bytes. Normal indexed queries verify a
+compact lookup catalog, authenticate the exact genomic-bin membership/record-locator rows they use,
+and verify selected compressed record blocks rather than hashing the complete SQLite lookup database
+on every run; the other cached bundle artifacts retain their normal direct integrity verification.
+Without a usable index, the original
+full-verification/full-traversal behavior remains unchanged.
+
+Use the same custom cache location when applicable:
+
+```bash
+prepare-liftassess-index SOURCE_DB TARGET_DB --cache-dir PATH
+```
+
+A valid existing index is reused. `--rebuild` explicitly discards and regenerates only the derived
+index; the original verified UCSC resource remains untouched.
+
 ### Require offline reproducibility
 
 ```bash
@@ -431,19 +461,15 @@ an estimate of how close the scientific computation is to completion.
 
 ## 17. Current performance warning
 
-Single-locus assessment currently streams and parses large comparative resources rather
-than using a prebuilt genomic index. Measured work on the `canFam3` → `canFam4` pair
-showed that large-resource parsing can dominate runtime even for a small, ordinary
-locus.
+Without a prepared chain index, single-locus assessment still streams and parses the complete
+chain resource. Measured work on the `canFam3` → `canFam4` pair showed that this can dominate runtime
+even for a small, ordinary locus. `prepare-liftassess-index` turns that repeated whole-chain parse
+into a one-time explicit preparation step; later candidate lookup is region-addressable while the
+original chain remains the scientific provenance source.
 
-That means:
-
-- a small genomic interval does not necessarily mean a fast run;
-- cached data avoids repeat downloading but does not yet avoid resource parsing; and
-- `--offline` changes provider access, not the core parsing cost.
-
-See [`PERFORMANCE.md`](PERFORMANCE.md) for measured benchmark results and the planned
-optimization direction.
+Net and reciprocal-best evidence are still read through their existing resource paths when required,
+so indexed chain lookup does not imply that every comparative-evidence operation is already indexed.
+See [`PERFORMANCE.md`](PERFORMANCE.md) for measured benchmark results and the current architecture.
 
 ## 18. Current scientific/use envelope
 

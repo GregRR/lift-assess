@@ -11,6 +11,7 @@ from liftassess import (
     AssemblyIdentifier,
     CachedResource,
     CachedUCSCResourceBundle,
+    ChainIndexCorruptionError,
     EvidenceAvailabilityTier,
     GenomicInterval,
     ProvenanceSource,
@@ -23,6 +24,7 @@ from liftassess import (
     UCSCResourceBundle,
     UCSCResourceDiscoveryError,
     assess_ucsc_cached_bundle,
+    build_cached_chain_index,
     cli,
     plan_ucsc_bundle_acquisition,
     sha256_identifier_for_file,
@@ -517,8 +519,10 @@ def test_comparative_cli_run_shares_pair_provenance_across_consumed_resources(
         target_assembly: AssemblyIdentifier,
         alignment_provenance: ProvenanceSource,
         progress_callback: object = None,
+        chain_index: object = None,
     ) -> UCSCAssessmentReport:
         assert progress_callback is None
+        assert chain_index is None
         report = assess_ucsc_cached_bundle(
             source_interval,
             bundle,
@@ -827,6 +831,229 @@ def test_transfer_progress_callback_is_suppressed_for_quiet_and_non_tty(
     )
 
     assert callbacks == [None, None]
+
+
+def test_run_uses_matching_cached_chain_index_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cached = _cached_bundle(tmp_path)
+    cache_root = tmp_path / "cache"
+    built = build_cached_chain_index(cache_root, cached.chain)
+
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target: cached,
+    )
+    seen_indexes: list[object] = []
+
+    def capture_assessment(
+        source_interval: GenomicInterval,
+        bundle: CachedUCSCResourceBundle,
+        *,
+        target_assembly: AssemblyIdentifier,
+        alignment_provenance: ProvenanceSource,
+        progress_callback: object = None,
+        chain_index: object = None,
+    ) -> UCSCAssessmentReport:
+        seen_indexes.append(chain_index)
+        return assess_ucsc_cached_bundle(
+            source_interval,
+            bundle,
+            target_assembly=target_assembly,
+            alignment_provenance=alignment_provenance,
+            chain_index=built.index,
+        )
+
+    monkeypatch.setattr(cli, "assess_ucsc_cached_bundle", capture_assessment)
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(cache_root),
+            "--offline",
+        ]
+    )
+    stderr = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert seen_indexes == [built.index]
+    assert "Using verified cached chain index" in stderr.getvalue()
+
+
+def test_run_retries_full_traversal_after_mid_query_index_corruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cached = _cached_bundle(tmp_path)
+    cache_root = tmp_path / "cache"
+    built = build_cached_chain_index(cache_root, cached.chain)
+
+    def load_cached(
+        cache_root: Path,
+        source: str,
+        target: str,
+        **kwargs: object,
+    ) -> CachedUCSCResourceBundle:
+        del cache_root, source, target, kwargs
+        return cached
+
+    monkeypatch.setattr(cli, "load_cached_ucsc_resource_bundle", load_cached)
+
+    seen_indexes: list[object] = []
+
+    def assess_with_corrupt_index_once(
+        source_interval: GenomicInterval,
+        bundle: CachedUCSCResourceBundle,
+        *,
+        target_assembly: AssemblyIdentifier,
+        alignment_provenance: ProvenanceSource,
+        progress_callback: object = None,
+        chain_index: object = None,
+    ) -> UCSCAssessmentReport:
+        del progress_callback
+        seen_indexes.append(chain_index)
+        if chain_index is not None:
+            raise ChainIndexCorruptionError("fixture query corruption")
+        return assess_ucsc_cached_bundle(
+            source_interval,
+            bundle,
+            target_assembly=target_assembly,
+            alignment_provenance=alignment_provenance,
+            chain_index=None,
+        )
+
+    monkeypatch.setattr(
+        cli, "assess_ucsc_cached_bundle", assess_with_corrupt_index_once
+    )
+
+    progress_modes: list[bool] = []
+
+    class RecordingProgressDisplay:
+        def __init__(
+            self,
+            bundle: CachedUCSCResourceBundle,
+            *,
+            stderr: StringIO,
+            indexed_chain: bool = False,
+        ) -> None:
+            del bundle, stderr
+            progress_modes.append(indexed_chain)
+
+        def start(self) -> None:
+            pass
+
+        def update(
+            self,
+            role: UCSCBundleResourceRole,
+            bytes_read: int,
+            total_bytes: int,
+        ) -> None:
+            del role, bytes_read, total_bytes
+
+        def finish(self, *, candidates_exist: bool) -> None:
+            del candidates_exist
+
+    monkeypatch.setattr(cli, "_AssessmentProgressDisplay", RecordingProgressDisplay)
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(cache_root),
+            "--offline",
+        ]
+    )
+    stdout = StringIO()
+    stderr = _TTYStringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert seen_indexes == [built.index, None]
+    assert progress_modes == [True, False]
+    assert "retrying with full traversal" in stderr.getvalue()
+    assert "Source: chr1:101-120 (1-based inclusive)" in stdout.getvalue()
+
+
+def test_run_uses_validated_index_identity_to_skip_redundant_chain_rehash(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cached = _cached_bundle(tmp_path)
+    cache_root = tmp_path / "cache"
+    build_cached_chain_index(cache_root, cached.chain)
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_resource_bundle_metadata",
+        lambda cache_root, source, target: cached,
+    )
+    trusted_seen: list[frozenset[str]] = []
+
+    def load_cached(
+        cache_root: Path,
+        source: str,
+        target: str,
+        *,
+        trusted_artifact_sha256_identifiers: frozenset[str],
+    ) -> CachedUCSCResourceBundle:
+        del cache_root, source, target
+        trusted_seen.append(trusted_artifact_sha256_identifiers)
+        return cached
+
+    monkeypatch.setattr(
+        cli, "load_cached_ucsc_resource_bundle_for_indexed_assessment", load_cached
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(cache_root),
+            "--offline",
+        ]
+    )
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=StringIO(),
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    assert trusted_seen == [frozenset({cached.chain.sha256})]
+
+
+def test_assessment_progress_marks_indexed_chain_without_fake_byte_progress(
+    tmp_path: Path,
+) -> None:
+    stderr = _TTYStringIO()
+    display = cli._AssessmentProgressDisplay(
+        _cached_bundle(tmp_path),
+        stderr=stderr,
+        indexed_chain=True,
+    )
+    display.start()
+
+    assert "indexed" in stderr.getvalue()
 
 
 def test_cache_verification_progress_display_waits_for_integrity_success() -> None:

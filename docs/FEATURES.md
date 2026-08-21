@@ -25,7 +25,9 @@ liftAssess can currently run a complete single-locus UCSC assessment from:
 
 The `assess-liftover` CLI composes resource discovery or verified cache reuse,
 resource integrity checks, candidate generation, evidence extraction, deterministic
-result-profile derivation, and report rendering.
+result-profile derivation, and report rendering. The companion `prepare-liftassess-index`
+command explicitly builds a reusable local chain index from an already verified cache bundle;
+it never contacts UCSC.
 
 The common form is:
 
@@ -51,7 +53,12 @@ The built-in UCSC engine implements:
 - exact uncovered source intervals for partial mappings;
 - chain-gap geometry through the requested locus;
 - raw UCSC chain score as contextual evidence; and
-- stable candidate IDs tied to the source record that produced each mapping.
+- stable candidate IDs tied to the source record that produced each mapping;
+- optional exact-resource chain indexing using 65,536-bp source-coordinate memberships and
+  single-copy encounter-order records in independently compressed blocks; and
+- transparent indexed lookup when a matching validated index is present; CLI assessment uses
+  full-traversal fallback when it is absent or unusable, while lower-level library callers surface
+  index-corruption errors for caller-directed recovery.
 
 Candidate encounter order is preserved for reproducibility, but it is **not** a
 candidate rank.
@@ -245,7 +252,8 @@ The cache/acquisition layer implements:
 - platform-appropriate default user-cache locations;
 - SHA-256 content-addressed artifact storage;
 - URL-to-artifact cache indexes;
-- exact cached-byte re-verification before reuse;
+- exact cached-byte re-verification before direct provider-artifact consumption;
+- validated derived-chain identity can replace a redundant reread of the original chain during indexed assessment; normal queries authenticate a compact lookup catalog plus queried bin metadata and selected record blocks, while index build/rebuild still verifies the source bytes and records a full database checksum for deep verification;
 - provider-published MD5 verification when an exact checksum entry is available;
 - transfer-length validation when an exact identity-encoded length is available;
 - atomic publication only after completed resources pass required verification;
@@ -255,8 +263,12 @@ The cache/acquisition layer implements:
   artifact; and
 - retrieval metadata retained separately from exact byte identity.
 
-The default CLI is cache-first. A complete verified cached bundle is reused without
-contacting UCSC.
+The default CLI is cache-first. A complete cached bundle is reused without contacting UCSC.
+Cached provider artifacts other than the indexed source chain retain normal SHA-256 verification;
+when an exact-resource chain index is already validated, that derived artifact carries the
+source-chain identity for indexed lookup. Query-relevant bin membership/record-locator rows and
+selected compressed blocks are verified without requiring full reads of either the unused original
+chain or the large SQLite lookup database.
 
 `--offline` guarantees zero provider access and fails if no complete verified bundle is
 available locally.
@@ -416,7 +428,8 @@ the design or model vocabulary:
 - general assembly alias/canonicalization resolution beyond the explicit UCSC database
   names/aliases needed at current boundaries.
 
-Current single-locus assessment streams large comparative resources rather than using a
-prebuilt genomic index, so large assembly pairs can be slow even for small loci. See
-[`PERFORMANCE.md`](PERFORMANCE.md) for measured performance and current optimization
-priorities.
+Large chain resources can be prepared once with `prepare-liftassess-index`; matching later
+assessments reuse the validated region-addressable chain index automatically. Without one,
+assessment retains the original full-chain traversal. Net and reciprocal-best access remain separate
+comparative-resource costs where profiling shows they are material. See
+[`PERFORMANCE.md`](PERFORMANCE.md) for measured performance and current optimization priorities.

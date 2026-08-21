@@ -359,12 +359,29 @@ Progressive-disclosure human renderer
   an aggregate result verdict.
 
 - **Region-addressable/shared resource access becomes enabling architecture immediately after the
-  first result-profile/renderer slice.** The exact implementation is deliberately not frozen here;
-  candidate designs include local interval indexes, header indexes, compact parsed forms, and shared
-  traversal. Prototype/benchmark results choose among them. Automatic reverse mapping, point-context
-  comparison, filtered/all-chain comparison, expanded comparative analysis, and batch assessment must
-  not ship by multiplying the current exhaustive whole-resource scan. Any indexed/preprocessed form
-  must preserve exact coordinate, evidence-completeness, resource-identity, and provenance semantics.
+  first result-profile/renderer slice.** Milestone-18 prototype/benchmark work selected a reusable
+  chain index with 65,536-bp source-coordinate bin memberships and encounter-order chain records
+  stored exactly once in independently compressed blocks. The derived index is keyed to the exact
+  source-chain SHA-256 and remains an acceleration artifact, not replacement scientific evidence.
+  Automatic reverse mapping, point-context comparison, filtered/all-chain comparison, expanded
+  comparative analysis, and batch assessment must not ship by multiplying the current exhaustive
+  whole-resource scan. Indexed/preprocessed forms must preserve exact coordinate,
+  evidence-completeness, resource-identity, provenance, and reproducible candidate-order semantics.
+  A validated exact-resource index may be used transparently for chain-record access when present;
+  the CLI falls back to the existing verified full traversal when that derived acceleration
+  artifact is absent or unusable. Lower-level library callers receive `ChainIndexCorruptionError`
+  for query-time index corruption and choose their own recovery policy. Integrity work must follow
+  the bytes actually used: index build/rebuild verifies
+  the complete original chain and records a full database SHA-256 for explicit deep verification;
+  normal indexed assessment verifies a compact lookup catalog, validates each queried 65,536-bp
+  bin's membership/record-locator rows against catalogued SHA-256 digests, and verifies selected
+  compressed record blocks before parsing. It therefore does not reread either the unused original
+  chain or the complete SQLite lookup database on every query. The other cached bundle artifacts
+  retain their normal direct SHA-256 checks. This distinction matters on slow storage: a measured
+  cold cache-bundle verification on an older iMac HDD took 95.976 seconds, while the same bundle
+  verification on the M4 Mac mini took about 1.2 seconds. The integrity contract therefore remains
+  exact for the query-relevant derived data without forcing storage-sensitive whole-artifact reads.
+  Index construction remains an explicit user action rather than an implicit first-query pause.
 - **Local resource-file integration stays a thin streaming boundary.** Plain-text and gzip-compressed
   chain/net files are opened locally and fed directly through the existing parsers into the UCSC
   engine; they are not materialized as whole-file objects in memory or rescanned once per candidate.
@@ -479,8 +496,10 @@ Progressive-disclosure human renderer
   `vsTarget/` resources, verifies provider checksum metadata when an exact filename entry is available,
   validates transport length metadata when supplied, and stores exact downloaded bytes outside the source
   tree by liftAssess SHA-256. A provider checksum is an integrity check, not provenance identity. Cache
-  reuse is based on the retained URL index plus re-verification of the local SHA-256 and must not be
-  described as proof that the remote URL is unchanged; an explicit refresh path is required. Whole-bundle
+  reuse is based on the retained URL index plus exact content identity and must not be described as
+  proof that the remote URL is unchanged; cached provider artifacts retain local SHA-256
+  verification except that a validated exact-resource derived index may carry the source-chain
+  identity without rereading unused original chain bytes. An explicit refresh path is required. Whole-bundle
   retrieval is a second explicit boundary: construct a no-network plan that enumerates every resource
   required by the discovered evidence tier, surface each resource's terms classification, and require a
   separate acknowledgement of that transfer plan before acquiring any item. A returned cached bundle is
@@ -816,8 +835,10 @@ measured architecture decision rather than a design-policy commitment.
 The main product-policy questions from the post-alpha review are resolved. Remaining items are
 implementation/evidence questions or deliberately deferred domains:
 
-- Select the exact indexed/preprocessed/shared-traversal architecture by prototype and benchmark,
-  preserving coordinate, evidence-completeness, exact-resource, and provenance semantics.
+- Extend reusable/indexed access to additional resource families only where profiling demonstrates a
+  material need. Chain-index preparation is now an explicit cache-only user action via
+  `prepare-liftassess-index`; normal assessment never incurs an implicit first-query build and retains
+  full traversal when no usable derived index is present.
 - Finalize exact result-profile field/API names and the new JSON schema layout; the dedicated derived
   profile boundary and deliberate alpha compatibility break are already decided.
 - Extend the accepted initial comparative classifier only with explicit deterministic semantics and

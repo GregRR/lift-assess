@@ -12,6 +12,7 @@ scientific evidence unless the engine consumed the resource.
 
 from dataclasses import dataclass
 
+from .chain_index import ChainIndex
 from .models import (
     AssemblyIdentifier,
     EvidenceAvailabilityTier,
@@ -145,6 +146,7 @@ def assess_ucsc_cached_bundle(
     target_assembly: AssemblyIdentifier,
     alignment_provenance: ProvenanceSource,
     progress_callback: ResourceReadProgressCallback | None = None,
+    chain_index: ChainIndex | None = None,
 ) -> UCSCAssessmentReport:
     """Run candidate/evidence generation and derive the factual result profile."""
 
@@ -154,6 +156,7 @@ def assess_ucsc_cached_bundle(
         target_assembly=target_assembly,
         alignment_provenance=alignment_provenance,
         progress_callback=progress_callback,
+        chain_index=chain_index,
     )
     resources = _assessment_resources(
         bundle,

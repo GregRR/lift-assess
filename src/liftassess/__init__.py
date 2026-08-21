@@ -1,6 +1,20 @@
 """liftAssess public core model."""
 
 from ._version import __version__
+from .chain_index import (
+    DEFAULT_CHAIN_INDEX_BIN_WIDTH,
+    DEFAULT_CHAIN_INDEX_BLOCK_SIZE,
+    ChainIndex,
+    ChainIndexBuildResult,
+    ChainIndexCorruptionError,
+    ChainIndexError,
+    ChainIndexManifest,
+    build_cached_chain_index,
+    build_chain_index,
+    chain_index_cache_path,
+    load_cached_chain_index,
+    load_chain_index,
+)
 from .engine import build_ucsc_candidates
 from .models import (
     AssemblyIdentifier,
@@ -91,6 +105,8 @@ from .result_profile import (
 )
 
 __all__ = [
+    "DEFAULT_CHAIN_INDEX_BIN_WIDTH",
+    "DEFAULT_CHAIN_INDEX_BLOCK_SIZE",
     "AssemblyIdentifier",
     "BatchRelationshipState",
     "CachedResource",
@@ -98,6 +114,11 @@ __all__ = [
     "CandidateResultProfile",
     "ChainGap",
     "ChainGapSummary",
+    "ChainIndex",
+    "ChainIndexBuildResult",
+    "ChainIndexCorruptionError",
+    "ChainIndexError",
+    "ChainIndexManifest",
     "ComparativeRelationshipState",
     "EvidenceAvailabilityTier",
     "EvidenceKind",
@@ -150,17 +171,22 @@ __all__ = [
     "acquire_ucsc_resource",
     "acquire_ucsc_resource_bundle",
     "assess_ucsc_cached_bundle",
+    "build_cached_chain_index",
+    "build_chain_index",
     "build_result_profile",
     "build_ucsc_candidates",
     "build_ucsc_candidates_from_cached_bundle",
     "build_ucsc_candidates_from_files",
+    "chain_index_cache_path",
     "compute_resource_checksum",
     "discover_ucsc_resources",
     "inspect_ucsc_bundle_transfer_plan",
     "inspect_ucsc_resource",
     "iter_chain_file",
     "iter_net_file",
+    "load_cached_chain_index",
     "load_cached_ucsc_resource_bundle",
+    "load_chain_index",
     "plan_ucsc_bundle_acquisition",
     "provenance_source_for_file",
     "sha256_identifier_for_file",

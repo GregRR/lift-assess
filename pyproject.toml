@@ -45,6 +45,7 @@ Releases = "https://github.com/GregRR/lift-assess/releases"
 
 [project.scripts]
 assess-liftover = "liftassess.cli:main"
+prepare-liftassess-index = "liftassess.index_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

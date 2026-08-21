@@ -21,6 +21,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
 
+from .chain_index import ChainIndexCorruptionError, load_cached_chain_index
 from .cli_input import parse_ucsc_locus, ucsc_assembly_identifier
 from .models import EvidenceAvailabilityTier, ProvenanceSource
 from .orchestration import assess_ucsc_cached_bundle
@@ -40,7 +41,9 @@ from .resource_cache import (
     acquire_ucsc_resource_bundle,
     inspect_ucsc_bundle_transfer_plan,
     load_cached_ucsc_resource_bundle,
+    load_cached_ucsc_resource_bundle_for_indexed_assessment,
     plan_ucsc_bundle_acquisition,
+    resolve_cached_ucsc_resource_bundle_metadata,
 )
 from .resource_files import ResourceReadProgressCallback
 from .resources import UCSCResourceDiscoveryError, discover_ucsc_resources
@@ -155,22 +158,65 @@ def _run(
     cache_root = args.cache_dir or default_user_cache_root()
 
     cached_bundle = None
+    chain_index = None
+    unusable_index_sha256: str | None = None
     if not args.refresh:
         _status(
             "Checking/verifying local UCSC cache...",
             quiet=args.quiet,
             stderr=stderr,
         )
+
+        structural_bundle = resolve_cached_ucsc_resource_bundle_metadata(
+            cache_root,
+            args.source_db,
+            args.target_db,
+        )
+        if structural_bundle is not None:
+            try:
+                chain_index = load_cached_chain_index(
+                    cache_root, structural_bundle.chain
+                )
+            except ChainIndexCorruptionError as exc:
+                unusable_index_sha256 = structural_bundle.chain.sha256
+                _status(
+                    "Ignoring unusable cached chain index; "
+                    f"using full chain verification/traversal ({exc}).",
+                    quiet=args.quiet,
+                    stderr=stderr,
+                )
+
         cache_progress_display = _CacheVerificationProgressDisplay(stderr=stderr)
         cache_progress_callback: CacheVerificationProgressCallback | None = None
         if not args.quiet and _is_interactive_terminal(stderr):
             cache_progress_callback = cache_progress_display.update
 
+        trusted_identifiers = (
+            frozenset({structural_bundle.chain.sha256})
+            if structural_bundle is not None and chain_index is not None
+            else frozenset()
+        )
         if cache_progress_callback is None:
-            cached_bundle = load_cached_ucsc_resource_bundle(
+            if trusted_identifiers:
+                cached_bundle = load_cached_ucsc_resource_bundle_for_indexed_assessment(
+                    cache_root,
+                    args.source_db,
+                    args.target_db,
+                    trusted_artifact_sha256_identifiers=trusted_identifiers,
+                )
+            else:
+                cached_bundle = load_cached_ucsc_resource_bundle(
+                    cache_root,
+                    args.source_db,
+                    args.target_db,
+                )
+        elif trusted_identifiers:
+            cached_bundle = load_cached_ucsc_resource_bundle_for_indexed_assessment(
                 cache_root,
                 args.source_db,
                 args.target_db,
+                progress_callback=cache_progress_callback,
+                trusted_artifact_sha256_identifiers=trusted_identifiers,
             )
         else:
             cached_bundle = load_cached_ucsc_resource_bundle(
@@ -205,23 +251,76 @@ def _run(
         if cached_bundle is None:
             return 1
 
+    if (
+        chain_index is not None
+        and chain_index.manifest.source_chain_sha256_identifier
+        != cached_bundle.chain.sha256
+    ):
+        chain_index = None
+
+    if chain_index is None and cached_bundle.chain.sha256 != unusable_index_sha256:
+        try:
+            chain_index = load_cached_chain_index(cache_root, cached_bundle.chain)
+        except ChainIndexCorruptionError as exc:
+            _status(
+                "Ignoring unusable cached chain index; "
+                f"using full chain traversal ({exc}).",
+                quiet=args.quiet,
+                stderr=stderr,
+            )
+    if chain_index is not None:
+        _status(
+            "Using verified cached chain index for candidate lookup.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+
     _status("Assessing locus...", quiet=args.quiet, stderr=stderr)
-    progress_display = _AssessmentProgressDisplay(cached_bundle, stderr=stderr)
+    progress_display = _AssessmentProgressDisplay(
+        cached_bundle,
+        stderr=stderr,
+        indexed_chain=chain_index is not None,
+    )
     progress_callback: ResourceReadProgressCallback | None = None
     if not args.quiet and _is_interactive_terminal(stderr):
         progress_display.start()
         progress_callback = progress_display.update
 
-    report = assess_ucsc_cached_bundle(
-        source_interval,
-        cached_bundle,
-        target_assembly=target_assembly,
-        alignment_provenance=_ucsc_pair_lineage_provenance(
-            args.source_db,
-            args.target_db,
-        ),
-        progress_callback=progress_callback,
+    alignment_provenance = _ucsc_pair_lineage_provenance(
+        args.source_db,
+        args.target_db,
     )
+    try:
+        report = assess_ucsc_cached_bundle(
+            source_interval,
+            cached_bundle,
+            target_assembly=target_assembly,
+            alignment_provenance=alignment_provenance,
+            progress_callback=progress_callback,
+            chain_index=chain_index,
+        )
+    except ChainIndexCorruptionError as exc:
+        if chain_index is None:
+            raise
+        _status(
+            f"Cached chain index query failed; retrying with full traversal ({exc}).",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        if progress_callback is not None:
+            progress_display = _AssessmentProgressDisplay(
+                cached_bundle, stderr=stderr, indexed_chain=False
+            )
+            progress_display.start()
+            progress_callback = progress_display.update
+        report = assess_ucsc_cached_bundle(
+            source_interval,
+            cached_bundle,
+            target_assembly=target_assembly,
+            alignment_provenance=alignment_provenance,
+            progress_callback=progress_callback,
+            chain_index=None,
+        )
     if progress_callback is not None:
         progress_display.finish(
             candidates_exist=bool(report.candidates),
@@ -484,8 +583,15 @@ class _CacheVerificationProgressDisplay:
 class _AssessmentProgressDisplay:
     """Render measured raw-byte progress for resources consumed by assessment."""
 
-    def __init__(self, bundle: CachedUCSCResourceBundle, *, stderr: TextIO) -> None:
+    def __init__(
+        self,
+        bundle: CachedUCSCResourceBundle,
+        *,
+        stderr: TextIO,
+        indexed_chain: bool = False,
+    ) -> None:
         self._stderr = stderr
+        self._indexed_chain = indexed_chain
         self._resources = {
             UCSCBundleResourceRole.CHAIN: bundle.chain,
         }
@@ -551,6 +657,9 @@ class _AssessmentProgressDisplay:
                     bytes_read=self._bytes_read[role],
                     total_bytes=resource.size_bytes,
                     not_used=(self._finished and self._last_percent[role] == -2),
+                    indexed=(
+                        role is UCSCBundleResourceRole.CHAIN and self._indexed_chain
+                    ),
                 )
             )
             self._stderr.write("\n")
@@ -564,10 +673,13 @@ def _progress_row(
     total_bytes: int | None,
     not_used: bool = False,
     cached: bool = False,
+    indexed: bool = False,
     percent_override: int | None = None,
 ) -> str:
     if not_used:
         return f"  {label:<18} [{'—' * _PROGRESS_BAR_WIDTH}]  --   not used"
+    if indexed:
+        return f"  {label:<18} [{'█' * _PROGRESS_BAR_WIDTH}]  --   indexed"
     if cached:
         amount = _format_progress_bytes(bytes_read)
         return f"  {label:<18} [{'█' * _PROGRESS_BAR_WIDTH}]  --   cached ({amount})"

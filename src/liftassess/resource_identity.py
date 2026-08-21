@@ -121,6 +121,20 @@ def sha256_identifier_for_file(path: ResourcePath) -> ProvenanceIdentifier:
     )
 
 
+def sha256_hex_from_identifier(value: str) -> str:
+    """Return raw lowercase SHA-256 hex from one canonical identifier string.
+
+    The identifier is validated through the provenance model first so callers never
+    strip prefixes from an unvalidated or accidentally double-prefixed value.
+    """
+
+    identifier = ProvenanceIdentifier(
+        kind=ProvenanceIdentifierKind.SHA256,
+        value=value,
+    )
+    return identifier.value[len("sha256:") :]
+
+
 def provenance_source_for_file(
     path: ResourcePath,
     *,
@@ -166,7 +180,7 @@ def _sha256_checksum_from_file_provenance(source: ProvenanceSource) -> str:
             "file provenance must contain exactly one canonical SHA256 identifier"
         )
 
-    return identifiers[0].value.removeprefix("sha256:")
+    return sha256_hex_from_identifier(identifiers[0].value)
 
 
 def _new_digest(algorithm: ResourceChecksumAlgorithm) -> _Digest:

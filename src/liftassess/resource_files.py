@@ -14,16 +14,11 @@ their own.
 
 from __future__ import annotations
 
-import gzip
-import hashlib
-import io
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from os import PathLike
-from pathlib import Path
-from typing import Any, Protocol, TextIO, TypeAlias
+from collections.abc import Callable, Iterable, Iterator
+from typing import TypeAlias
 
 from .chain import ChainRecord, iter_chain_records
+from .chain_index import ChainIndex
 from .engine import build_ucsc_candidates
 from .models import (
     AssemblyIdentifier,
@@ -41,91 +36,18 @@ from .resource_cache import (
     CachedUCSCResourceBundle,
     UCSCBundleResourceRole,
 )
-from .resource_identity import (
-    ResourceIdentityMismatchError,
-    _sha256_checksum_from_file_provenance,
+from .resource_identity import _sha256_checksum_from_file_provenance
+from .resource_stream import (
+    RawReadProgressCallback,
+    ResourcePath,
+    open_text_resource,
 )
 
-ResourcePath: TypeAlias = str | PathLike[str]
 ResourceReadProgressCallback: TypeAlias = Callable[
     [UCSCBundleResourceRole, int, int], None
 ]
-RawReadProgressCallback: TypeAlias = Callable[[int], None]
 
 _CHUNK_SIZE = 1024 * 1024
-
-
-class _Digest(Protocol):
-    def update(self, data: bytes) -> None: ...
-
-    def hexdigest(self) -> str: ...
-
-
-class _HashingRawReader(io.RawIOBase):
-    """Read one binary stream while hashing exactly the bytes returned upstream.
-
-    Progress, when requested by the cached-bundle CLI path, is measured from these
-    exact raw artifact bytes rather than decompressed records or a time estimate.
-    Reporting is throttled by a caller-selected byte interval so terminal UI updates
-    cannot dominate multi-gigabyte parsing.
-    """
-
-    def __init__(
-        self,
-        raw: io.RawIOBase,
-        digest: _Digest,
-        *,
-        progress_callback: RawReadProgressCallback | None = None,
-        progress_interval_bytes: int = _CHUNK_SIZE,
-    ) -> None:
-        super().__init__()
-        if progress_interval_bytes <= 0:
-            raise ValueError("progress interval must be positive")
-        self._raw = raw
-        self._digest = digest
-        self._progress_callback = progress_callback
-        self._progress_interval_bytes = progress_interval_bytes
-        self._bytes_read = 0
-        self._last_reported_bytes = 0
-
-    def readable(self) -> bool:
-        return True
-
-    def readinto(self, buffer: Any) -> int:
-        # Python 3.11 has no public type for the general buffer protocol; using
-        # Any here keeps this private RawIOBase adapter importable on the declared
-        # Python 3.11 floor while preserving the runtime buffer check in memoryview.
-        view = memoryview(buffer)
-        data = self._raw.read(len(view))
-        if not data:
-            return 0
-        self._digest.update(data)
-        self._bytes_read += len(data)
-        if (
-            self._progress_callback is not None
-            and self._bytes_read - self._last_reported_bytes
-            >= self._progress_interval_bytes
-        ):
-            self._progress_callback(self._bytes_read)
-            self._last_reported_bytes = self._bytes_read
-        view[: len(data)] = data
-        return len(data)
-
-    def finish_progress(self) -> None:
-        """Publish the exact final raw-byte count after identity verification."""
-
-        if (
-            self._progress_callback is not None
-            and self._last_reported_bytes != self._bytes_read
-        ):
-            self._progress_callback(self._bytes_read)
-            self._last_reported_bytes = self._bytes_read
-
-    def close(self) -> None:
-        try:
-            self._raw.close()
-        finally:
-            super().close()
 
 
 def iter_chain_file(path: ResourcePath) -> Iterator[ChainRecord]:
@@ -136,14 +58,14 @@ def iter_chain_file(path: ResourcePath) -> Iterator[ChainRecord]:
     resources do not depend on a ``.gz`` suffix for correct decoding.
     """
 
-    with _open_text_resource(path) as lines:
+    with open_text_resource(path) as lines:
         yield from iter_chain_records(lines)
 
 
 def iter_net_file(path: ResourcePath) -> Iterator[NetRecord]:
     """Yield net records from a local plain-text or gzip resource."""
 
-    with _open_text_resource(path) as lines:
+    with open_text_resource(path) as lines:
         yield from iter_net_records(lines)
 
 
@@ -213,6 +135,39 @@ def _build_ucsc_candidates_from_files(
         progress_callback=chain_progress,
         progress_interval_bytes=chain_progress_interval_bytes,
     )
+    return _build_ucsc_candidates_with_chain_records(
+        source_interval,
+        chains,
+        target_assembly=target_assembly,
+        chain_provenance=chain_provenance,
+        net_path=net_path,
+        net_provenance=net_provenance,
+        reciprocal_best_chain_path=reciprocal_best_chain_path,
+        reciprocal_best_provenance=reciprocal_best_provenance,
+        reciprocal_best_completeness=reciprocal_best_completeness,
+        net_progress=net_progress,
+        net_progress_interval_bytes=net_progress_interval_bytes,
+        reciprocal_best_progress=reciprocal_best_progress,
+        reciprocal_best_progress_interval_bytes=reciprocal_best_progress_interval_bytes,
+    )
+
+
+def _build_ucsc_candidates_with_chain_records(
+    source_interval: GenomicInterval,
+    chains: Iterable[ChainRecord],
+    *,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+    net_path: ResourcePath | None = None,
+    net_provenance: ProvenanceSource | None = None,
+    reciprocal_best_chain_path: ResourcePath | None = None,
+    reciprocal_best_provenance: ProvenanceSource | None = None,
+    reciprocal_best_completeness: ReciprocalBestResourceCompleteness | None = None,
+    net_progress: RawReadProgressCallback | None = None,
+    net_progress_interval_bytes: int = _CHUNK_SIZE,
+    reciprocal_best_progress: RawReadProgressCallback | None = None,
+    reciprocal_best_progress_interval_bytes: int = _CHUNK_SIZE,
+) -> tuple[NormalizedCandidate, ...]:
     # Unpaired optional inputs intentionally fall through to engine validation;
     # only a complete path/provenance pair may use the verified file stream.
     net_records = (
@@ -261,15 +216,19 @@ def build_ucsc_candidates_from_cached_bundle(
     target_assembly: AssemblyIdentifier,
     alignment_provenance: ProvenanceSource,
     progress_callback: ResourceReadProgressCallback | None = None,
+    chain_index: ChainIndex | None = None,
 ) -> tuple[NormalizedCandidate, ...]:
     """Build candidates from one fully acquired UCSC cache bundle.
 
     The cache already records the exact SHA-256 identity assigned at acquisition, so
     this bridge constructs content-addressed file provenance directly from those
-    recorded digests instead of performing a separate pre-parse rehash. The existing
-    file-backed parser still hashes every *consumed* raw file stream and checks it
-    against that identity before candidates can return, preserving the mutation/TOCTOU
-    protection at the scientific-use boundary.
+    recorded digests instead of performing a separate pre-parse rehash. Without an
+    index, the existing file-backed parser hashes every consumed raw file stream and
+    checks it against that identity before candidates can return. With a validated
+    chain index, candidate generation instead consumes exact chain records from the
+    derived artifact while preserving the original chain provenance; index metadata is
+    bound to the cached chain SHA-256/size and selected compressed blocks are verified
+    before parsing.
 
     ``alignment_provenance`` remains caller-supplied. A cached URL plus file digest can
     identify the external artifacts liftAssess acquired, but cannot by itself establish
@@ -305,8 +264,19 @@ def build_ucsc_candidates_from_cached_bundle(
         bundle.chain,
         alignment_provenance=alignment_provenance,
     )
+    indexed_chains: tuple[ChainRecord, ...] | None = None
+    if chain_index is not None:
+        _validate_chain_index_resource(chain_index, bundle.chain)
+        indexed_chains = chain_index.records_for_interval(source_interval)
 
     if bundle.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
+        if indexed_chains is not None:
+            return build_ucsc_candidates(
+                source_interval,
+                indexed_chains,
+                target_assembly=target_assembly,
+                chain_provenance=chain_provenance,
+            )
         return _build_ucsc_candidates_from_files(
             source_interval,
             bundle.chain.path,
@@ -342,6 +312,33 @@ def build_ucsc_candidates_from_cached_bundle(
     # boundary. As with the lower-level COMPLETE_RESOURCE API, liftAssess can verify
     # the bytes it consumes but cannot independently prove that a manually constructed
     # external object was not truncated before being described as complete.
+    if indexed_chains is not None:
+        return _build_ucsc_candidates_with_chain_records(
+            source_interval,
+            indexed_chains,
+            target_assembly=target_assembly,
+            chain_provenance=chain_provenance,
+            net_path=bundle.net.path,
+            net_provenance=net_provenance,
+            reciprocal_best_chain_path=bundle.reciprocal_best_chain.path,
+            reciprocal_best_provenance=reciprocal_best_provenance,
+            reciprocal_best_completeness=(
+                ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE
+            ),
+            net_progress=_resource_progress_callback(
+                progress_callback, UCSCBundleResourceRole.NET, bundle.net
+            ),
+            net_progress_interval_bytes=_progress_interval_bytes(bundle.net),
+            reciprocal_best_progress=_resource_progress_callback(
+                progress_callback,
+                UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN,
+                bundle.reciprocal_best_chain,
+            ),
+            reciprocal_best_progress_interval_bytes=_progress_interval_bytes(
+                bundle.reciprocal_best_chain
+            ),
+        )
+
     return _build_ucsc_candidates_from_files(
         source_interval,
         bundle.chain.path,
@@ -371,6 +368,15 @@ def build_ucsc_candidates_from_cached_bundle(
             bundle.reciprocal_best_chain
         ),
     )
+
+
+def _validate_chain_index_resource(
+    chain_index: ChainIndex, resource: CachedResource
+) -> None:
+    if chain_index.manifest.source_chain_sha256_identifier != resource.sha256:
+        raise ValueError("chain index source identity does not match cached chain")
+    if chain_index.manifest.source_chain_size_bytes != resource.size_bytes:
+        raise ValueError("chain index source size does not match cached chain")
 
 
 def _resource_progress_callback(
@@ -478,9 +484,9 @@ def _iter_chain_file_with_provenance(
     progress_interval_bytes: int = _CHUNK_SIZE,
 ) -> Iterator[ChainRecord]:
     expected_sha256 = _sha256_checksum_from_file_provenance(provenance)
-    with _open_text_resource(
+    with open_text_resource(
         path,
-        expected_sha256=expected_sha256,
+        expected_sha256_hex=expected_sha256,
         progress_callback=progress_callback,
         progress_interval_bytes=progress_interval_bytes,
     ) as lines:
@@ -495,91 +501,10 @@ def _iter_net_file_with_provenance(
     progress_interval_bytes: int = _CHUNK_SIZE,
 ) -> Iterator[NetRecord]:
     expected_sha256 = _sha256_checksum_from_file_provenance(provenance)
-    with _open_text_resource(
+    with open_text_resource(
         path,
-        expected_sha256=expected_sha256,
+        expected_sha256_hex=expected_sha256,
         progress_callback=progress_callback,
         progress_interval_bytes=progress_interval_bytes,
     ) as lines:
         yield from iter_net_records(lines)
-
-
-@contextmanager
-def _open_text_resource(
-    path: ResourcePath,
-    *,
-    expected_sha256: str | None = None,
-    progress_callback: RawReadProgressCallback | None = None,
-    progress_interval_bytes: int = _CHUNK_SIZE,
-) -> Iterator[TextIO]:
-    """Open and stream one local UCSC text resource from a single file handle.
-
-    Compression is detected from the first two bytes of that same open handle, so
-    renamed resources do not depend on filename suffixes and there is no separate
-    probe/reopen window.  When ``expected_sha256`` is supplied, the exact raw bytes
-    that feed the decoder/decompressor are hashed as they are read.  Successful
-    exhaustion of the parser therefore verifies that the provenance digest identifies
-    the bytes actually assessed; a changed file fails loudly instead of returning
-    candidates with stale provenance.
-    """
-
-    resource_path = Path(path)
-    raw = io.FileIO(resource_path, mode="r")
-    try:
-        prefix = raw.read(2)
-        raw.seek(0)
-        is_gzip = prefix == b"\x1f\x8b"
-
-        digest: _Digest | None = (
-            hashlib.sha256() if expected_sha256 is not None else None
-        )
-        binary_raw: io.RawIOBase
-        hashing_raw: _HashingRawReader | None = None
-        if digest is None:
-            if progress_callback is not None:
-                raise ValueError(
-                    "raw-byte progress requires an expected SHA256 identity"
-                )
-            binary_raw = raw
-        else:
-            hashing_raw = _HashingRawReader(
-                raw,
-                digest,
-                progress_callback=progress_callback,
-                progress_interval_bytes=progress_interval_bytes,
-            )
-            binary_raw = hashing_raw
-
-        buffered = io.BufferedReader(binary_raw)
-        binary_text: io.BufferedIOBase
-        if is_gzip:
-            binary_text = gzip.GzipFile(fileobj=buffered, mode="rb")
-        else:
-            binary_text = buffered
-
-        text = io.TextIOWrapper(binary_text, encoding="utf-8", newline="")
-        try:
-            yield text
-            if digest is not None and expected_sha256 is not None:
-                # Parser exhaustion should already have reached EOF.  Draining is
-                # defensive and also includes any raw trailing bytes in the exact
-                # artifact identity rather than only the decoded text payload.
-                while text.read(_CHUNK_SIZE):
-                    pass
-                if is_gzip:
-                    while buffered.read(_CHUNK_SIZE):
-                        pass
-                actual = digest.hexdigest()
-                if actual != expected_sha256:
-                    raise ResourceIdentityMismatchError(
-                        f"SHA256 provenance mismatch for {resource_path}: "
-                        f"expected {expected_sha256}, got {actual}"
-                    )
-                assert hashing_raw is not None
-                hashing_raw.finish_progress()
-        finally:
-            text.close()
-            if is_gzip:
-                buffered.close()
-    finally:
-        raw.close()

@@ -53,6 +53,7 @@ from .resource_identity import (
     ResourceChecksumAlgorithm,
     ResourceChecksumMismatchError,
     compute_resource_checksum,
+    sha256_hex_from_identifier,
 )
 from .resources import UCSCResourceBundle
 
@@ -597,41 +598,22 @@ def _inspect_ucsc_bundle_transfer_plan(
     )
 
 
-def load_cached_ucsc_resource_bundle(
-    cache_root: ResourcePath,
+def _cached_bundle_candidates(
+    root: Path,
     source_db: str,
     target_db: str,
-    *,
-    progress_callback: CacheVerificationProgressCallback | None = None,
-) -> CachedUCSCResourceBundle | None:
-    """Load the best complete verified bundle already present in a local cache.
-
-    This function performs no network access. It reconstructs bundle membership from
-    the URL indexes written at acquisition time, re-verifies each selected artifact's
-    size and SHA-256, and prefers a complete ``COMPARATIVE`` bundle over a
-    ``LIFTOVER_ONLY`` chain when both are present.
-
-    When supplied, ``progress_callback`` reports aggregate SHA-256 verification work as
-    ``(bytes_hashed, total_bytes, complete)``. ``complete`` becomes true only after all
-    required artifacts in the returned bundle have passed their expected SHA-256
-    identity checks; hashing the last byte alone is therefore not reported as successful
-    bundle verification.
-
-    The returned evidence tier describes the exact cached resources available for
-    assessment. It is deliberately not a claim that UCSC still publishes the same
-    resource set today; callers that require a provider freshness check must perform
-    discovery again or use the CLI's ``--refresh`` path.
-    """
-
-    root = Path(cache_root)
+) -> dict[
+    tuple[EvidenceAvailabilityTier, UCSCBundleResourceRole],
+    list[tuple[Path, str]],
+]:
     index_root = root / "by-url"
-    if not index_root.is_dir():
-        return None
-
     candidates: dict[
         tuple[EvidenceAvailabilityTier, UCSCBundleResourceRole],
         list[tuple[Path, str]],
     ] = {}
+    if not index_root.is_dir():
+        return candidates
+
     for index_path in sorted(index_root.glob("*.json")):
         source_url = _cache_index_source_url(index_path)
         if source_url is None:
@@ -644,12 +626,107 @@ def load_cached_ucsc_resource_bundle(
         if binding is None:
             continue
         candidates.setdefault(binding, []).append((index_path, source_url))
+    return candidates
+
+
+def resolve_cached_ucsc_resource_bundle_metadata(
+    cache_root: ResourcePath,
+    source_db: str,
+    target_db: str,
+) -> CachedUCSCResourceBundle | None:
+    """Resolve the best structurally complete cached bundle without hashing bytes.
+
+    This package-internal helper exists only so callers can look for a derived chain
+    index before deciding whether rereading the original chain is necessary. Cache
+    index metadata, exact artifact presence, and exact artifact size are checked, but
+    this function makes no integrity claim about artifact contents. Normal callers
+    should use :func:`load_cached_ucsc_resource_bundle`.
+    """
+
+    root = Path(cache_root)
+    candidates = _cached_bundle_candidates(root, source_db, target_db)
+    if not candidates:
+        return None
+
+    comparative = _load_structural_cached_bundle_tier(
+        root,
+        candidates,
+        source_db=source_db,
+        target_db=target_db,
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+    )
+    if comparative is not None:
+        return comparative
+
+    return _load_structural_cached_bundle_tier(
+        root,
+        candidates,
+        source_db=source_db,
+        target_db=target_db,
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+    )
+
+
+def load_cached_ucsc_resource_bundle(
+    cache_root: ResourcePath,
+    source_db: str,
+    target_db: str,
+    *,
+    progress_callback: CacheVerificationProgressCallback | None = None,
+) -> CachedUCSCResourceBundle | None:
+    """Load the best complete fully verified bundle already present in a local cache.
+
+    This public loader preserves the original integrity contract: every selected
+    provider artifact is checked for exact size and SHA-256 before the bundle returns.
+    It performs no network access and prefers a complete ``COMPARATIVE`` bundle over a
+    ``LIFTOVER_ONLY`` chain when both are present.
+    """
+
+    return load_cached_ucsc_resource_bundle_for_indexed_assessment(
+        cache_root,
+        source_db,
+        target_db,
+        progress_callback=progress_callback,
+    )
+
+
+def load_cached_ucsc_resource_bundle_for_indexed_assessment(
+    cache_root: ResourcePath,
+    source_db: str,
+    target_db: str,
+    *,
+    progress_callback: CacheVerificationProgressCallback | None = None,
+    trusted_artifact_sha256_identifiers: frozenset[str] = frozenset(),
+) -> CachedUCSCResourceBundle | None:
+    """Internal loader supporting exact identities prevalidated by derived artifacts.
+
+    ``trusted_artifact_sha256_identifiers`` is used only after another package boundary
+    has independently established the exact content identity. The CLI currently uses
+    it for an original chain whose reusable chain index has passed source-identity and
+    lookup-catalog validation. Matching cache metadata and exact file size are still
+    required;
+    all other selected provider artifacts retain normal SHA-256 verification.
+
+    Trusted artifacts are excluded from ``progress_callback`` byte totals because their
+    original bytes are not reread. This private hook must not be exposed as a general
+    caller-controlled bypass of the public cache-integrity contract.
+    """
+
+    trusted_sha256_hexes = frozenset(
+        sha256_hex_from_identifier(identifier)
+        for identifier in trusted_artifact_sha256_identifiers
+    )
+    root = Path(cache_root)
+    candidates = _cached_bundle_candidates(root, source_db, target_db)
+    if not candidates:
+        return None
 
     verification = _CacheVerificationTracker(progress_callback)
     comparative_plan = _cache_verification_plan(
         root,
         candidates,
         EvidenceAvailabilityTier.COMPARATIVE,
+        trusted_sha256_hexes=trusted_sha256_hexes,
     )
     comparative_verification = verification if comparative_plan else None
     if comparative_verification is not None:
@@ -661,6 +738,7 @@ def load_cached_ucsc_resource_bundle(
             root,
             candidates.get((EvidenceAvailabilityTier.COMPARATIVE, role), []),
             verification=comparative_verification,
+            trusted_sha256_hexes=trusted_sha256_hexes,
         )
         if resource is None:
             break
@@ -685,6 +763,7 @@ def load_cached_ucsc_resource_bundle(
         root,
         candidates,
         EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        trusted_sha256_hexes=trusted_sha256_hexes,
     )
     liftover_verification = verification if liftover_plan else None
     if liftover_verification is not None:
@@ -697,6 +776,7 @@ def load_cached_ucsc_resource_bundle(
             [],
         ),
         verification=liftover_verification,
+        trusted_sha256_hexes=trusted_sha256_hexes,
     )
     if liftover is None:
         return None
@@ -708,6 +788,76 @@ def load_cached_ucsc_resource_bundle(
     )
     verification.complete()
     return bundle
+
+
+def _load_structural_cached_bundle_tier(
+    root: Path,
+    candidates: dict[
+        tuple[EvidenceAvailabilityTier, UCSCBundleResourceRole],
+        list[tuple[Path, str]],
+    ],
+    *,
+    source_db: str,
+    target_db: str,
+    evidence_tier: EvidenceAvailabilityTier,
+) -> CachedUCSCResourceBundle | None:
+    resources: dict[UCSCBundleResourceRole, CachedResource] = {}
+    for role in _bundle_roles_for_tier(evidence_tier):
+        resource = _first_structural_cached_candidate(
+            root,
+            candidates.get((evidence_tier, role), []),
+        )
+        if resource is None:
+            return None
+        resources[role] = resource
+
+    if evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
+        return CachedUCSCResourceBundle(
+            source_db=source_db,
+            target_db=target_db,
+            evidence_tier=evidence_tier,
+            chain=resources[UCSCBundleResourceRole.CHAIN],
+        )
+
+    return CachedUCSCResourceBundle(
+        source_db=source_db,
+        target_db=target_db,
+        evidence_tier=evidence_tier,
+        chain=resources[UCSCBundleResourceRole.CHAIN],
+        net=resources[UCSCBundleResourceRole.NET],
+        syntenic_net=resources[UCSCBundleResourceRole.SYNTENIC_NET],
+        reciprocal_best_chain=resources[UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN],
+        reciprocal_best_net=resources[UCSCBundleResourceRole.RECIPROCAL_BEST_NET],
+    )
+
+
+def _first_structural_cached_candidate(
+    root: Path,
+    candidates: Sequence[tuple[Path, str]],
+) -> CachedResource | None:
+    for index_path, source_url in candidates:
+        try:
+            terms = ucsc_resource_terms(source_url)
+        except ValueError:
+            continue
+        entry = _load_cached_resource_index_entry(
+            root,
+            index_path,
+            source_url=source_url,
+        )
+        if entry is None:
+            continue
+        return CachedResource(
+            path=entry.artifact_path,
+            source_url=source_url,
+            retrieved_at=entry.retrieved_at,
+            sha256=f"sha256:{entry.sha256_hex}",
+            size_bytes=entry.size_bytes,
+            provider_checksum=entry.provider_checksum,
+            terms=terms,
+            cache_hit=True,
+        )
+    return None
 
 
 class _CacheVerificationTracker:
@@ -781,6 +931,8 @@ def _cache_verification_plan(
         list[tuple[Path, str]],
     ],
     evidence_tier: EvidenceAvailabilityTier,
+    *,
+    trusted_sha256_hexes: frozenset[str] = frozenset(),
 ) -> tuple[tuple[Path, int], ...]:
     """Return the structurally viable artifact prefix the loader will hash.
 
@@ -807,7 +959,10 @@ def _cache_verification_plan(
                 source_url=source_url,
             )
             if entry is not None:
-                selected = (index_path, entry.size_bytes)
+                selected = (
+                    index_path,
+                    0 if entry.sha256_hex in trusted_sha256_hexes else entry.size_bytes,
+                )
                 break
         if selected is None:
             break
@@ -863,6 +1018,7 @@ def _first_verified_cached_candidate(
     candidates: Sequence[tuple[Path, str]],
     *,
     verification: _CacheVerificationTracker | None = None,
+    trusted_sha256_hexes: frozenset[str] = frozenset(),
 ) -> CachedResource | None:
     for index_path, source_url in candidates:
         try:
@@ -875,6 +1031,7 @@ def _first_verified_cached_candidate(
             source_url=source_url,
             terms=terms,
             verification=verification,
+            trusted_sha256_hexes=trusted_sha256_hexes,
         )
         if resource is not None:
             return resource
@@ -1893,6 +2050,7 @@ def _read_verified_cache_entry(
     source_url: str,
     terms: UCSCResourceTerms,
     verification: _CacheVerificationTracker | None = None,
+    trusted_sha256_hexes: frozenset[str] = frozenset(),
 ) -> CachedResource | None:
     entry = _load_cached_resource_index_entry(
         root,
@@ -1901,6 +2059,18 @@ def _read_verified_cache_entry(
     )
     if entry is None:
         return None
+
+    if entry.sha256_hex in trusted_sha256_hexes:
+        return CachedResource(
+            path=entry.artifact_path,
+            source_url=source_url,
+            retrieved_at=entry.retrieved_at,
+            sha256=f"sha256:{entry.sha256_hex}",
+            size_bytes=entry.size_bytes,
+            provider_checksum=entry.provider_checksum,
+            terms=terms,
+            cache_hit=True,
+        )
 
     checksum_progress = (
         verification.checksum_callback(index_path, size_bytes=entry.size_bytes)
