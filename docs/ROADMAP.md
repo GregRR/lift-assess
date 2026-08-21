@@ -608,6 +608,33 @@ Before describing the redesigned language as validated or release-ready:
 This gate tests communication/usefulness, not a numeric confidence model. The existing 50 cases
 remain same-corpus design evidence.
 
+### 24. Second public alpha release — `v0.2.0a1`
+
+Publish the redesigned second public alpha only after Milestone 23 passes.
+
+Milestone 24 is a release milestone, not another scientific-feature milestone. Its scope is the
+implementation and validated result language completed through Milestones 17–23; new analysis
+capabilities should not be added merely to fill the release milestone.
+
+Release requirements:
+
+- Milestone 23's held-out real-case and outside-user/domain gate is complete, with any blocking
+  findings resolved;
+- the release version is `0.2.0a1`;
+- the schema/result-model break from `v0.1.0a1` is documented explicitly, including removal of the
+  legacy aggregate verdict interface rather than silently redefining it;
+- the full native quality gate passes for the release candidate, including pytest, Ruff, Ruff
+  formatting, strict mypy, and `git diff --check`;
+- wheel and source-distribution artifacts build successfully and a clean-environment install/smoke
+  test exercises the documented CLI and machine-readable output;
+- README, user documentation, release notes/changelog, package metadata, and examples describe the
+  behavior actually shipped in `v0.2.0a1`;
+- release artifacts are reviewed before tag/publication, and the published package is smoke-tested
+  through the documented external install path.
+
+If Milestone 23 does not pass, `v0.2.0a1` remains blocked rather than weakening the held-out
+validation gate to meet a release target.
+
 ### Parallel / non-blocking research items
 
 These remain useful but should not disrupt the sequence above:
