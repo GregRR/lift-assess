@@ -142,8 +142,13 @@ The profile must be able to represent, as applicable:
 5. **Target role** — primary, alternate, unplaced, or another authoritative assembly role when a
    defined metadata source supports the label.
 6. **Orientation** — same or reverse; mixed across a candidate set when relevant.
-7. **Reverse result** — returns to the original source locus, returns elsewhere, unavailable, or not
-   run. This is actual reverse assessment and is distinct from reciprocal-best membership.
+7. **Reverse mapping context** — actual reverse assessment, distinct from reciprocal-best
+   membership. Record check state (`NOT_RUN`, `UNAVAILABLE`, or `RUN`) separately from the
+   observed return relationship. A completed run records whether reverse projections are absent,
+   touch only the original aligned source geometry, land only elsewhere, or do both; exact
+   returned/source-base coverage and exact reconstruction of the original aligned geometry remain
+   separate factual fields. For fragmented forward candidates, reverse each exact mapped target
+   segment rather than the target bounding span across unaligned gaps.
 8. **Query-scale context** — point result compared with its automatic 101-bp context and any explicit
    larger context requested by the user.
 9. **Comparative relationship** — filtered/all-chain agreement, additional all-chain placements, and
@@ -274,8 +279,10 @@ Not addressed in earlier drafts of this design and worth getting right before an
 - **Filtered-chain versus all-chain comparison:** ordinary directional liftOver output and the broader
   all-chain candidate inventory become explicit comparative context when both are available.
 - **Actual reverse mapping context:** a reverse assessment is a separate capability from
-  reciprocal-best membership and reports whether a target returns to the original source locus or
-  elsewhere.
+  reciprocal-best membership. It preserves check availability, no-projection state, original-source
+  overlap/coverage, elsewhere returns, and exact original-geometry reconstruction as distinct facts.
+  Fragmented forward mappings are reversed through their exact mapped target segments; a target
+  bounding span must never manufacture a reverse query across an unaligned gap.
 - **Point local context:** 1-bp queries gain the approved automatic 101-bp neighborhood assessment
   once indexing/shared traversal makes the additional work practical.
 - **Assembly-sequence metadata/preflight:** source sequence validity, source bounds, authoritative

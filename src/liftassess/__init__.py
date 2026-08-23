@@ -103,6 +103,16 @@ from .result_profile import (
     TargetRoleState,
     build_result_profile,
 )
+from .reverse_mapping import (
+    CandidateReverseMappingResult,
+    ReverseCheckState,
+    ReverseOriginalSourceCoverageState,
+    ReverseRelationshipState,
+    ReverseSegmentResult,
+    build_candidate_reverse_mapping_result,
+    reverse_mapping_not_run,
+    reverse_mapping_unavailable,
+)
 
 __all__ = [
     "DEFAULT_CHAIN_INDEX_BIN_WIDTH",
@@ -112,6 +122,7 @@ __all__ = [
     "CachedResource",
     "CachedUCSCResourceBundle",
     "CandidateResultProfile",
+    "CandidateReverseMappingResult",
     "ChainGap",
     "ChainGapSummary",
     "ChainIndex",
@@ -149,7 +160,11 @@ __all__ = [
     "ResourceReadProgressCallback",
     "ResultProfile",
     "ResultScopeProfile",
+    "ReverseCheckState",
+    "ReverseOriginalSourceCoverageState",
+    "ReverseRelationshipState",
     "ReverseResultState",
+    "ReverseSegmentResult",
     "SourceCoverageState",
     "TargetRoleState",
     "UCSCAssessmentReport",
@@ -172,6 +187,7 @@ __all__ = [
     "acquire_ucsc_resource_bundle",
     "assess_ucsc_cached_bundle",
     "build_cached_chain_index",
+    "build_candidate_reverse_mapping_result",
     "build_chain_index",
     "build_result_profile",
     "build_ucsc_candidates",
@@ -189,6 +205,8 @@ __all__ = [
     "load_chain_index",
     "plan_ucsc_bundle_acquisition",
     "provenance_source_for_file",
+    "reverse_mapping_not_run",
+    "reverse_mapping_unavailable",
     "sha256_identifier_for_file",
     "ucsc_resource_terms",
     "verify_resource_checksum",

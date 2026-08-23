@@ -534,11 +534,25 @@ reciprocal-best resources where profiling demonstrates a material need.
 
 Add reverse assessment as its own structured result dimension.
 
-- distinguish `returns to original source`, `returns elsewhere`, `unavailable`, and `not run`;
+First model/API slice:
+
+- represent reverse check state independently as `NOT_RUN`, `UNAVAILABLE`, or `RUN`;
+- for a completed run, distinguish no reverse projection, returns touching only the original aligned
+  source geometry, returns only elsewhere, and the presence of both;
+- preserve exact returned/original-source-base coverage and exact reconstruction of the original
+  aligned geometry rather than hiding partial returns inside a binary reciprocal label;
+- reverse fragmented forward mappings through each exact mapped target segment, never through the
+  target bounding span across an unaligned gap.
+
+Remaining execution/integration work:
+
 - never relabel current UCSC reciprocal-best membership as actual reverse mapping;
 - treat non-reciprocity as context, not automatic proof that the forward projection is wrong;
+- resolve and consume actual reverse-direction resources with explicit provenance;
 - reuse the scalable resource-access architecture rather than launching another exhaustive scan per
-  candidate/query.
+  candidate/query;
+- attach candidate-level reverse facts to the result profile and render them consistently in human
+  and schema-versioned machine output.
 
 ### 20. Point neighborhood / multi-scale context
 
