@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 from io import StringIO
 from pathlib import Path
@@ -32,6 +33,7 @@ from liftassess import (
     sha256_identifier_for_file,
     ucsc_resource_terms,
 )
+from liftassess.resource_cache import _write_url_index
 
 _SOURCE_DB = "canFam3"
 _TARGET_DB = "canFam4"
@@ -133,6 +135,28 @@ def _cached_reverse_chain(tmp_path: Path) -> CachedUCSCChainResource:
         target_db=bundle.target_db,
         evidence_tier=bundle.evidence_tier,
         chain=bundle.chain,
+    )
+
+
+def _publish_cached_chain_for_resolution(
+    cache_root: Path,
+    *,
+    source_url: str,
+    data: bytes,
+) -> None:
+    digest = hashlib.sha256(data).hexdigest()
+    artifact = cache_root / "artifacts" / "sha256" / digest[:2] / digest
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_bytes(data)
+    index_key = hashlib.sha256(source_url.encode("utf-8")).hexdigest()
+    _write_url_index(
+        cache_root / "by-url" / f"{index_key}.json",
+        source_url=source_url,
+        retrieved_at="2026-08-23T00:00:00Z",
+        sha256=digest,
+        size_bytes=len(data),
+        provider_checksum=None,
+        terms=ucsc_resource_terms(source_url),
     )
 
 
@@ -322,6 +346,113 @@ def test_run_reports_reverse_unavailable_without_matching_cached_chain(
         in stdout.getvalue()
     )
     assert "UCSC was not contacted" in stderr.getvalue()
+
+
+def test_reverse_cache_resolution_requires_matching_publication_class(
+    tmp_path: Path,
+) -> None:
+    forward = _comparative_cached_bundle(tmp_path)
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(
+            AssemblyIdentifier(name=_SOURCE_DB, provider="UCSC"),
+            "chr1",
+            100,
+            120,
+        ),
+        forward,
+        target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
+        alignment_provenance=ProvenanceSource("forward", "forward lineage"),
+    )
+    assert report.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+
+    cache_root = tmp_path / "reverse-cache"
+    reverse_liftover_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/liftOver/"
+        "canFam4ToCanFam3.over.chain.gz"
+    )
+    _publish_cached_chain_for_resolution(
+        cache_root,
+        source_url=reverse_liftover_url,
+        data=b"filtered reverse chain",
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(cache_root),
+            "--offline",
+        ]
+    )
+    stderr = StringIO()
+
+    enriched = cli._attach_cached_reverse_mapping_context(
+        report,
+        args=args,
+        cache_root=cache_root,
+        stderr=stderr,
+    )
+
+    assert enriched.result_profile.scope.reverse_result is ReverseCheckState.UNAVAILABLE
+    assert "matching COMPARATIVE publication class" in stderr.getvalue()
+
+
+def test_reverse_index_load_corruption_marks_not_run_before_chain_load(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    forward = _cached_bundle(tmp_path)
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(
+            AssemblyIdentifier(name=_SOURCE_DB, provider="UCSC"),
+            "chr1",
+            100,
+            120,
+        ),
+        forward,
+        target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
+        alignment_provenance=ProvenanceSource("forward", "forward lineage"),
+    )
+    reverse = _cached_reverse_chain(tmp_path)
+    monkeypatch.setattr(
+        cli, "resolve_cached_ucsc_chain_resource_metadata", lambda *a, **k: reverse
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_cached_chain_index",
+        lambda *a, **k: (_ for _ in ()).throw(
+            ChainIndexCorruptionError("fixture reverse index load corruption")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_chain_resource",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("reverse chain must not load after index-load corruption")
+        ),
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--offline",
+        ]
+    )
+    stderr = StringIO()
+
+    enriched = cli._attach_cached_reverse_mapping_context(
+        report,
+        args=args,
+        cache_root=tmp_path / "cache",
+        stderr=stderr,
+    )
+
+    assert enriched.result_profile.scope.reverse_result is ReverseCheckState.NOT_RUN
+    assert "cached reverse chain index is unusable" in stderr.getvalue()
 
 
 def test_run_marks_reverse_not_run_after_index_lookup_corruption(

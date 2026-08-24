@@ -804,3 +804,34 @@ def test_reverse_mapping_geometry_must_match_forward_candidate() -> None:
             evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
             reverse_mapping_results=(mismatched,),
         )
+
+
+def test_reverse_mapping_candidate_id_must_match_forward_candidate() -> None:
+    candidate = _candidate("reverse-id")
+    reverse = reverse_mapping_unavailable(candidate)
+    mismatched = replace(reverse, forward_candidate_id="different-candidate")
+
+    with pytest.raises(ValueError, match="preserve forward candidate order"):
+        build_result_profile(
+            SOURCE,
+            (candidate,),
+            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+            reverse_mapping_results=(mismatched,),
+        )
+
+
+def test_reverse_mapping_query_geometry_must_match_forward_candidate() -> None:
+    candidate = _candidate("reverse-query-geometry")
+    reverse = reverse_mapping_unavailable(candidate)
+    mismatched = replace(
+        reverse,
+        queried_target_segments=(GenomicInterval(TARGET_ASSEMBLY, "chrA", 1001, 1101),),
+    )
+
+    with pytest.raises(ValueError, match="query geometry"):
+        build_result_profile(
+            SOURCE,
+            (candidate,),
+            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+            reverse_mapping_results=(mismatched,),
+        )

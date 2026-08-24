@@ -10,6 +10,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import assert_never
 
+from ._candidate_geometry import (
+    canonical_mapping_segments,
+    validate_distinct_candidate_geometries,
+)
 from .models import (
     ChainGapSummary,
     EvidenceAvailabilityTier,
@@ -195,7 +199,7 @@ def build_result_profile(
         raise ValueError("result profile requires a non-empty source interval")
 
     _validate_candidate_ids(candidates)
-    _validate_distinct_candidate_geometries(candidates)
+    validate_distinct_candidate_geometries(candidates)
     reverse_profiles = _reverse_mapping_profiles(candidates, reverse_mapping_results)
     candidate_profiles = tuple(
         _candidate_result_profile(
@@ -456,7 +460,7 @@ def _candidate_result_profile(
         coverage_state = SourceCoverageState.PARTIAL
     else:
         assert_never(coverage.status)
-    canonical_segments = _canonical_mapping_segments(candidate)
+    canonical_segments = canonical_mapping_segments(candidate)
     return CandidateResultProfile(
         candidate_id=candidate.candidate_id,
         coverage_state=coverage_state,
@@ -599,80 +603,6 @@ def _validate_candidate_ids(candidates: tuple[NormalizedCandidate, ...]) -> None
     candidate_ids = [candidate.candidate_id for candidate in candidates]
     if len(candidate_ids) != len(set(candidate_ids)):
         raise ValueError("candidate IDs must be unique")
-
-
-def _validate_distinct_candidate_geometries(
-    candidates: tuple[NormalizedCandidate, ...],
-) -> None:
-    seen: dict[tuple[object, ...], str] = {}
-    for candidate in candidates:
-        key = _canonical_mapping_geometry(candidate)
-        existing = seen.get(key)
-        if existing is not None:
-            raise ValueError(
-                "distinct candidate IDs must not describe identical normalized "
-                f"mapping geometry: {existing!r} and {candidate.candidate_id!r}"
-            )
-        seen[key] = candidate.candidate_id
-
-
-def _canonical_mapping_segments(
-    candidate: NormalizedCandidate,
-) -> tuple[tuple[int, int, int, int], ...]:
-    canonical_segments: list[list[int]] = []
-    for segment in candidate.segments:
-        current = [
-            segment.source_interval.start,
-            segment.source_interval.end,
-            segment.target_interval.start,
-            segment.target_interval.end,
-        ]
-        if canonical_segments and _segments_are_collinear_adjacent(
-            canonical_segments[-1],
-            current,
-            orientation=candidate.orientation,
-        ):
-            previous = canonical_segments[-1]
-            previous[1] = current[1]
-            if candidate.orientation is MappingOrientation.SAME:
-                previous[3] = current[3]
-            else:
-                previous[2] = current[2]
-        else:
-            canonical_segments.append(current)
-
-    return tuple(
-        (segment[0], segment[1], segment[2], segment[3])
-        for segment in canonical_segments
-    )
-
-
-def _canonical_mapping_geometry(candidate: NormalizedCandidate) -> tuple[object, ...]:
-    canonical_segments = _canonical_mapping_segments(candidate)
-
-    first_source = candidate.segments[0].source_interval
-    target = candidate.target_interval
-    return (
-        first_source.assembly,
-        first_source.sequence_name,
-        target.assembly,
-        target.sequence_name,
-        candidate.orientation,
-        canonical_segments,
-    )
-
-
-def _segments_are_collinear_adjacent(
-    previous: list[int],
-    current: list[int],
-    *,
-    orientation: MappingOrientation,
-) -> bool:
-    if previous[1] != current[0]:
-        return False
-    if orientation is MappingOrientation.SAME:
-        return previous[3] == current[2]
-    return previous[2] == current[3]
 
 
 def _validate_candidate_geometry(

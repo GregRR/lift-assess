@@ -266,3 +266,17 @@ def test_reverse_candidate_source_must_stay_inside_exact_segment_query() -> None
                 ),
             ),
         )
+
+
+def test_reverse_candidates_must_represent_distinct_canonical_geometry() -> None:
+    duplicate_geometry = _reverse(
+        "reverse-partitioned",
+        source_spans=((1000, 1050), (1050, 1100)),
+        target_spans=((100, 150), (150, 200)),
+    )
+
+    with pytest.raises(ValueError, match="identical normalized mapping geometry"):
+        build_candidate_reverse_mapping_result(
+            _forward_single(),
+            ((_reverse("reverse-single"), duplicate_geometry),),
+        )

@@ -283,3 +283,27 @@ def test_reverse_context_rejects_duplicate_attach_before_execution(
             reverse_bundle=reverse,
             reverse_alignment_provenance=ProvenanceSource("reverse", "reverse lineage"),
         )
+
+
+def test_reverse_context_leaves_zero_candidate_report_not_run(tmp_path: Path) -> None:
+    source = AssemblyIdentifier(name="canFam3", provider="UCSC")
+    target = AssemblyIdentifier(name="canFam4", provider="UCSC")
+    forward, reverse = _bundles(tmp_path)
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 200, 210),
+        forward,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("forward", "forward lineage"),
+    )
+    assert not report.candidates
+
+    enriched = attach_reverse_mapping_context(
+        report,
+        reverse_bundle=reverse,
+        reverse_alignment_provenance=ProvenanceSource("reverse", "reverse lineage"),
+    )
+
+    assert enriched is report
+    assert enriched.reverse_mapping_results is None
+    assert enriched.reverse_mapping_resource is None
+    assert enriched.result_profile.scope.reverse_result is ReverseCheckState.NOT_RUN

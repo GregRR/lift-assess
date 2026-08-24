@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from ._candidate_geometry import validate_distinct_candidate_geometries
 from .chain_index import ChainIndex
 from .models import GenomicInterval, NormalizedCandidate, ProvenanceSource
 from .resource_cache import CachedUCSCChainResource, CachedUCSCResourceBundle
@@ -65,6 +66,7 @@ class ReverseSegmentResult:
                 "equal length"
             )
         _validate_unique_candidate_ids(self.candidates)
+        validate_distinct_candidate_geometries(self.candidates)
         for candidate in self.candidates:
             _validate_reverse_candidate_source_geometry(
                 self.queried_target_segment,

@@ -148,7 +148,9 @@ The profile must be able to represent, as applicable:
    touch only the original aligned source geometry, land only elsewhere, or do both; exact
    returned/source-base coverage and exact reconstruction of the original aligned geometry remain
    separate factual fields. For fragmented forward candidates, reverse each exact mapped target
-   segment rather than the target bounding span across unaligned gaps.
+   segment rather than the target bounding span across unaligned gaps. Reverse candidate
+   multiplicity is hypothesis-level like forward candidate multiplicity: distinct candidate IDs
+   must not describe equivalent canonical local mapping geometry.
 8. **Query-scale context** — point result compared with its automatic 101-bp context and any explicit
    larger context requested by the user.
 9. **Comparative relationship** — filtered/all-chain agreement, additional all-chain placements, and
