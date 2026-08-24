@@ -22,6 +22,12 @@ from .models import (
     NormalizedCandidate,
     ReciprocalBestMembershipSummary,
 )
+from .reverse_mapping import (
+    CandidateReverseMappingResult,
+    ReverseCheckState,
+    ReverseOriginalSourceCoverageState,
+    ReverseRelationshipState,
+)
 
 
 class InputValidityState(str, Enum):
@@ -59,12 +65,6 @@ class TargetRoleState(str, Enum):
     """Target-sequence metadata state reserved for the metadata milestone."""
 
     NOT_ASSESSED = "NOT_ASSESSED"
-
-
-class ReverseResultState(str, Enum):
-    """Actual reverse-mapping state, distinct from reciprocal-best membership."""
-
-    NOT_RUN = "NOT_RUN"
 
 
 class QueryContextState(str, Enum):
@@ -106,6 +106,21 @@ class FactualHeadline(str, Enum):
 
 
 @dataclass(frozen=True)
+class CandidateReverseMappingProfile:
+    """Derived candidate-level facts from an actual reverse-mapping check."""
+
+    check_state: ReverseCheckState
+    relationship: ReverseRelationshipState | None
+    original_source_bases: int
+    original_source_covered_bases: int | None
+    original_source_coverage: ReverseOriginalSourceCoverageState | None
+    exact_original_geometry_return: bool | None
+    reverse_projection_count: int | None
+    segments_with_reverse_projection: int | None
+    queried_target_segments: tuple[GenomicInterval, ...]
+
+
+@dataclass(frozen=True)
 class CandidateResultProfile:
     """Derived factual geometry for one normalized candidate."""
 
@@ -125,14 +140,15 @@ class CandidateResultProfile:
     largest_source_gap_bases: int
     largest_target_gap_bases: int
     orientation: MappingOrientation
+    reverse_mapping: CandidateReverseMappingProfile
 
 
 @dataclass(frozen=True)
 class ResultScopeProfile:
-    """Explicit boundaries for dimensions not yet assessed in this tranche."""
+    """Explicit scope states for orthogonal result dimensions."""
 
     target_role: TargetRoleState = TargetRoleState.NOT_ASSESSED
-    reverse_result: ReverseResultState = ReverseResultState.NOT_RUN
+    reverse_result: ReverseCheckState = ReverseCheckState.NOT_RUN
     query_context: QueryContextState = QueryContextState.NOT_RUN
     comparative_relationship: ComparativeRelationshipState = (
         ComparativeRelationshipState.NOT_ASSESSED
@@ -171,6 +187,7 @@ def build_result_profile(
     *,
     evidence_tier: EvidenceAvailabilityTier,
     consumed_resource_roles: tuple[str, ...] = (),
+    reverse_mapping_results: tuple[CandidateReverseMappingResult, ...] | None = None,
 ) -> ResultProfile:
     """Derive one deterministic factual profile from normalized scientific data."""
 
@@ -179,13 +196,15 @@ def build_result_profile(
 
     _validate_candidate_ids(candidates)
     _validate_distinct_candidate_geometries(candidates)
+    reverse_profiles = _reverse_mapping_profiles(candidates, reverse_mapping_results)
     candidate_profiles = tuple(
         _candidate_result_profile(
             source_interval,
             candidate,
             evidence_tier=evidence_tier,
+            reverse_mapping=reverse_profile,
         )
-        for candidate in candidates
+        for candidate, reverse_profile in zip(candidates, reverse_profiles, strict=True)
     )
 
     projection_count = _projection_count(len(candidates))
@@ -232,7 +251,105 @@ def build_result_profile(
         interpretation=_interpretation(headline),
         evidence_tier=evidence_tier,
         consumed_resource_roles=consumed_resource_roles,
+        scope=ResultScopeProfile(
+            reverse_result=_reverse_scope_state(reverse_profiles),
+        ),
     )
+
+
+def _reverse_mapping_profiles(
+    candidates: tuple[NormalizedCandidate, ...],
+    reverse_mapping_results: tuple[CandidateReverseMappingResult, ...] | None,
+) -> tuple[CandidateReverseMappingProfile, ...]:
+    if reverse_mapping_results is None:
+        return tuple(
+            CandidateReverseMappingProfile(
+                check_state=ReverseCheckState.NOT_RUN,
+                relationship=None,
+                original_source_bases=sum(
+                    segment.source_interval.length for segment in candidate.segments
+                ),
+                original_source_covered_bases=None,
+                original_source_coverage=None,
+                exact_original_geometry_return=None,
+                reverse_projection_count=None,
+                segments_with_reverse_projection=None,
+                queried_target_segments=tuple(
+                    segment.target_interval for segment in candidate.segments
+                ),
+            )
+            for candidate in candidates
+        )
+
+    if len(reverse_mapping_results) != len(candidates):
+        raise ValueError("reverse mapping results must match the candidate count")
+
+    profiles: list[CandidateReverseMappingProfile] = []
+    for candidate, result in zip(candidates, reverse_mapping_results, strict=True):
+        if result.forward_candidate_id != candidate.candidate_id:
+            raise ValueError(
+                "reverse mapping results must preserve forward candidate order"
+            )
+        expected_original_source_segments = tuple(
+            segment.source_interval for segment in candidate.segments
+        )
+        expected_queried_target_segments = tuple(
+            segment.target_interval for segment in candidate.segments
+        )
+        if result.original_source_segments != expected_original_source_segments:
+            raise ValueError(
+                "reverse mapping original-source geometry must match forward candidate"
+            )
+        if result.queried_target_segments != expected_queried_target_segments:
+            raise ValueError(
+                "reverse mapping query geometry must match forward candidate"
+            )
+        if result.check_state is ReverseCheckState.RUN:
+            profiles.append(
+                CandidateReverseMappingProfile(
+                    check_state=result.check_state,
+                    relationship=result.relationship,
+                    original_source_bases=result.original_source_bases,
+                    original_source_covered_bases=result.original_source_covered_bases,
+                    original_source_coverage=result.original_source_coverage,
+                    exact_original_geometry_return=(
+                        result.exact_original_geometry_return
+                    ),
+                    reverse_projection_count=result.reverse_projection_count,
+                    segments_with_reverse_projection=(
+                        result.segments_with_reverse_projection
+                    ),
+                    queried_target_segments=result.queried_target_segments,
+                )
+            )
+        else:
+            profiles.append(
+                CandidateReverseMappingProfile(
+                    check_state=result.check_state,
+                    relationship=None,
+                    original_source_bases=result.original_source_bases,
+                    original_source_covered_bases=None,
+                    original_source_coverage=None,
+                    exact_original_geometry_return=None,
+                    reverse_projection_count=None,
+                    segments_with_reverse_projection=None,
+                    queried_target_segments=result.queried_target_segments,
+                )
+            )
+    return tuple(profiles)
+
+
+def _reverse_scope_state(
+    reverse_profiles: tuple[CandidateReverseMappingProfile, ...],
+) -> ReverseCheckState:
+    if not reverse_profiles:
+        return ReverseCheckState.NOT_RUN
+    states = {profile.check_state for profile in reverse_profiles}
+    if len(states) != 1:
+        raise ValueError(
+            "reverse mapping check state must be uniform across candidates"
+        )
+    return next(iter(states))
 
 
 def _candidate_result_profile(
@@ -240,6 +357,7 @@ def _candidate_result_profile(
     candidate: NormalizedCandidate,
     *,
     evidence_tier: EvidenceAvailabilityTier,
+    reverse_mapping: CandidateReverseMappingProfile,
 ) -> CandidateResultProfile:
     _validate_candidate_geometry(source_interval, candidate)
 
@@ -365,6 +483,7 @@ def _candidate_result_profile(
             default=0,
         ),
         orientation=candidate.orientation,
+        reverse_mapping=reverse_mapping,
     )
 
 

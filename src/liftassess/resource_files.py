@@ -19,7 +19,7 @@ from typing import TypeAlias
 
 from .chain import ChainRecord, iter_chain_records
 from .chain_index import ChainIndex
-from .engine import build_ucsc_candidates
+from .engine import build_ucsc_candidates, build_ucsc_chain_candidates_for_intervals
 from .models import (
     AssemblyIdentifier,
     EvidenceAvailabilityTier,
@@ -33,6 +33,7 @@ from .models import (
 from .net import NetRecord, iter_net_records
 from .resource_cache import (
     CachedResource,
+    CachedUCSCChainResource,
     CachedUCSCResourceBundle,
     UCSCBundleResourceRole,
 )
@@ -370,6 +371,93 @@ def build_ucsc_candidates_from_cached_bundle(
     )
 
 
+def build_ucsc_chain_candidates_for_intervals_from_cached_chain(
+    source_intervals: Iterable[GenomicInterval],
+    chain_context: CachedUCSCChainResource,
+    *,
+    target_assembly: AssemblyIdentifier,
+    alignment_provenance: ProvenanceSource,
+    progress_callback: ResourceReadProgressCallback | None = None,
+    chain_index: ChainIndex | None = None,
+) -> tuple[tuple[NormalizedCandidate, ...], ...]:
+    """Build chain-only candidates for many intervals from one cached chain.
+
+    With an index, each interval uses region-addressable lookup. Without one, the
+    original chain is verified and parsed exactly once across the full interval set.
+    """
+
+    intervals = tuple(source_intervals)
+    if not intervals:
+        return ()
+    for interval in intervals:
+        if not _assembly_represents_ucsc_db(interval.assembly, chain_context.source_db):
+            raise ValueError(
+                "source interval assembly does not represent cached chain source db "
+                f"{chain_context.source_db!r}"
+            )
+    if not _assembly_represents_ucsc_db(target_assembly, chain_context.target_db):
+        raise ValueError(
+            "target assembly does not represent cached chain target db "
+            f"{chain_context.target_db!r}"
+        )
+    chain_provenance = _cached_chain_resource_provenance(
+        chain_context,
+        alignment_provenance=alignment_provenance,
+    )
+    if chain_index is not None:
+        _validate_chain_index_resource(chain_index, chain_context.chain)
+        return tuple(
+            build_ucsc_candidates(
+                interval,
+                chain_index.records_for_interval(interval),
+                target_assembly=target_assembly,
+                chain_provenance=chain_provenance,
+            )
+            for interval in intervals
+        )
+
+    chains = _iter_chain_file_with_provenance(
+        chain_context.chain.path,
+        chain_provenance,
+        progress_callback=_resource_progress_callback(
+            progress_callback, UCSCBundleResourceRole.CHAIN, chain_context.chain
+        ),
+        progress_interval_bytes=_progress_interval_bytes(chain_context.chain),
+    )
+    return build_ucsc_chain_candidates_for_intervals(
+        intervals,
+        chains,
+        target_assembly=target_assembly,
+        chain_provenance=chain_provenance,
+    )
+
+
+def build_ucsc_chain_candidates_for_intervals_from_cached_bundle(
+    source_intervals: Iterable[GenomicInterval],
+    bundle: CachedUCSCResourceBundle,
+    *,
+    target_assembly: AssemblyIdentifier,
+    alignment_provenance: ProvenanceSource,
+    progress_callback: ResourceReadProgressCallback | None = None,
+    chain_index: ChainIndex | None = None,
+) -> tuple[tuple[NormalizedCandidate, ...], ...]:
+    """Compatibility wrapper using only ``bundle.chain`` for reverse execution."""
+
+    return build_ucsc_chain_candidates_for_intervals_from_cached_chain(
+        source_intervals,
+        CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        target_assembly=target_assembly,
+        alignment_provenance=alignment_provenance,
+        progress_callback=progress_callback,
+        chain_index=chain_index,
+    )
+
+
 def _validate_chain_index_resource(
     chain_index: ChainIndex, resource: CachedResource
 ) -> None:
@@ -424,6 +512,22 @@ def _assembly_represents_ucsc_db(
     """Match only an explicitly recorded UCSC db name/alias; do no alias resolution."""
 
     return db == assembly.name or db in assembly.aliases
+
+
+def _cached_chain_resource_provenance(
+    chain_context: CachedUCSCChainResource,
+    *,
+    alignment_provenance: ProvenanceSource,
+) -> ProvenanceSource:
+    """Build canonical provenance for one consumed directional chain."""
+
+    return _provenance_for_cached_resource(
+        chain_context.chain,
+        label=(
+            f"UCSC {chain_context.source_db}→{chain_context.target_db} chain resource"
+        ),
+        derived_from=(alignment_provenance,),
+    )
 
 
 def _cached_bundle_resource_provenance(

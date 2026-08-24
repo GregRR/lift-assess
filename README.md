@@ -24,7 +24,7 @@ The current result model is facts-first rather than verdict-first. It derives or
 
 A deterministic factual headline summarizes the dominant mapping event, for example `ONE COMPLETE CHAIN PROJECTION`, `PARTIAL SOURCE COVERAGE`, or `MULTIPLE CHAIN PROJECTIONS`. A bounded interpretation explains that event without turning it into a claim of biological truth or candidate correctness.
 
-The result profile also has explicit boundaries for dimensions that are not yet assessed automatically, such as actual reverse mapping, point-neighborhood context, target sequence role, batch relationships, and typed external context.
+The result profile also carries actual reverse-mapping context when a matching reverse-direction chain and its prepared index are already available in the local cache. Reverse mapping is chain-only, is reported separately from reciprocal-best membership, and preserves exact original-source return geometry. The automatic CLI uses the same chain publication class as the forward assessment. If no matching reverse chain is cached, the check is `UNAVAILABLE`; if the chain exists but scalable indexed access is not prepared or is unusable, the check is `NOT_RUN`. An explicit forward `--refresh` also leaves reverse mapping `NOT_RUN` rather than mixing freshly reacquired forward resources with an unrefreshed reverse chain. Normal assessment does not silently contact UCSC, refresh reverse resources, build a reverse index, or start another exhaustive chain scan. Point-neighborhood context, target sequence role, batch relationships, and typed external context remain later dimensions.
 
 ## Scientific principles
 
@@ -45,6 +45,7 @@ The current development code includes:
 - a minimal streaming UCSC chain reader;
 - forward- and reverse-strand chain geometry with 0-based half-open internal coordinates;
 - chain-backed candidate projection, including split mappings;
+- actual chain-only reverse-mapping context from an exact-class cached reverse chain, with explicit `RUN`, `UNAVAILABLE`, and `NOT_RUN` states and no implicit reverse acquisition or index build;
 - mapping-coverage and chain-gap evidence;
 - a minimal streaming UCSC net reader with hierarchy preservation;
 - net evidence for aligned bases (`ali`), duplicated query bases (`qDup`), net classification, and hierarchy;

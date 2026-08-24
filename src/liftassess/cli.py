@@ -24,7 +24,11 @@ from typing import TextIO
 from .chain_index import ChainIndexCorruptionError, load_cached_chain_index
 from .cli_input import parse_ucsc_locus, ucsc_assembly_identifier
 from .models import EvidenceAvailabilityTier, ProvenanceSource
-from .orchestration import assess_ucsc_cached_bundle
+from .orchestration import (
+    UCSCAssessmentReport,
+    assess_ucsc_cached_bundle,
+    attach_reverse_mapping_results,
+)
 from .reporting import (
     render_assessment_details,
     render_assessment_json,
@@ -40,13 +44,20 @@ from .resource_cache import (
     UCSCResourceAcquisitionError,
     acquire_ucsc_resource_bundle,
     inspect_ucsc_bundle_transfer_plan,
+    load_cached_ucsc_chain_resource,
     load_cached_ucsc_resource_bundle,
     load_cached_ucsc_resource_bundle_for_indexed_assessment,
     plan_ucsc_bundle_acquisition,
+    resolve_cached_ucsc_chain_resource_metadata,
     resolve_cached_ucsc_resource_bundle_metadata,
 )
 from .resource_files import ResourceReadProgressCallback
 from .resources import UCSCResourceDiscoveryError, discover_ucsc_resources
+from .reverse_mapping import (
+    build_reverse_mapping_results_from_cached_chain,
+    reverse_mapping_not_run,
+    reverse_mapping_unavailable,
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -325,6 +336,14 @@ def _run(
         progress_display.finish(
             candidates_exist=bool(report.candidates),
         )
+
+    report = _attach_cached_reverse_mapping_context(
+        report,
+        args=args,
+        cache_root=cache_root,
+        stderr=stderr,
+    )
+
     if args.json_output:
         rendered = render_assessment_json(report)
     elif args.details:
@@ -436,6 +455,10 @@ def _default_user_cache_root(
     return base / "liftassess"
 
 
+def _human_evidence_tier(tier: EvidenceAvailabilityTier) -> str:
+    return tier.value.replace("_", "-")
+
+
 def _ucsc_pair_lineage_provenance(source_db: str, target_db: str) -> ProvenanceSource:
     """Return the conservative shared-dependency node used by the automatic CLI.
 
@@ -452,6 +475,130 @@ def _ucsc_pair_lineage_provenance(source_db: str, target_db: str) -> ProvenanceS
             f"Conservative shared UCSC {source_db}→{target_db} resource lineage "
             "(liftAssess CLI dependency grouping)"
         ),
+    )
+
+
+def _attach_cached_reverse_mapping_context(
+    report: UCSCAssessmentReport,
+    *,
+    args: argparse.Namespace,
+    cache_root: Path,
+    stderr: TextIO,
+) -> UCSCAssessmentReport:
+    """Attach automatic reverse facts without provider access or full scans."""
+
+    if not report.candidates:
+        return report
+
+    unavailable = tuple(
+        reverse_mapping_unavailable(candidate) for candidate in report.candidates
+    )
+    not_run = tuple(
+        reverse_mapping_not_run(candidate) for candidate in report.candidates
+    )
+    reverse_source_db = report.target_db
+    reverse_target_db = report.source_db
+
+    if args.refresh:
+        _status(
+            "Reverse mapping not run during --refresh: reverse-direction resources "
+            "were not refreshed automatically.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return attach_reverse_mapping_results(report, not_run)
+
+    structural = resolve_cached_ucsc_chain_resource_metadata(
+        cache_root,
+        reverse_source_db,
+        reverse_target_db,
+        evidence_tier=report.evidence_tier,
+    )
+    if structural is None:
+        _status(
+            "Reverse mapping unavailable: no cached reverse-direction chain with "
+            f"matching {report.evidence_tier.value.replace('_', '-')} publication "
+            "class; UCSC was not contacted.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return attach_reverse_mapping_results(report, unavailable)
+
+    try:
+        reverse_index = load_cached_chain_index(cache_root, structural.chain)
+    except ChainIndexCorruptionError as exc:
+        _status(
+            "Reverse mapping not run: cached reverse chain index is unusable "
+            f"({exc}). Rebuild it with prepare-liftassess-index "
+            f"{reverse_source_db} {reverse_target_db} --evidence-tier "
+            f"{_human_evidence_tier(report.evidence_tier)} --rebuild.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return attach_reverse_mapping_results(report, not_run)
+
+    if reverse_index is None:
+        _status(
+            "Reverse mapping not run: the matching reverse chain is cached but no "
+            "prepared index is available. Run prepare-liftassess-index "
+            f"{reverse_source_db} {reverse_target_db} --evidence-tier "
+            f"{_human_evidence_tier(report.evidence_tier)}; no full reverse-chain "
+            "scan was started.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return attach_reverse_mapping_results(report, not_run)
+
+    reverse_chain = load_cached_ucsc_chain_resource(
+        cache_root,
+        reverse_source_db,
+        reverse_target_db,
+        evidence_tier=report.evidence_tier,
+        trusted_artifact_sha256_identifiers=frozenset({structural.chain.sha256}),
+    )
+    if reverse_chain is None:
+        _status(
+            "Reverse mapping unavailable: cached reverse chain does not match the "
+            "validated index identity.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return attach_reverse_mapping_results(report, unavailable)
+
+    _status(
+        "Assessing actual reverse mapping from cached indexed "
+        f"{reverse_source_db}→{reverse_target_db} chain...",
+        quiet=args.quiet,
+        stderr=stderr,
+    )
+    reverse_alignment = _ucsc_pair_lineage_provenance(
+        reverse_source_db, reverse_target_db
+    )
+    try:
+        reverse_results = build_reverse_mapping_results_from_cached_chain(
+            report.candidates,
+            reverse_chain,
+            reverse_alignment_provenance=reverse_alignment,
+            chain_index=reverse_index,
+        )
+    except ChainIndexCorruptionError as exc:
+        _status(
+            "Reverse mapping not run: cached reverse chain index failed during "
+            f"lookup ({exc}). Rebuild it with prepare-liftassess-index "
+            f"{reverse_source_db} {reverse_target_db} --evidence-tier "
+            f"{_human_evidence_tier(report.evidence_tier)} --rebuild; no full "
+            "reverse-chain scan "
+            "was started.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return attach_reverse_mapping_results(report, not_run)
+
+    return attach_reverse_mapping_results(
+        report,
+        reverse_results,
+        reverse_chain=reverse_chain,
+        reverse_alignment_provenance=reverse_alignment,
     )
 
 

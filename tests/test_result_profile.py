@@ -27,6 +27,7 @@ from liftassess import (
     ReciprocalBestResourceCompleteness,
     SourceCoverageState,
     build_result_profile,
+    reverse_mapping_unavailable,
 )
 
 SOURCE_ASSEMBLY = AssemblyIdentifier("sourceAsm", "test")
@@ -786,3 +787,20 @@ def test_profile_exposes_exact_source_chain_gap_geometry() -> None:
         GenomicInterval(SOURCE_ASSEMBLY, "chr1", 150, 160),
     )
     assert candidate_profile.largest_source_gap_bases == 10
+
+
+def test_reverse_mapping_geometry_must_match_forward_candidate() -> None:
+    candidate = _candidate("reverse-geometry")
+    reverse = reverse_mapping_unavailable(candidate)
+    mismatched = replace(
+        reverse,
+        original_source_segments=(GenomicInterval(SOURCE_ASSEMBLY, "chr1", 101, 201),),
+    )
+
+    with pytest.raises(ValueError, match="original-source geometry"):
+        build_result_profile(
+            SOURCE,
+            (candidate,),
+            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+            reverse_mapping_results=(mismatched,),
+        )

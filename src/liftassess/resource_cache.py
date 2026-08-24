@@ -149,6 +149,30 @@ class CachedResource:
 
 
 @dataclass(frozen=True)
+class CachedUCSCChainResource:
+    """One cached directional chain with its exact publication class.
+
+    Actual reverse mapping consumes only a chain resource. Keeping the UCSC database
+    direction and evidence tier attached prevents comparative all-chain and filtered
+    liftOver chains from being substituted silently for one another.
+    """
+
+    source_db: str
+    target_db: str
+    evidence_tier: EvidenceAvailabilityTier
+    chain: CachedResource
+
+    def __post_init__(self) -> None:
+        _validate_bundle_resource_binding(
+            UCSCBundleResourceRole.CHAIN,
+            self.chain.source_url,
+            source_db=self.source_db,
+            target_db=self.target_db,
+            evidence_tier=self.evidence_tier,
+        )
+
+
+@dataclass(frozen=True)
 class _CachedResourceIndexEntry:
     """Structurally valid cache-index metadata awaiting SHA-256 verification."""
 
@@ -627,6 +651,67 @@ def _cached_bundle_candidates(
             continue
         candidates.setdefault(binding, []).append((index_path, source_url))
     return candidates
+
+
+def resolve_cached_ucsc_chain_resource_metadata(
+    cache_root: ResourcePath,
+    source_db: str,
+    target_db: str,
+    *,
+    evidence_tier: EvidenceAvailabilityTier,
+) -> CachedUCSCChainResource | None:
+    """Resolve one exact-class directional chain structurally without hashing."""
+
+    root = Path(cache_root)
+    candidates = _cached_bundle_candidates(root, source_db, target_db)
+    resource = _first_structural_cached_candidate(
+        root,
+        candidates.get((evidence_tier, UCSCBundleResourceRole.CHAIN), []),
+    )
+    if resource is None:
+        return None
+    return CachedUCSCChainResource(
+        source_db=source_db,
+        target_db=target_db,
+        evidence_tier=evidence_tier,
+        chain=resource,
+    )
+
+
+def load_cached_ucsc_chain_resource(
+    cache_root: ResourcePath,
+    source_db: str,
+    target_db: str,
+    *,
+    evidence_tier: EvidenceAvailabilityTier,
+    trusted_artifact_sha256_identifiers: frozenset[str] = frozenset(),
+) -> CachedUCSCChainResource | None:
+    """Load and verify only one exact-class directional chain from the cache.
+
+    Net and reciprocal-best artifacts are intentionally not read. A trusted SHA-256
+    identity may be supplied only by package code after a validated derived index has
+    already established the exact source-chain identity.
+    """
+
+    trusted_sha256_hexes = frozenset(
+        sha256_hex_from_identifier(identifier)
+        for identifier in trusted_artifact_sha256_identifiers
+    )
+    root = Path(cache_root)
+    candidates = _cached_bundle_candidates(root, source_db, target_db)
+    resource = _first_verified_cached_candidate(
+        root,
+        candidates.get((evidence_tier, UCSCBundleResourceRole.CHAIN), []),
+        trusted_sha256_hexes=trusted_sha256_hexes,
+    )
+    if resource is None:
+        return None
+    return CachedUCSCChainResource(
+        source_db=source_db,
+        target_db=target_db,
+        evidence_tier=evidence_tier,
+        chain=resource,
+    )
 
 
 def resolve_cached_ucsc_resource_bundle_metadata(

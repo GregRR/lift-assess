@@ -10,11 +10,13 @@ import pytest
 from liftassess import (
     AssemblyIdentifier,
     CachedResource,
+    CachedUCSCChainResource,
     CachedUCSCResourceBundle,
     ChainIndexCorruptionError,
     EvidenceAvailabilityTier,
     GenomicInterval,
     ProvenanceSource,
+    ReverseCheckState,
     UCSCAssessmentReport,
     UCSCBundleResourceRole,
     UCSCBundleTransferInspection,
@@ -97,6 +99,43 @@ def _cached_bundle(tmp_path: Path) -> CachedUCSCResourceBundle:
     )
 
 
+def _cached_reverse_bundle(tmp_path: Path) -> CachedUCSCResourceBundle:
+    path = tmp_path / "reverse-chain.gz"
+    chain = "chain 100 chrA 2000 + 500 520 chr1 1000 + 100 120 2\n20\n\n"
+    with gzip.open(path, mode="wt", encoding="utf-8", newline="") as handle:
+        handle.write(chain)
+    url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/liftOver/"
+        "canFam4ToCanFam3.over.chain.gz"
+    )
+    resource = CachedResource(
+        path=path,
+        source_url=url,
+        retrieved_at="2026-08-16T00:00:00Z",
+        sha256=sha256_identifier_for_file(path).value,
+        size_bytes=path.stat().st_size,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(url),
+        cache_hit=False,
+    )
+    return CachedUCSCResourceBundle(
+        source_db=_TARGET_DB,
+        target_db=_SOURCE_DB,
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        chain=resource,
+    )
+
+
+def _cached_reverse_chain(tmp_path: Path) -> CachedUCSCChainResource:
+    bundle = _cached_reverse_bundle(tmp_path)
+    return CachedUCSCChainResource(
+        source_db=bundle.source_db,
+        target_db=bundle.target_db,
+        evidence_tier=bundle.evidence_tier,
+        chain=bundle.chain,
+    )
+
+
 def _install_successful_resource_flow(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -143,6 +182,226 @@ def test_cli_runs_end_to_end_with_interactive_acknowledgements(
         "Provider-advertised total identity resource size: 2.0 KiB" in stderr.getvalue()
     )
     assert "Verified cache hits may avoid resource-body transfer." in stderr.getvalue()
+
+
+def test_run_uses_cached_indexed_reverse_chain_without_provider_access(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    forward = _cached_bundle(tmp_path)
+    reverse = _cached_reverse_chain(tmp_path)
+    cache_root = tmp_path / "cache"
+    build_cached_chain_index(cache_root, reverse.chain)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target: forward,
+    )
+
+    seen_tiers: list[EvidenceAvailabilityTier] = []
+
+    def resolve_reverse(*args: object, **kwargs: object) -> CachedUCSCChainResource:
+        del args
+        tier = kwargs["evidence_tier"]
+        assert isinstance(tier, EvidenceAvailabilityTier)
+        seen_tiers.append(tier)
+        return reverse
+
+    monkeypatch.setattr(
+        cli, "resolve_cached_ucsc_chain_resource_metadata", resolve_reverse
+    )
+    monkeypatch.setattr(
+        cli, "load_cached_ucsc_chain_resource", lambda *args, **kwargs: reverse
+    )
+    monkeypatch.setattr(
+        cli,
+        "discover_ucsc_resources",
+        lambda source, target: (_ for _ in ()).throw(
+            AssertionError("cached forward/reverse assessment must not contact UCSC")
+        ),
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(cache_root),
+            "--offline",
+        ]
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
+
+    assert exit_code == 0
+    assert seen_tiers == [EvidenceAvailabilityTier.LIFTOVER_ONLY]
+    assert (
+        "Reverse mapping: exactly reconstructs the original aligned source geometry"
+        in stdout.getvalue()
+    )
+    assert (
+        "Assessing actual reverse mapping from cached indexed canFam4→canFam3 chain"
+        in stderr.getvalue()
+    )
+
+
+def test_refresh_leaves_reverse_not_run_without_reverse_cache_access(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    forward = _cached_bundle(tmp_path)
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(
+            AssemblyIdentifier(name=_SOURCE_DB, provider="UCSC"),
+            "chr1",
+            100,
+            120,
+        ),
+        forward,
+        target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
+        alignment_provenance=ProvenanceSource("forward", "forward lineage"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("--refresh must not inspect automatic reverse resources")
+        ),
+    )
+    args = cli._build_parser().parse_args(
+        [_SOURCE_DB, _TARGET_DB, "chr1:101-120", "--refresh"]
+    )
+    stderr = StringIO()
+
+    enriched = cli._attach_cached_reverse_mapping_context(
+        report,
+        args=args,
+        cache_root=tmp_path / "cache",
+        stderr=stderr,
+    )
+
+    assert enriched.result_profile.scope.reverse_result is ReverseCheckState.NOT_RUN
+    assert "not run during --refresh" in stderr.getvalue()
+
+
+def test_run_reports_reverse_unavailable_without_matching_cached_chain(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    forward = _cached_bundle(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target: forward,
+    )
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        lambda *args, **kwargs: None,
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--offline",
+        ]
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
+
+    assert exit_code == 0
+    assert (
+        "Reverse mapping: unavailable from the current prepared reverse resources"
+        in stdout.getvalue()
+    )
+    assert "UCSC was not contacted" in stderr.getvalue()
+
+
+def test_run_marks_reverse_not_run_after_index_lookup_corruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    forward = _cached_bundle(tmp_path)
+    reverse = _cached_reverse_chain(tmp_path)
+    cache_root = tmp_path / "cache"
+    build_cached_chain_index(cache_root, reverse.chain)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target, **kwargs: forward,
+    )
+    monkeypatch.setattr(
+        cli, "resolve_cached_ucsc_chain_resource_metadata", lambda *a, **k: reverse
+    )
+    monkeypatch.setattr(cli, "load_cached_ucsc_chain_resource", lambda *a, **k: reverse)
+    monkeypatch.setattr(
+        cli,
+        "build_reverse_mapping_results_from_cached_chain",
+        lambda *a, **k: (_ for _ in ()).throw(
+            ChainIndexCorruptionError("fixture reverse query corruption")
+        ),
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(cache_root),
+            "--offline",
+        ]
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
+
+    assert exit_code == 0
+    assert "failed during lookup" in stderr.getvalue()
+    assert "no full reverse-chain scan was started" in stderr.getvalue()
+    assert "Reverse mapping: not run" in stdout.getvalue()
+
+
+def test_run_marks_reverse_not_run_when_matching_chain_is_not_indexed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    forward = _cached_bundle(tmp_path)
+    reverse = _cached_reverse_chain(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target, **kwargs: forward,
+    )
+    monkeypatch.setattr(
+        cli, "resolve_cached_ucsc_chain_resource_metadata", lambda *a, **k: reverse
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--offline",
+        ]
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
+
+    assert exit_code == 0
+    assert "no prepared index is available" in stderr.getvalue()
+    assert "no full reverse-chain scan was started" in stderr.getvalue()
+    assert "Reverse mapping: not run" in stdout.getvalue()
 
 
 def test_cli_explicit_acknowledgement_flags_skip_prompts(

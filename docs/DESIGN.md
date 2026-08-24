@@ -282,7 +282,16 @@ Not addressed in earlier drafts of this design and worth getting right before an
   reciprocal-best membership. It preserves check availability, no-projection state, original-source
   overlap/coverage, elsewhere returns, and exact original-geometry reconstruction as distinct facts.
   Fragmented forward mappings are reversed through their exact mapped target segments; a target
-  bounding span must never manufacture a reverse query across an unaligned gap.
+  bounding span must never manufacture a reverse query across an unaligned gap. Reverse execution
+  is chain-only: a prepared reverse chain index provides region-addressable lookup, while the
+  lower-level non-indexed path shares one verified chain traversal across the complete segment-query
+  set. Net and reciprocal-best resources are not required or consumed merely to establish reverse
+  geometry. The automatic CLI is cache-only and index-only, uses the same chain publication class as
+  the forward assessment, reports an absent matching chain as `UNAVAILABLE`, and reports a cached
+  matching chain without usable indexed access as `NOT_RUN`. During an explicit `--refresh`, the
+  reverse check is also `NOT_RUN` rather than mixing freshly reacquired forward resources with
+  unrefreshed reverse bytes; reverse-direction refresh is never implicit. The CLI never silently
+  downloads reverse resources, builds a reverse index, or starts an exhaustive reverse traversal.
 - **Point local context:** 1-bp queries gain the approved automatic 101-bp neighborhood assessment
   once indexing/shared traversal makes the additional work practical.
 - **Assembly-sequence metadata/preflight:** source sequence validity, source bounds, authoritative

@@ -2334,3 +2334,43 @@ def test_bundle_transfer_inspection_rejects_wrong_pair_metadata() -> None:
 def test_public_remote_metadata_inspection_is_exported() -> None:
     assert callable(inspect_ucsc_resource)
     assert callable(inspect_ucsc_bundle_transfer_plan)
+
+
+def test_chain_only_cache_loader_preserves_exact_publication_class(
+    tmp_path: Path,
+) -> None:
+    from liftassess.resource_cache import (
+        load_cached_ucsc_chain_resource,
+        resolve_cached_ucsc_chain_resource_metadata,
+    )
+
+    comparative_chain_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/"
+        "canFam4.canFam3.all.chain.gz"
+    )
+    liftover_chain_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/liftOver/"
+        "canFam4ToCanFam3.over.chain.gz"
+    )
+    _publish_cached_index_entry(tmp_path, comparative_chain_url, b"all-chain")
+    _publish_cached_index_entry(tmp_path, liftover_chain_url, b"filtered-chain")
+
+    comparative = resolve_cached_ucsc_chain_resource_metadata(
+        tmp_path,
+        "canFam4",
+        "canFam3",
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+    )
+    liftover = load_cached_ucsc_chain_resource(
+        tmp_path,
+        "canFam4",
+        "canFam3",
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+    )
+
+    assert comparative is not None
+    assert comparative.chain.source_url == comparative_chain_url
+    assert comparative.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+    assert liftover is not None
+    assert liftover.chain.source_url == liftover_chain_url
+    assert liftover.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY

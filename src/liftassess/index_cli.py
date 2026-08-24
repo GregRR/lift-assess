@@ -2,7 +2,7 @@
 
 The preparation command is deliberately cache-only. It never discovers or downloads
 provider resources; it builds a derived acceleration artifact only from an already
-verified cached UCSC bundle. Normal CLI assessment remains usable without an index and
+verified cached UCSC chain. Normal CLI assessment remains usable without an index and
 falls back to the original full traversal when no matching usable index exists. Lower-level
 library callers retain explicit control over query-time index-corruption recovery.
 """
@@ -24,7 +24,11 @@ from .chain_index import (
     load_cached_chain_index,
 )
 from .cli import default_user_cache_root
-from .resource_cache import load_cached_ucsc_resource_bundle
+from .models import EvidenceAvailabilityTier
+from .resource_cache import (
+    load_cached_ucsc_chain_resource,
+    load_cached_ucsc_resource_bundle,
+)
 
 _PROGRESS_BAR_WIDTH = 20
 
@@ -46,7 +50,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="prepare-liftassess-index",
         description=(
             "Build a reusable local chain index from an already verified liftAssess "
-            "UCSC cache bundle. This command never contacts UCSC."
+            "UCSC cached chain. This command never contacts UCSC."
         ),
     )
     parser.add_argument(
@@ -59,6 +63,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--cache-dir",
         type=Path,
         help="resource cache directory (default: platform user cache)",
+    )
+    parser.add_argument(
+        "--evidence-tier",
+        choices=("COMPARATIVE", "LIFTOVER-ONLY"),
+        help=(
+            "prepare the chain for one exact publication class; useful for reverse "
+            "mapping when both COMPARATIVE and LIFTOVER_ONLY chains are cached"
+        ),
     )
     parser.add_argument(
         "--rebuild",
@@ -84,21 +96,46 @@ def _run(
 ) -> int:
     cache_root = args.cache_dir or default_user_cache_root()
     _status("Checking/verifying local UCSC cache...", quiet=args.quiet, stderr=stderr)
-    bundle = load_cached_ucsc_resource_bundle(
-        cache_root,
-        args.source_db,
-        args.target_db,
-    )
-    if bundle is None:
-        print(
-            "error: index preparation requires a complete verified cached UCSC bundle "
-            f"for {args.source_db}→{args.target_db} under {cache_root}; run "
-            "assess-liftover for this assembly pair first to acquire/verify resources",
-            file=stderr,
+    selected_tier: EvidenceAvailabilityTier
+    if args.evidence_tier is not None:
+        selected_tier = (
+            EvidenceAvailabilityTier.LIFTOVER_ONLY
+            if args.evidence_tier == "LIFTOVER-ONLY"
+            else EvidenceAvailabilityTier.COMPARATIVE
         )
-        return 1
-
-    resource = bundle.chain
+        chain_context = load_cached_ucsc_chain_resource(
+            cache_root,
+            args.source_db,
+            args.target_db,
+            evidence_tier=selected_tier,
+        )
+        if chain_context is None:
+            print(
+                "error: index preparation requires a verified cached "
+                f"{selected_tier.value.replace('_', '-')} chain for "
+                f"{args.source_db}→{args.target_db} under {cache_root}; run "
+                "assess-liftover for this assembly pair first to acquire resources",
+                file=stderr,
+            )
+            return 1
+        resource = chain_context.chain
+    else:
+        bundle = load_cached_ucsc_resource_bundle(
+            cache_root,
+            args.source_db,
+            args.target_db,
+        )
+        if bundle is None:
+            print(
+                "error: index preparation requires a complete verified cached UCSC "
+                f"bundle for {args.source_db}→{args.target_db} under {cache_root}; "
+                "run assess-liftover for this assembly pair first to acquire/verify "
+                "resources",
+                file=stderr,
+            )
+            return 1
+        selected_tier = bundle.evidence_tier
+        resource = bundle.chain
     index_path = chain_index_cache_path(cache_root, resource.sha256)
 
     if args.rebuild and index_path.exists():
@@ -128,6 +165,7 @@ def _run(
                 index_path=index_path,
                 source_db=args.source_db,
                 target_db=args.target_db,
+                evidence_tier=selected_tier,
                 prepared=False,
                 stdout=stdout,
             )
@@ -179,6 +217,7 @@ def _run(
         index_path=result.index.root,
         source_db=args.source_db,
         target_db=args.target_db,
+        evidence_tier=selected_tier,
         prepared=True,
         stdout=stdout,
     )
@@ -237,6 +276,7 @@ def _print_summary(
     index_path: Path,
     source_db: str,
     target_db: str,
+    evidence_tier: EvidenceAvailabilityTier,
     prepared: bool,
     stdout: TextIO,
 ) -> None:
@@ -247,6 +287,7 @@ def _print_summary(
         + manifest.lookup_catalog_size_bytes
     )
     print(f"{state}: reusable chain index for {source_db}→{target_db}", file=stdout)
+    print(f"Publication class: {evidence_tier.value.replace('_', '-')}", file=stdout)
     print(f"Index: {index_path}", file=stdout)
     print(f"Source chain: {manifest.source_chain_sha256_identifier}", file=stdout)
     print(f"Records: {manifest.record_count}", file=stdout)

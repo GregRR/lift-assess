@@ -10,7 +10,7 @@ marking actual engine consumption explicitly. Cached presence is never presented
 scientific evidence unless the engine consumed the resource.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .chain_index import ChainIndex
 from .models import (
@@ -23,15 +23,23 @@ from .models import (
 )
 from .resource_cache import (
     CachedResource,
+    CachedUCSCChainResource,
     CachedUCSCResourceBundle,
     UCSCBundleResourceRole,
 )
 from .resource_files import (
     ResourceReadProgressCallback,
     _cached_bundle_resource_provenance,
+    _cached_chain_resource_provenance,
     build_ucsc_candidates_from_cached_bundle,
 )
 from .result_profile import ResultProfile, build_result_profile
+from .reverse_mapping import (
+    CandidateReverseMappingResult,
+    ReverseCheckState,
+    build_reverse_mapping_results_from_cached_bundle,
+    reverse_mapping_unavailable,
+)
 
 
 @dataclass(frozen=True)
@@ -81,6 +89,9 @@ class UCSCAssessmentReport:
     target_db: str
     alignment_provenance: ProvenanceSource
     resources: tuple[UCSCAssessmentResource, ...]
+    reverse_mapping_results: tuple[CandidateReverseMappingResult, ...] | None = None
+    reverse_alignment_provenance: ProvenanceSource | None = None
+    reverse_mapping_resource: UCSCAssessmentResource | None = None
 
     def __post_init__(self) -> None:
         expected_roles = _resource_roles_for_tier(self.evidence_tier)
@@ -129,6 +140,8 @@ class UCSCAssessmentReport:
         if profile_candidate_ids != report_candidate_ids:
             raise ValueError("result profile candidates must match report candidates")
 
+        self._validate_reverse_mapping_context()
+
         for resource in self.resources:
             if resource.file_provenance is not None and (
                 resource.file_provenance.derived_from != (self.alignment_provenance,)
@@ -136,6 +149,69 @@ class UCSCAssessmentReport:
                 raise ValueError(
                     "consumed UCSC file provenance must derive from the report "
                     "alignment provenance"
+                )
+
+    def _validate_reverse_mapping_context(self) -> None:
+        results = self.reverse_mapping_results
+        if results is None:
+            if self.reverse_alignment_provenance is not None:
+                raise ValueError(
+                    "reverse alignment provenance requires reverse mapping results"
+                )
+            if self.reverse_mapping_resource is not None:
+                raise ValueError("reverse resource requires reverse mapping results")
+            if (
+                self.result_profile.scope.reverse_result
+                is not ReverseCheckState.NOT_RUN
+            ):
+                raise ValueError("result profile reverse state must be NOT_RUN")
+            return
+
+        result_candidate_ids = tuple(result.forward_candidate_id for result in results)
+        report_candidate_ids = tuple(
+            candidate.candidate_id for candidate in self.candidates
+        )
+        if result_candidate_ids != report_candidate_ids:
+            raise ValueError("reverse mapping results must match report candidates")
+
+        check_states = {result.check_state for result in results}
+        if len(check_states) > 1:
+            raise ValueError("reverse mapping results must share one check state")
+        check_state = next(iter(check_states), ReverseCheckState.NOT_RUN)
+        if self.result_profile.scope.reverse_result is not check_state:
+            raise ValueError("result profile reverse state must match reverse results")
+
+        if check_state is ReverseCheckState.RUN:
+            if self.reverse_alignment_provenance is None:
+                raise ValueError("completed reverse mapping requires provenance")
+            resource = self.reverse_mapping_resource
+            if resource is None or resource.role is not UCSCBundleResourceRole.CHAIN:
+                raise ValueError(
+                    "completed reverse mapping requires its chain resource"
+                )
+            if not resource.consumed_by_engine or resource.file_provenance is None:
+                raise ValueError("reverse chain resource must be marked consumed")
+            if resource.file_provenance.derived_from != (
+                self.reverse_alignment_provenance,
+            ):
+                raise ValueError(
+                    "reverse chain provenance must derive from reverse alignment "
+                    "provenance"
+                )
+            for result in results:
+                for segment_result in result.segment_results:
+                    for candidate in segment_result.candidates:
+                        if candidate.mapping_provenance != resource.file_provenance:
+                            raise ValueError(
+                                "reverse candidate mapping provenance must identify "
+                                "the consumed reverse chain"
+                            )
+        else:
+            if self.reverse_alignment_provenance is not None:
+                raise ValueError("unperformed reverse mapping cannot carry provenance")
+            if self.reverse_mapping_resource is not None:
+                raise ValueError(
+                    "unperformed reverse mapping cannot consume a resource"
                 )
 
 
@@ -182,6 +258,139 @@ def assess_ucsc_cached_bundle(
         target_db=bundle.target_db,
         alignment_provenance=alignment_provenance,
         resources=resources,
+    )
+
+
+def attach_reverse_mapping_results(
+    report: UCSCAssessmentReport,
+    reverse_mapping_results: tuple[CandidateReverseMappingResult, ...],
+    *,
+    reverse_chain: CachedUCSCChainResource | None = None,
+    reverse_alignment_provenance: ProvenanceSource | None = None,
+) -> UCSCAssessmentReport:
+    """Attach already-computed candidate-level actual reverse facts.
+
+    Completed reverse runs require the exact chain context and provenance that produced
+    them. ``NOT_RUN`` and ``UNAVAILABLE`` results must not claim a consumed resource.
+    """
+
+    if report.reverse_mapping_results is not None:
+        raise ValueError("reverse mapping context is already attached")
+    if not report.candidates:
+        if reverse_mapping_results:
+            raise ValueError(
+                "reverse mapping results cannot be attached without forward candidates"
+            )
+        return report
+
+    states = {result.check_state for result in reverse_mapping_results}
+    if len(states) > 1:
+        raise ValueError("reverse mapping results must share one check state")
+    check_state = next(iter(states), ReverseCheckState.NOT_RUN)
+
+    reverse_resource: UCSCAssessmentResource | None = None
+    if check_state is ReverseCheckState.RUN:
+        if reverse_chain is None or reverse_alignment_provenance is None:
+            raise ValueError(
+                "completed reverse mapping requires reverse chain context and "
+                "provenance"
+            )
+        if (
+            reverse_chain.source_db != report.target_db
+            or reverse_chain.target_db != report.source_db
+        ):
+            raise ValueError("reverse chain must invert the report UCSC database pair")
+        if reverse_chain.evidence_tier is not report.evidence_tier:
+            raise ValueError(
+                "reverse chain publication class must match the forward assessment"
+            )
+        reverse_file_provenance = _cached_chain_resource_provenance(
+            reverse_chain,
+            alignment_provenance=reverse_alignment_provenance,
+        )
+        reverse_resource = UCSCAssessmentResource(
+            role=UCSCBundleResourceRole.CHAIN,
+            resource=reverse_chain.chain,
+            consumed_by_engine=True,
+            file_provenance=reverse_file_provenance,
+        )
+    elif reverse_chain is not None or reverse_alignment_provenance is not None:
+        raise ValueError(
+            "unperformed reverse mapping must not claim a consumed reverse resource"
+        )
+
+    profile = build_result_profile(
+        report.source_interval,
+        report.candidates,
+        evidence_tier=report.evidence_tier,
+        consumed_resource_roles=report.result_profile.consumed_resource_roles,
+        reverse_mapping_results=reverse_mapping_results,
+    )
+    return replace(
+        report,
+        result_profile=profile,
+        reverse_mapping_results=reverse_mapping_results,
+        reverse_alignment_provenance=reverse_alignment_provenance,
+        reverse_mapping_resource=reverse_resource,
+    )
+
+
+def attach_reverse_mapping_context(
+    report: UCSCAssessmentReport,
+    *,
+    reverse_bundle: CachedUCSCResourceBundle | None,
+    reverse_alignment_provenance: ProvenanceSource | None = None,
+    progress_callback: ResourceReadProgressCallback | None = None,
+    chain_index: ChainIndex | None = None,
+) -> UCSCAssessmentReport:
+    """Compatibility helper that executes reverse mapping from a cached bundle.
+
+    Only the bundle's chain is consumed. ``None`` means no usable reverse resource was
+    available and is represented as ``UNAVAILABLE``. Automatic CLI execution uses the
+    narrower chain-only cache boundary directly.
+    """
+
+    if report.reverse_mapping_results is not None:
+        raise ValueError("reverse mapping context is already attached")
+    if not report.candidates:
+        return report
+    if reverse_bundle is None:
+        return attach_reverse_mapping_results(
+            report,
+            tuple(
+                reverse_mapping_unavailable(candidate)
+                for candidate in report.candidates
+            ),
+        )
+    if reverse_alignment_provenance is None:
+        raise ValueError("reverse bundle requires reverse alignment provenance")
+    if (
+        reverse_bundle.source_db != report.target_db
+        or reverse_bundle.target_db != report.source_db
+    ):
+        raise ValueError("reverse bundle must invert the report UCSC database pair")
+    if reverse_bundle.evidence_tier is not report.evidence_tier:
+        raise ValueError(
+            "reverse bundle publication class must match the forward assessment"
+        )
+
+    results = build_reverse_mapping_results_from_cached_bundle(
+        report.candidates,
+        reverse_bundle,
+        reverse_alignment_provenance=reverse_alignment_provenance,
+        progress_callback=progress_callback,
+        chain_index=chain_index,
+    )
+    return attach_reverse_mapping_results(
+        report,
+        results,
+        reverse_chain=CachedUCSCChainResource(
+            source_db=reverse_bundle.source_db,
+            target_db=reverse_bundle.target_db,
+            evidence_tier=reverse_bundle.evidence_tier,
+            chain=reverse_bundle.chain,
+        ),
+        reverse_alignment_provenance=reverse_alignment_provenance,
     )
 
 

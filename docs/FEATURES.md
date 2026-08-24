@@ -63,6 +63,28 @@ The built-in UCSC engine implements:
 Candidate encounter order is preserved for reproducibility, but it is **not** a
 candidate rank.
 
+## Actual reverse-mapping context
+
+liftAssess can attach actual reverse-direction mapping facts to each forward candidate.
+This capability is distinct from UCSC reciprocal-best membership.
+
+- every exact forward target segment is reversed independently; a fragmented candidate's
+  bounding span is never queried across an unaligned gap;
+- reverse execution consumes only the reverse chain, not net or reciprocal-best
+  artifacts;
+- the lower-level API can share one verified chain traversal across all segment queries
+  or use a validated chain index;
+- the automatic CLI is cache-only and index-only for reverse execution and uses the
+  same chain publication class (`COMPARATIVE` all-chain or filtered `LIFTOVER-ONLY`) as
+  the forward assessment;
+- no matching cached reverse chain is `UNAVAILABLE`; a matching chain without a usable
+  prepared index is `NOT_RUN`; and
+- completed runs preserve original-source coverage, original-versus-elsewhere return
+  relationships, exact-geometry reconstruction, resource identity, and provenance.
+
+Normal assessment never downloads reverse resources, builds a reverse index, or starts
+an exhaustive reverse-chain fallback implicitly.
+
 ## Comparative evidence
 
 When a full comparative resource bundle is available, liftAssess can attach:
@@ -360,9 +382,18 @@ The package currently exports these model/resource types and errors:
 
 - core models: `AssemblyIdentifier`, `GenomicInterval`, `MappingSegment`,
   `MappingOrientation`, `NormalizedCandidate`, and `EvidenceAvailabilityTier`;
-- result profile: `ResultProfile`, `CandidateResultProfile`, `ResultScopeProfile`,
-  `FactualHeadline`, `ProjectionCountState`, `SourceCoverageState`, and the explicit
-  not-yet-assessed state enums for later dimensions;
+- result profile: `ResultProfile`, `CandidateResultProfile`,
+  `CandidateReverseMappingProfile`, `ResultScopeProfile`, `FactualHeadline`,
+  `ProjectionCountState`, `SourceCoverageState`, and explicit state enums for later
+  dimensions;
+- actual reverse mapping: `CandidateReverseMappingResult`, `ReverseSegmentResult`,
+  `ReverseCheckState`, `ReverseRelationshipState`,
+  `ReverseOriginalSourceCoverageState`,
+  `build_reverse_mapping_results_from_cached_bundle()`,
+  `build_reverse_mapping_results_from_cached_chain()`,
+  `attach_reverse_mapping_context()`, and `attach_reverse_mapping_results()`; the CLI
+  runs this automatically only when a matching reverse-direction chain and prepared
+  reverse chain index are already cached;
 - evidence: `EvidenceKind`, `EvidenceObservation`,
   `MappingCoverageStatus`, `MappingCoverageSummary`, `ChainGap`, `ChainGapSummary`,
   `NetHierarchySummary`, `ReciprocalBestMembershipStatus`,
@@ -370,7 +401,8 @@ The package currently exports these model/resource types and errors:
 - provenance/identity: `ProvenanceIdentifier`, `ProvenanceIdentifierKind`,
   `ProvenanceSource`, `ResourceChecksumAlgorithm`, `ResourceChecksumMismatchError`,
   and `ResourceIdentityMismatchError`;
-- acquired resources: `CachedResource`, `CachedUCSCResourceBundle`,
+- acquired resources: `CachedResource`, `CachedUCSCChainResource`,
+  `CachedUCSCResourceBundle`,
   `ProviderChecksum`, `UCSCResourceBundle`, `UCSCResourceClass`,
   `UCSCBundleResourceRole`, `UCSCResourceTerms`, `UCSCRemoteResourceMetadata`,
   `UCSCBundleAcquisitionItem`, `UCSCBundleAcquisitionPlan`,
@@ -399,7 +431,7 @@ The current repository includes automated coverage for, among other behaviors:
 - resumable-transfer safety;
 - cache-first, offline, refresh, and acknowledgement CLI paths;
 - summary, detailed, and JSON reporting semantics; and
-- the complete deterministic decision-reason vocabulary.
+- deterministic factual result-profile, headline, reverse-context, and scope semantics.
 
 A real `canFam3` → `canFam4` comparative mechanical fixture is also maintained outside
 the repository's normal test suite because the provider resources are multi-gigabyte.
@@ -421,6 +453,8 @@ the design or model vocabulary:
 - machine learning;
 - automatic claims of orthology or biological truth;
 - scalable batch assessment that reuses resource work across many loci;
+- implicit reverse-direction acquisition or automatic reverse-index construction during
+  ordinary assessment;
 - reproducible case manifests or portable resource packets;
 - a completed truth-bearing historical-resolution locus;
 - a second candidate-generation engine or plugin-management framework;

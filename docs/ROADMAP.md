@@ -544,15 +544,23 @@ First model/API slice:
 - reverse fragmented forward mappings through each exact mapped target segment, never through the
   target bounding span across an unaligned gap.
 
-Remaining execution/integration work:
+Integrated execution/result behavior:
 
-- never relabel current UCSC reciprocal-best membership as actual reverse mapping;
-- treat non-reciprocity as context, not automatic proof that the forward projection is wrong;
-- resolve and consume actual reverse-direction resources with explicit provenance;
-- reuse the scalable resource-access architecture rather than launching another exhaustive scan per
-  candidate/query;
-- attach candidate-level reverse facts to the result profile and render them consistently in human
-  and schema-versioned machine output.
+- current UCSC reciprocal-best membership is never relabeled as actual reverse mapping;
+- non-reciprocity remains factual context, not automatic proof that the forward projection is wrong;
+- reverse execution is chain-only and carries exact reverse-chain identity and provenance separately
+  from the forward evidence-resource set;
+- all exact target segments share one verified reverse-chain traversal in the explicit lower-level
+  non-indexed path, while the automatic CLI requires a prepared region-addressable chain index;
+- the automatic CLI resolves the reverse chain from the local cache only, requires the same
+  publication class as the forward assessment, and never performs implicit provider acquisition,
+  reverse-index construction, or exhaustive reverse traversal;
+- absence of a matching reverse chain is `UNAVAILABLE`; presence of the chain without usable indexed
+  access is `NOT_RUN`;
+- an explicit forward `--refresh` leaves reverse mapping `NOT_RUN` rather than mixing refreshed
+  forward resources with an implicitly unrefreshed reverse chain; and
+- candidate-level reverse facts are attached to the factual result profile and rendered in concise
+  human output, full details, and schema-v2 JSON.
 
 ### 20. Point neighborhood / multi-scale context
 

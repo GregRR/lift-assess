@@ -16,7 +16,7 @@ liftAssess asks a different follow-up question:
 
 > What physically happened to this interval in the consumed mapping resources, what evidence was examined, and what does that evidence not establish?
 
-The current result is a factual profile rather than a single quality verdict. It reports dimensions such as projection count, exact source coverage, split/discontinuous geometry, orientation, evidence availability, resource consumption, and provenance.
+The current result is a factual profile rather than a single quality verdict. It reports dimensions such as projection count, exact source coverage, split/discontinuous geometry, orientation, actual reverse-mapping context when cached reverse resources are available, evidence availability, resource consumption, and provenance.
 
 The default human report begins with a deterministic factual headline such as `ONE COMPLETE CHAIN PROJECTION`, `PARTIAL SOURCE COVERAGE`, or `MULTIPLE CHAIN PROJECTIONS`. It then gives the few facts needed to understand that headline and a bounded interpretation.
 
@@ -124,7 +124,8 @@ A first automatic run goes through these stages:
    tree in the liftAssess cache.
 7. **Assess the locus.** Candidate mappings and evidence are extracted and passed to
    deterministic result-profile derivation.
-8. **Print the report.** The default is the concise human-readable summary.
+8. **Check prepared reverse-direction resources.** If the query produced candidates and a reverse-direction chain of the same publication class plus its prepared index are already cached, liftAssess runs an actual chain-only reverse assessment. No matching reverse chain is `UNAVAILABLE`; a matching chain without a usable prepared index is `NOT_RUN`. Normal assessment does not trigger an implicit provider request, index build, or exhaustive reverse-chain scan.
+9. **Print the report.** The default is the concise human-readable summary.
 
 Cancelling either acknowledgement stops before the corresponding network/resource
 operation.
@@ -138,6 +139,7 @@ ONE COMPLETE CHAIN PROJECTION
 Source: chr1:10000001-10000100 (1-based inclusive)
 Source coverage: 100/100 bases
 Target: chr1:10027740-10027839 (1-based inclusive; same orientation)
+Reverse mapping: exactly reconstructs the original aligned source geometry
 Evidence: COMPARATIVE — ...
 Interpretation: ...
 Scope: coordinate projection/structure assessed; variant/gene identity not assessed.
@@ -168,6 +170,12 @@ Tells you what kind of evidence liftAssess examined for this assembly pair and w
 
 These are evidence-availability concepts, **not confidence tiers**. For `COMPARATIVE`, the report also warns that UCSC-derived observations may share upstream alignment lineage and are not independent votes.
 
+### `Reverse mapping`
+
+When a reverse-direction chain of the same publication class as the forward assessment and its prepared chain index are already in the local cache, liftAssess reverses each exact mapped target segment through that chain and reports whether those projections reconstruct the original aligned source geometry, land elsewhere, do both, or produce no reverse projection. Fragmented forward mappings are reversed segment-by-segment; the target bounding span is never used to manufacture a query across an unaligned gap. Net and reciprocal-best artifacts are not required for this reverse geometry.
+
+This is distinct from UCSC reciprocal-best membership. If no matching reverse chain is cached, the result reports `UNAVAILABLE`. If the matching chain is cached but its prepared index is absent or unusable, the result reports `NOT_RUN`; normal assessment does not fall back to a surprise exhaustive scan. During an explicit `--refresh`, reverse mapping is also `NOT_RUN` rather than combining freshly reacquired forward resources with an unrefreshed reverse chain; reverse-direction refresh is never implicit. Prepare the exact reverse chain class explicitly with `prepare-liftassess-index TARGET_DB SOURCE_DB --evidence-tier COMPARATIVE` or `--evidence-tier LIFTOVER-ONLY`, matching the forward result. Normal assessment does not silently download reverse resources or build an index.
+
 ### `Interpretation`
 
 A deterministic sentence that stays close to the measured geometry/evidence. It does not choose a biologically correct locus.
@@ -186,7 +194,7 @@ Routine one-complete-projection results stay compact. The current first result-p
 
 For large intervals and multiple projections, source coverage leads the story. The report gives actual measured coverage; it does not apply a built-in 90% or other quality threshold.
 
-Later roadmap capabilities will add additional progressive-disclosure triggers such as actual reverse disagreement, automatic point-neighborhood disagreement, paired filtered/all-chain comparison, batch relationships, target-role metadata, and typed contextual evidence. Those checks are not silently implied by the current output.
+Actual reverse-mapping context is now reported when the matching prepared reverse index is available. Later roadmap capabilities will add additional progressive-disclosure triggers such as automatic point-neighborhood disagreement, paired filtered/all-chain comparison, batch relationships, target-role metadata, and typed contextual evidence. Those later checks are not silently implied by the current output.
 
 ## 7. Ask for the full human-readable dossier
 
@@ -386,6 +394,16 @@ Use the same custom cache location when applicable:
 ```bash
 prepare-liftassess-index SOURCE_DB TARGET_DB --cache-dir PATH
 ```
+
+When both UCSC chain publication classes are cached, select the exact one explicitly:
+
+```bash
+prepare-liftassess-index SOURCE_DB TARGET_DB --evidence-tier COMPARATIVE
+prepare-liftassess-index SOURCE_DB TARGET_DB --evidence-tier LIFTOVER-ONLY
+```
+
+Automatic reverse mapping requires the reverse-direction index whose publication class
+matches the forward assessment.
 
 A valid existing index is reused. `--rebuild` explicitly discards and regenerates only the derived
 index; the original verified UCSC resource remains untouched.

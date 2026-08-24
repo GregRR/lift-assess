@@ -109,6 +109,73 @@ def build_ucsc_candidates(
     return tuple(candidate for _, candidate in candidate_entries)
 
 
+def build_ucsc_chain_candidates_for_intervals(
+    source_intervals: Iterable[GenomicInterval],
+    chains: Iterable[ChainRecord],
+    *,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+) -> tuple[tuple[NormalizedCandidate, ...], ...]:
+    """Project many source intervals through one shared chain traversal.
+
+    This is the chain-only shared-traversal primitive used by reverse and later
+    multi-query features. ``chains`` is consumed exactly once. Candidate ordering for
+    each interval follows the original chain encounter order, matching
+    :func:`build_ucsc_candidates` without attaching net or reciprocal-best evidence.
+    """
+
+    intervals = tuple(source_intervals)
+    if not intervals:
+        return ()
+    if any(interval.length == 0 for interval in intervals):
+        raise ValueError(
+            "zero-length source interval projection is not defined for liftAssess v1"
+        )
+
+    interval_indices_by_sequence: dict[str, list[int]] = {}
+    maximum_end_by_sequence: dict[str, int] = {}
+    for index, interval in enumerate(intervals):
+        interval_indices_by_sequence.setdefault(interval.sequence_name, []).append(
+            index
+        )
+        maximum_end_by_sequence[interval.sequence_name] = max(
+            maximum_end_by_sequence.get(interval.sequence_name, 0), interval.end
+        )
+
+    candidates_by_interval: list[list[NormalizedCandidate]] = [[] for _ in intervals]
+    candidate_ids_by_interval: list[set[str]] = [set() for _ in intervals]
+
+    for chain in chains:
+        interval_indices = interval_indices_by_sequence.get(chain.target_name)
+        if interval_indices is None:
+            continue
+        if maximum_end_by_sequence[chain.target_name] > chain.target_size:
+            raise ValueError("source interval exceeds chain target sequence bounds")
+
+        for index in interval_indices:
+            interval = intervals[index]
+            if interval.end <= chain.target_start or interval.start >= chain.target_end:
+                continue
+            candidate = project_interval_through_chain(
+                interval,
+                chain,
+                target_assembly=target_assembly,
+                mapping_provenance=chain_provenance,
+            )
+            if candidate is None:
+                continue
+            candidate_ids = candidate_ids_by_interval[index]
+            if candidate.candidate_id in candidate_ids:
+                raise ValueError(
+                    "chain stream produced duplicate candidate identity: "
+                    f"{candidate.candidate_id}"
+                )
+            candidate_ids.add(candidate.candidate_id)
+            candidates_by_interval[index].append(candidate)
+
+    return tuple(tuple(candidates) for candidates in candidates_by_interval)
+
+
 def _validate_optional_inputs(
     *,
     net_records: Iterable[NetRecord] | None,

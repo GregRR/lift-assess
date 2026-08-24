@@ -26,9 +26,15 @@ from .orchestration import UCSCAssessmentReport, UCSCAssessmentResource
 from .resource_cache import CachedResource
 from .result_profile import (
     CandidateResultProfile,
+    CandidateReverseMappingProfile,
     FactualHeadline,
     ResultProfile,
     SourceCoverageState,
+)
+from .reverse_mapping import (
+    CandidateReverseMappingResult,
+    ReverseCheckState,
+    ReverseRelationshipState,
 )
 
 _BIOLOGICAL_CORRECTNESS_CAVEAT = "This does not establish biological correctness."
@@ -106,6 +112,7 @@ def _single_candidate_summary_lines(
                 for interval in profile.target_gap_intervals
             )
         )
+    lines.append(f"Reverse mapping: {_reverse_summary_text(profile.reverse_mapping)}")
     return lines
 
 
@@ -142,7 +149,8 @@ def _multiple_candidate_summary_lines(
                 f"{_candidate_text(candidate, candidate_profile)}; "
                 f"coverage {candidate_profile.covered_source_bases}/"
                 f"{candidate_profile.source_bases}; "
-                f"geometric segments {candidate_profile.geometric_segment_count}"
+                f"geometric segments {candidate_profile.geometric_segment_count}; "
+                f"reverse {_reverse_summary_text(candidate_profile.reverse_mapping)}"
             )
         return lines
 
@@ -161,6 +169,7 @@ def _multiple_candidate_summary_lines(
                 "Projections at maximum source coverage: "
                 f"{len(profile.maximum_coverage_candidate_ids)}"
             ),
+            _reverse_set_summary(profile),
             (
                 "Projection details: omitted from default output for this candidate "
                 "set; use --details or --json for every projection."
@@ -176,6 +185,68 @@ def _segment_count_summary(segment_counts: list[int]) -> str:
     if minimum == maximum:
         return f"Geometric mapped segments per projection: {minimum}"
     return f"Geometric mapped segments per projection: {minimum}-{maximum}"
+
+
+def _reverse_summary_text(profile: CandidateReverseMappingProfile) -> str:
+    if profile.check_state is ReverseCheckState.NOT_RUN:
+        return "not run"
+    if profile.check_state is ReverseCheckState.UNAVAILABLE:
+        return "unavailable from the current prepared reverse resources"
+
+    relationship = profile.relationship
+    if relationship is ReverseRelationshipState.NO_PROJECTION:
+        return "completed; no reverse chain projection"
+    if relationship is ReverseRelationshipState.ELSEWHERE_ONLY:
+        return "returns only to a different source locus"
+    if relationship is ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE:
+        return "returns to the original source locus and elsewhere"
+    if relationship is ReverseRelationshipState.ORIGINAL_SOURCE_ONLY:
+        if profile.exact_original_geometry_return:
+            return "exactly reconstructs the original aligned source geometry"
+        assert profile.original_source_covered_bases is not None
+        return (
+            "returns only to the original source locus; recovered "
+            f"{profile.original_source_covered_bases}/{profile.original_source_bases} "
+            "aligned source bases"
+        )
+    raise ValueError("completed reverse mapping requires a relationship state")
+
+
+def _reverse_set_summary(profile: ResultProfile) -> str:
+    states = [candidate.reverse_mapping for candidate in profile.candidate_profiles]
+    if not states:
+        return "Reverse mapping: not run"
+    check_state = states[0].check_state
+    if check_state is ReverseCheckState.NOT_RUN:
+        return "Reverse mapping: not run"
+    if check_state is ReverseCheckState.UNAVAILABLE:
+        return (
+            "Reverse mapping: unavailable from the current prepared reverse resources"
+        )
+
+    exact = sum(bool(item.exact_original_geometry_return) for item in states)
+    original_only_nonexact = sum(
+        item.relationship is ReverseRelationshipState.ORIGINAL_SOURCE_ONLY
+        and not item.exact_original_geometry_return
+        for item in states
+    )
+    elsewhere_only = sum(
+        item.relationship is ReverseRelationshipState.ELSEWHERE_ONLY for item in states
+    )
+    mixed = sum(
+        item.relationship is ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE
+        for item in states
+    )
+    no_projection = sum(
+        item.relationship is ReverseRelationshipState.NO_PROJECTION for item in states
+    )
+    return (
+        "Reverse mapping: "
+        f"{exact} exact original-geometry return(s); "
+        f"{original_only_nonexact} other original-only return(s); "
+        f"{elsewhere_only} elsewhere-only; {mixed} original+elsewhere; "
+        f"{no_projection} no-projection"
+    )
 
 
 def _headline_text(headline: FactualHeadline) -> str:
@@ -269,6 +340,13 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
     ):
         lines.extend(_candidate_detail_lines(candidate, candidate_profile))
 
+    if report.reverse_mapping_results is not None:
+        lines.extend(("", "Reverse mapping results"))
+        if not report.reverse_mapping_results:
+            lines.append("  none")
+        for result in report.reverse_mapping_results:
+            lines.extend(_reverse_mapping_detail_lines(result))
+
     lines.extend(("", "Resources"))
     for assessment_resource in report.resources:
         resource = assessment_resource.resource
@@ -290,6 +368,33 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
                     + (
                         assessment_resource.file_provenance.source_id
                         if assessment_resource.file_provenance is not None
+                        else "none"
+                    )
+                ),
+            )
+        )
+
+    if report.reverse_mapping_resource is not None:
+        lines.extend(("", "Reverse mapping resource"))
+        reverse_resource = report.reverse_mapping_resource
+        resource = reverse_resource.resource
+        lines.extend(
+            (
+                (
+                    f"{report.target_db}->{report.source_db} "
+                    f"{reverse_resource.role.value} [consumed]"
+                ),
+                f"  Source URL: {resource.source_url}",
+                f"  Cache path: {resource.path}",
+                f"  Retrieved at: {resource.retrieved_at}",
+                f"  Size: {resource.size_bytes} bytes",
+                f"  SHA-256: {resource.sha256}",
+                f"  Provider checksum: {_provider_checksum_text(resource)}",
+                (
+                    "  File provenance: "
+                    + (
+                        reverse_resource.file_provenance.source_id
+                        if reverse_resource.file_provenance is not None
                         else "none"
                     )
                 ),
@@ -343,6 +448,7 @@ def render_assessment_json(report: UCSCAssessmentReport) -> str:
         "source_interval": _interval_json(report.source_interval),
         "result_profile": _result_profile_json(report.result_profile),
         "candidates": [_candidate_json(candidate) for candidate in report.candidates],
+        "reverse_mapping": _reverse_mapping_json(report),
         "resources": [
             _assessment_resource_json(assessment_resource)
             for assessment_resource in report.resources
@@ -434,6 +540,103 @@ def _candidate_profile_json(profile: CandidateResultProfile) -> dict[str, object
             "largest_target_gap_bases": profile.largest_target_gap_bases,
         },
         "orientation": profile.orientation.value,
+        "reverse_mapping": _reverse_profile_json(profile.reverse_mapping),
+    }
+
+
+def _reverse_profile_json(
+    profile: CandidateReverseMappingProfile,
+) -> dict[str, object]:
+    return {
+        "check_state": profile.check_state.value,
+        "relationship": (
+            profile.relationship.value if profile.relationship is not None else None
+        ),
+        "original_source_bases": profile.original_source_bases,
+        "original_source_covered_bases": profile.original_source_covered_bases,
+        "original_source_coverage": (
+            profile.original_source_coverage.value
+            if profile.original_source_coverage is not None
+            else None
+        ),
+        "exact_original_geometry_return": profile.exact_original_geometry_return,
+        "reverse_projection_count": profile.reverse_projection_count,
+        "segments_with_reverse_projection": profile.segments_with_reverse_projection,
+        "queried_target_segments": [
+            _interval_json(interval) for interval in profile.queried_target_segments
+        ],
+    }
+
+
+def _reverse_mapping_json(report: UCSCAssessmentReport) -> dict[str, object]:
+    results = report.reverse_mapping_results
+    return {
+        "check_state": report.result_profile.scope.reverse_result.value,
+        "reverse_database_pair": (
+            {
+                "source_db": report.target_db,
+                "target_db": report.source_db,
+            }
+            if results is not None
+            and any(result.check_state is ReverseCheckState.RUN for result in results)
+            else None
+        ),
+        "resource": (
+            _assessment_resource_json(report.reverse_mapping_resource)
+            if report.reverse_mapping_resource is not None
+            else None
+        ),
+        "candidate_results": (
+            [_candidate_reverse_mapping_json(result) for result in results]
+            if results is not None
+            else []
+        ),
+    }
+
+
+def _candidate_reverse_mapping_json(
+    result: CandidateReverseMappingResult,
+) -> dict[str, object]:
+    return {
+        "forward_candidate_id": result.forward_candidate_id,
+        "check_state": result.check_state.value,
+        "relationship": (
+            result.relationship.value if result.relationship is not None else None
+        ),
+        "original_source_bases": result.original_source_bases,
+        "original_source_covered_bases": (
+            result.original_source_covered_bases
+            if result.check_state is ReverseCheckState.RUN
+            else None
+        ),
+        "original_source_coverage": (
+            result.original_source_coverage.value
+            if result.check_state is ReverseCheckState.RUN
+            else None
+        ),
+        "exact_original_geometry_return": (
+            result.exact_original_geometry_return
+            if result.check_state is ReverseCheckState.RUN
+            else None
+        ),
+        "queried_target_segments": [
+            _interval_json(interval) for interval in result.queried_target_segments
+        ],
+        "segment_results": [
+            {
+                "queried_target_segment": _interval_json(
+                    segment_result.queried_target_segment
+                ),
+                "expected_original_source_segment": _interval_json(
+                    segment_result.expected_original_source_segment
+                ),
+                "reverse_candidates": [
+                    _candidate_json(candidate)
+                    for candidate in segment_result.candidates
+                ],
+            }
+            for segment_result in result.segment_results
+        ],
     }
 
 
@@ -657,12 +860,91 @@ def _candidate_detail_lines(
     else:
         lines.append("  Target gap intervals: none")
 
+    reverse = profile.reverse_mapping
+    lines.append(f"  Reverse mapping check: {reverse.check_state.value}")
+    if reverse.check_state is ReverseCheckState.RUN:
+        assert reverse.relationship is not None
+        assert reverse.original_source_covered_bases is not None
+        assert reverse.original_source_coverage is not None
+        assert reverse.exact_original_geometry_return is not None
+        assert reverse.reverse_projection_count is not None
+        assert reverse.segments_with_reverse_projection is not None
+        lines.extend(
+            (
+                f"  Reverse relationship: {reverse.relationship.value}",
+                (
+                    "  Reverse original-source coverage: "
+                    f"{reverse.original_source_covered_bases}/"
+                    f"{reverse.original_source_bases} "
+                    f"({reverse.original_source_coverage.value})"
+                ),
+                (
+                    "  Exact original aligned geometry reconstructed: "
+                    f"{'yes' if reverse.exact_original_geometry_return else 'no'}"
+                ),
+                f"  Reverse projections: {reverse.reverse_projection_count}",
+                (
+                    "  Forward target segments with reverse projection: "
+                    f"{reverse.segments_with_reverse_projection}/"
+                    f"{len(reverse.queried_target_segments)}"
+                ),
+            )
+        )
+
     lines.append(f"  Evidence observations ({len(candidate.evidence)}):")
     for observation in candidate.evidence:
         value_lines = _evidence_value_lines(observation)
         lines.append(f"    {observation.kind.value}: {value_lines[0]}")
         lines.extend(f"      {line}" for line in value_lines[1:])
         lines.append(f"      provenance: {observation.provenance.source_id}")
+    return lines
+
+
+def _reverse_mapping_detail_lines(
+    result: CandidateReverseMappingResult,
+) -> list[str]:
+    lines = [
+        f"Candidate {result.forward_candidate_id}",
+        f"  Check state: {result.check_state.value}",
+    ]
+    if result.check_state is not ReverseCheckState.RUN:
+        return lines
+
+    assert result.relationship is not None
+    lines.extend(
+        (
+            f"  Relationship: {result.relationship.value}",
+            (
+                "  Original aligned source coverage: "
+                f"{result.original_source_covered_bases}/"
+                f"{result.original_source_bases} "
+                f"({result.original_source_coverage.value})"
+            ),
+            (
+                "  Exact original aligned geometry reconstructed: "
+                f"{'yes' if result.exact_original_geometry_return else 'no'}"
+            ),
+        )
+    )
+    for index, segment_result in enumerate(result.segment_results, start=1):
+        lines.append(
+            f"  Segment {index} reverse query: "
+            f"{format_display_interval(segment_result.queried_target_segment)}"
+        )
+        expected_source = format_display_interval(
+            segment_result.expected_original_source_segment
+        )
+        lines.append(f"    Expected original source: {expected_source}")
+        if not segment_result.candidates:
+            lines.append("    Reverse projections: none")
+            continue
+        lines.append(f"    Reverse projections: {len(segment_result.candidates)}")
+        for candidate in segment_result.candidates:
+            lines.append(
+                "      "
+                f"{candidate.candidate_id}: "
+                f"{format_display_interval(candidate.target_interval)}"
+            )
     return lines
 
 
@@ -767,6 +1049,21 @@ def _report_provenance_sources(
     for candidate in report.candidates:
         roots.append(candidate.mapping_provenance)
         roots.extend(observation.provenance for observation in candidate.evidence)
+    if report.reverse_alignment_provenance is not None:
+        roots.append(report.reverse_alignment_provenance)
+    if (
+        report.reverse_mapping_resource is not None
+        and report.reverse_mapping_resource.file_provenance is not None
+    ):
+        roots.append(report.reverse_mapping_resource.file_provenance)
+    if report.reverse_mapping_results is not None:
+        for result in report.reverse_mapping_results:
+            for segment_result in result.segment_results:
+                for candidate in segment_result.candidates:
+                    roots.append(candidate.mapping_provenance)
+                    roots.extend(
+                        observation.provenance for observation in candidate.evidence
+                    )
 
     by_id: dict[str, ProvenanceSource] = {}
     pending = list(roots)

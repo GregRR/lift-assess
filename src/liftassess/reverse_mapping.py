@@ -11,7 +11,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from .models import GenomicInterval, NormalizedCandidate
+from .chain_index import ChainIndex
+from .models import GenomicInterval, NormalizedCandidate, ProvenanceSource
+from .resource_cache import CachedUCSCChainResource, CachedUCSCResourceBundle
+from .resource_files import (
+    ResourceReadProgressCallback,
+    build_ucsc_chain_candidates_for_intervals_from_cached_chain,
+)
 
 
 class ReverseCheckState(str, Enum):
@@ -201,6 +207,87 @@ class CandidateReverseMappingResult:
         if original_present:
             return ReverseRelationshipState.ORIGINAL_SOURCE_ONLY
         return ReverseRelationshipState.ELSEWHERE_ONLY
+
+
+def build_reverse_mapping_results_from_cached_chain(
+    forward_candidates: tuple[NormalizedCandidate, ...],
+    reverse_chain: CachedUCSCChainResource,
+    *,
+    reverse_alignment_provenance: ProvenanceSource,
+    progress_callback: ResourceReadProgressCallback | None = None,
+    chain_index: ChainIndex | None = None,
+) -> tuple[CandidateReverseMappingResult, ...]:
+    """Run actual chain-only reverse mapping for exact forward target segments."""
+
+    if not forward_candidates:
+        return ()
+
+    original_source_assembly = (
+        forward_candidates[0].segments[0].source_interval.assembly
+    )
+    queried_segments: list[GenomicInterval] = []
+    segment_counts: list[int] = []
+    for candidate in forward_candidates:
+        if any(
+            segment.source_interval.assembly != original_source_assembly
+            for segment in candidate.segments
+        ):
+            raise ValueError(
+                "forward candidates for one reverse run must share the original "
+                "source assembly"
+            )
+        segment_counts.append(len(candidate.segments))
+        queried_segments.extend(
+            segment.target_interval for segment in candidate.segments
+        )
+
+    reverse_candidates = build_ucsc_chain_candidates_for_intervals_from_cached_chain(
+        queried_segments,
+        reverse_chain,
+        target_assembly=original_source_assembly,
+        alignment_provenance=reverse_alignment_provenance,
+        progress_callback=progress_callback,
+        chain_index=chain_index,
+    )
+
+    results: list[CandidateReverseMappingResult] = []
+    offset = 0
+    for candidate, segment_count in zip(
+        forward_candidates, segment_counts, strict=True
+    ):
+        candidate_reverse_sets = reverse_candidates[offset : offset + segment_count]
+        results.append(
+            build_candidate_reverse_mapping_result(
+                candidate,
+                candidate_reverse_sets,
+            )
+        )
+        offset += segment_count
+    return tuple(results)
+
+
+def build_reverse_mapping_results_from_cached_bundle(
+    forward_candidates: tuple[NormalizedCandidate, ...],
+    reverse_bundle: CachedUCSCResourceBundle,
+    *,
+    reverse_alignment_provenance: ProvenanceSource,
+    progress_callback: ResourceReadProgressCallback | None = None,
+    chain_index: ChainIndex | None = None,
+) -> tuple[CandidateReverseMappingResult, ...]:
+    """Compatibility wrapper that consumes only the reverse bundle's chain."""
+
+    return build_reverse_mapping_results_from_cached_chain(
+        forward_candidates,
+        CachedUCSCChainResource(
+            source_db=reverse_bundle.source_db,
+            target_db=reverse_bundle.target_db,
+            evidence_tier=reverse_bundle.evidence_tier,
+            chain=reverse_bundle.chain,
+        ),
+        reverse_alignment_provenance=reverse_alignment_provenance,
+        progress_callback=progress_callback,
+        chain_index=chain_index,
+    )
 
 
 def reverse_mapping_not_run(

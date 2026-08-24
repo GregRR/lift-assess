@@ -161,3 +161,49 @@ def test_prepare_index_reports_corruption_and_requires_explicit_rebuild(
     assert exit_code == 0
     assert "Prepared: reusable chain index" in stdout.getvalue()
     assert load_cached_chain_index(cache_root, bundle.chain) is not None
+
+
+def test_prepare_index_can_select_exact_chain_publication_class(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from liftassess import CachedUCSCChainResource
+
+    cache_root = tmp_path / "cache"
+    cache_root.mkdir()
+    bundle = _cached_bundle(tmp_path)
+    chain_context = CachedUCSCChainResource(
+        source_db=bundle.source_db,
+        target_db=bundle.target_db,
+        evidence_tier=bundle.evidence_tier,
+        chain=bundle.chain,
+    )
+    seen_tiers: list[EvidenceAvailabilityTier] = []
+
+    def load_chain(*args: object, **kwargs: object) -> CachedUCSCChainResource:
+        del args
+        tier = kwargs["evidence_tier"]
+        assert isinstance(tier, EvidenceAvailabilityTier)
+        seen_tiers.append(tier)
+        return chain_context
+
+    monkeypatch.setattr(index_cli, "load_cached_ucsc_chain_resource", load_chain)
+    monkeypatch.setattr(
+        index_cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("exact-tier preparation must not require a full bundle")
+        ),
+    )
+
+    stdout = StringIO()
+    exit_code = index_cli._run(
+        _args(cache_root, "--evidence-tier", "LIFTOVER-ONLY", "--quiet"),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    assert seen_tiers == [EvidenceAvailabilityTier.LIFTOVER_ONLY]
+    assert "Publication class: LIFTOVER-ONLY" in stdout.getvalue()
+    assert load_cached_chain_index(cache_root, bundle.chain) is not None
