@@ -503,6 +503,7 @@ def test_cached_bundle_progress_reports_exact_consumed_raw_byte_totals(
     }
     assert all(0 < read <= total for _, read, total in events)
 
+
 def test_indexed_point_context_maps_clean_window_without_reusing_comparative_evidence(
     tmp_path: Path,
 ) -> None:
