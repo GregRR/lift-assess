@@ -207,14 +207,34 @@ to separate candidates. Shared UCSC lineage remains explicit; these are not inde
 
 ### 4.5 Point-query local context
 
-Once the scalable resource-access path in §7 exists, a 1-bp point query automatically receives a
-centered 101-bp local-context assessment (±50 bases when source bounds permit). The exact tested
-window is always reported.
+A 1-bp point query automatically requests a centered 101-bp local-context assessment (±50 bases
+when source bounds permit). The exact tested window is always reported. Near a sequence boundary,
+the tested interval is clipped rather than shifted, so its actual width can be less than 101 bases.
 
-The 101-bp default is a product/context choice, not a confidence threshold, biological universal, or
-calibrated scale. Ordinary interval queries are not automatically widened. Users may request larger
-context explicitly. If the 101-bp result differs materially from the point result, report that
-relationship; do not silently recurse through increasingly large windows.
+Automatic context execution is deliberately limited to the prepared exact-resource forward chain
+index. It uses the same chain publication class as the point assessment (`COMPARATIVE` all-chain or
+filtered `LIFTOVER-ONLY`) and consumes forward-chain-derived evidence only. The point/context
+relationship itself is derived from candidate identity and exact
+coverage/fragmentation/discontinuity geometry; raw chain score is not used as rank, threshold, or
+vote. Net and reciprocal-best resources are not re-run for the neighborhood, even when they were
+consumed for the point-level `COMPARATIVE`
+assessment; the report labels this evidence scope explicitly. If a usable matching forward chain
+index or a safe indexed source-sequence bound is unavailable, context is `NOT_RUN` rather than
+starting another whole-resource traversal. Index lookup corruption likewise does not trigger a full
+context scan.
+
+The default 101 bp is a product/context choice, not a confidence threshold, biological universal, or
+calibrated scale. Ordinary interval queries are not automatically widened. `--context-bases N` may
+request a larger odd-width context window explicitly for a 1-bp query. If the tested neighborhood
+differs materially from the point result, the profile reports that relationship directly; it never
+silently recurses through 1-kb, 10-kb, or other successively wider windows. A clean neighborhood is
+local chain-geometry context and does not establish global sequence uniqueness or biological
+identity.
+
+Until authoritative assembly-sequence metadata is implemented, boundary clipping uses the
+conservative source-sequence query bound recorded in the authenticated chain-index catalog. That value is
+sufficient to avoid an out-of-bounds indexed query but is not promoted to authoritative assembly
+metadata or used for general source-name validation.
 
 ### 4.6 Common-use evidence boundaries
 
@@ -294,8 +314,11 @@ Not addressed in earlier drafts of this design and worth getting right before an
   reverse check is also `NOT_RUN` rather than mixing freshly reacquired forward resources with
   unrefreshed reverse bytes; reverse-direction refresh is never implicit. The CLI never silently
   downloads reverse resources, builds a reverse index, or starts an exhaustive reverse traversal.
-- **Point local context:** 1-bp queries gain the approved automatic 101-bp neighborhood assessment
-  once indexing/shared traversal makes the additional work practical.
+- **Point local context:** 1-bp queries automatically request a centered 101-bp neighborhood
+  assessment from the prepared forward chain index, with exact boundary-clipped source geometry,
+  explicit forward-chain-only evidence scope, and deterministic point/context relationship states. Larger
+  odd-width windows are explicit through `--context-bases`; ordinary intervals are not widened, and
+  automatic context never falls back to another whole-chain traversal.
 - **Assembly-sequence metadata/preflight:** source sequence validity, source bounds, authoritative
   aliases, and target sequence role belong to one coherent metadata capability rather than ad-hoc
   naming heuristics. Chain-file names alone are not authoritative proof that an assembly sequence is

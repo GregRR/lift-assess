@@ -21,6 +21,14 @@ from .models import (
     ProvenanceIdentifierKind,
     ProvenanceSource,
 )
+from .query_context import (
+    DEFAULT_POINT_CONTEXT_BASES,
+    PointQueryContextResult,
+    QueryContextNotRunReason,
+    QueryContextState,
+    build_centered_point_context_interval,
+    point_context_not_run,
+)
 from .resource_cache import (
     CachedResource,
     CachedUCSCChainResource,
@@ -32,6 +40,7 @@ from .resource_files import (
     _cached_bundle_resource_provenance,
     _cached_chain_resource_provenance,
     build_ucsc_candidates_from_cached_bundle,
+    build_ucsc_chain_candidates_for_intervals_from_cached_chain,
 )
 from .result_profile import ResultProfile, build_result_profile
 from .reverse_mapping import (
@@ -89,6 +98,7 @@ class UCSCAssessmentReport:
     target_db: str
     alignment_provenance: ProvenanceSource
     resources: tuple[UCSCAssessmentResource, ...]
+    query_context_result: PointQueryContextResult | None = None
     reverse_mapping_results: tuple[CandidateReverseMappingResult, ...] | None = None
     reverse_alignment_provenance: ProvenanceSource | None = None
     reverse_mapping_resource: UCSCAssessmentResource | None = None
@@ -140,6 +150,7 @@ class UCSCAssessmentReport:
         if profile_candidate_ids != report_candidate_ids:
             raise ValueError("result profile candidates must match report candidates")
 
+        self._validate_query_context()
         self._validate_reverse_mapping_context()
 
         for resource in self.resources:
@@ -149,6 +160,61 @@ class UCSCAssessmentReport:
                 raise ValueError(
                     "consumed UCSC file provenance must derive from the report "
                     "alignment provenance"
+                )
+
+    def _validate_query_context(self) -> None:
+        result = self.query_context_result
+        profile = self.result_profile.query_context
+        if self.result_profile.scope.query_context is not profile.check_state:
+            raise ValueError("result profile query-context scope is inconsistent")
+
+        if result is None:
+            if profile.check_state is not QueryContextState.NOT_RUN:
+                raise ValueError("missing query context must remain NOT_RUN")
+            return
+
+        if self.source_interval.length != 1:
+            raise ValueError("query context can only be attached to a one-base report")
+        if profile.check_state is not result.check_state:
+            raise ValueError("result profile query context must match report context")
+        if profile.requested_window_bases != result.requested_window_bases:
+            raise ValueError("query context requested window must match the report")
+
+        if result.check_state is QueryContextState.NOT_RUN:
+            if profile.not_run_reason is not result.not_run_reason:
+                raise ValueError("query context not-run reason must match the report")
+            return
+
+        if profile.tested_source_interval != result.tested_source_interval:
+            raise ValueError("query context tested interval must match the report")
+        profile_candidate_ids = tuple(
+            candidate.candidate_id for candidate in profile.candidate_profiles
+        )
+        result_candidate_ids = tuple(
+            candidate.candidate_id for candidate in result.candidates
+        )
+        if profile_candidate_ids != result_candidate_ids:
+            raise ValueError("query context candidates must match the result profile")
+
+        chain_resource = next(
+            resource
+            for resource in self.resources
+            if resource.role is UCSCBundleResourceRole.CHAIN
+        )
+        chain_provenance = chain_resource.file_provenance
+        if chain_provenance is None:
+            raise ValueError("query context requires consumed forward-chain provenance")
+        for candidate in result.candidates:
+            if candidate.mapping_provenance != chain_provenance:
+                raise ValueError(
+                    "query-context candidate provenance must identify the forward chain"
+                )
+            if any(
+                observation.provenance != chain_provenance
+                for observation in candidate.evidence
+            ):
+                raise ValueError(
+                    "query-context evidence must remain chain-only forward evidence"
                 )
 
     def _validate_reverse_mapping_context(self) -> None:
@@ -261,6 +327,105 @@ def assess_ucsc_cached_bundle(
     )
 
 
+def attach_query_context_result(
+    report: UCSCAssessmentReport,
+    query_context_result: PointQueryContextResult,
+) -> UCSCAssessmentReport:
+    """Attach one already-computed point-neighborhood chain-geometry result."""
+
+    if report.query_context_result is not None:
+        raise ValueError("query context is already attached")
+    if report.source_interval.length != 1:
+        raise ValueError("query context can only be attached to a one-base report")
+
+    profile = build_result_profile(
+        report.source_interval,
+        report.candidates,
+        evidence_tier=report.evidence_tier,
+        consumed_resource_roles=report.result_profile.consumed_resource_roles,
+        reverse_mapping_results=report.reverse_mapping_results,
+        query_context_result=query_context_result,
+    )
+    return replace(
+        report,
+        result_profile=profile,
+        query_context_result=query_context_result,
+    )
+
+
+def attach_point_query_context(
+    report: UCSCAssessmentReport,
+    *,
+    chain_context: CachedUCSCChainResource,
+    chain_index: ChainIndex | None,
+    requested_window_bases: int = DEFAULT_POINT_CONTEXT_BASES,
+) -> UCSCAssessmentReport:
+    """Run indexed chain-only local context for a one-base source query.
+
+    This deliberately does not re-run net or reciprocal-best resources.  The context
+    dimension describes local chain geometry under the same chain publication class as
+    the forward assessment.  When no usable index or source-sequence bound is available,
+    the result remains explicitly ``NOT_RUN`` rather than falling back to a full scan.
+    """
+
+    if report.query_context_result is not None:
+        raise ValueError("query context is already attached")
+    if report.source_interval.length != 1:
+        raise ValueError("point query context requires a one-base report")
+    if (
+        chain_context.source_db != report.source_db
+        or chain_context.target_db != report.target_db
+    ):
+        raise ValueError("point-context chain must match the forward database pair")
+    if chain_context.evidence_tier is not report.evidence_tier:
+        raise ValueError(
+            "point-context chain publication class must match the forward assessment"
+        )
+
+    if chain_index is None:
+        return attach_query_context_result(
+            report,
+            point_context_not_run(
+                requested_window_bases=requested_window_bases,
+                reason=QueryContextNotRunReason.INDEX_UNAVAILABLE,
+            ),
+        )
+
+    source_sequence_query_bound = chain_index.source_sequence_query_bound(
+        report.source_interval.sequence_name
+    )
+    if source_sequence_query_bound is None:
+        return attach_query_context_result(
+            report,
+            point_context_not_run(
+                requested_window_bases=requested_window_bases,
+                reason=QueryContextNotRunReason.SOURCE_BOUNDS_UNAVAILABLE,
+            ),
+        )
+
+    context_interval = build_centered_point_context_interval(
+        report.source_interval,
+        requested_window_bases=requested_window_bases,
+        source_sequence_query_bound=source_sequence_query_bound,
+    )
+    context_candidates = build_ucsc_chain_candidates_for_intervals_from_cached_chain(
+        (context_interval,),
+        chain_context,
+        target_assembly=report.target_assembly,
+        alignment_provenance=report.alignment_provenance,
+        chain_index=chain_index,
+    )[0]
+    return attach_query_context_result(
+        report,
+        PointQueryContextResult(
+            check_state=QueryContextState.RUN,
+            requested_window_bases=requested_window_bases,
+            tested_source_interval=context_interval,
+            candidates=context_candidates,
+        ),
+    )
+
+
 def attach_reverse_mapping_results(
     report: UCSCAssessmentReport,
     reverse_mapping_results: tuple[CandidateReverseMappingResult, ...],
@@ -325,6 +490,7 @@ def attach_reverse_mapping_results(
         evidence_tier=report.evidence_tier,
         consumed_resource_roles=report.result_profile.consumed_resource_roles,
         reverse_mapping_results=reverse_mapping_results,
+        query_context_result=report.query_context_result,
     )
     return replace(
         report,

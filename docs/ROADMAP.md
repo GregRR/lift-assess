@@ -564,16 +564,32 @@ Integrated execution/result behavior:
 
 ### 20. Point neighborhood / multi-scale context
 
-Add automatic local context for 1-bp point queries:
+Integrated point-context behavior:
 
-- centered 101-bp window (±50 bases when source bounds permit);
-- exact tested window always reported;
-- 101 bp described as a product/context default, not a confidence threshold or universal biological
-  scale;
+- 1-bp queries automatically request a centered 101-bp window (±50 bases when source bounds permit);
+- the exact tested window is always reported, including boundary clipping when fewer than 101 bases
+  can safely be queried;
+- automatic execution reuses only the prepared exact-resource forward chain index and the same
+  publication class as the point assessment; it does not re-run net/reciprocal-best resources or
+  start another whole-chain traversal;
+- absence/unusability of the prepared forward index, or unavailable safe source bounds from that
+  index, leaves the context check explicitly `NOT_RUN`; index corruption never falls back to a full
+  context scan;
+- point/context relationships are derived as factual states for agreement, newly revealed
+  fragmentation/discontinuity, and material change with query scale;
+- 101 bp is described as a product/context default, not a confidence threshold or universal
+  biological scale;
 - ordinary interval queries are not automatically widened;
-- explicit larger-context controls remain available;
-- a point/context disagreement is reported directly and does not silently trigger recursive 1-kb/
+- `--context-bases N` provides an explicit larger odd-width window for 1-bp queries; and
+- a point/context disagreement is reported directly and never silently triggers recursive 1-kb/
   10-kb widening.
+
+For `COMPARATIVE` point assessments, neighborhood context is intentionally forward all-chain-derived
+evidence only; its relationship state is based on projection identity and exact structural geometry.
+Comparative net/reciprocal-best observations remain point-level unless a later indexed
+comparative capability explicitly assesses them at the neighborhood scale. The chain-index catalog's
+conservative source-sequence query bound is used only for safe context clipping, not as a substitute for
+the authoritative assembly metadata/preflight capability still planned separately.
 
 Corpus B provides six matched clean 101-bp controls showing that widening can remain neutral when
 local geometry is uncomplicated; difficult cases show that context can also expose fragmentation or

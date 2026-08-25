@@ -85,6 +85,31 @@ This capability is distinct from UCSC reciprocal-best membership.
 Normal assessment never downloads reverse resources, builds a reverse index, or starts
 an exhaustive reverse-chain fallback implicitly.
 
+## Point-query local context
+
+For a 1-bp source query, the CLI automatically requests a centered 101-bp local-context
+assessment when the exact forward chain has a prepared validated index. The context check:
+
+- uses the same forward chain publication class as the point assessment;
+- reports the exact tested source window and its actual width;
+- clips at indexed source-sequence bounds rather than shifting the point away from center;
+- evaluates chain projection count, source coverage, fragmentation, and target discontinuity;
+- reports whether local chain geometry agrees with the point, reveals fragmentation, or changes
+  materially with query scale; and
+- never silently widens again to 1 kb, 10 kb, or another scale.
+
+Automatic context is **forward chain only**. The point/context relationship is derived from
+candidate identity, coverage, fragmentation, and target discontinuity; raw chain score is not used
+as a rank or threshold. A `COMPARATIVE` point assessment may consume net and reciprocal-best
+evidence at the point itself, but those resources are not re-run for the
+101-bp neighborhood. The context therefore does not imply neighborhood-scale comparative support.
+If no usable matching forward index is available, or the index cannot provide a safe source bound,
+the context result is `NOT_RUN`; no extra whole-chain fallback is started.
+
+The 101-bp width is a product default, not a confidence threshold or biological universal. For a
+1-bp query, `--context-bases N` requests a different odd-width window explicitly. Ordinary interval
+queries are not widened automatically.
+
 ## Comparative evidence
 
 When a full comparative resource bundle is available, liftAssess can attach:
@@ -174,6 +199,7 @@ A dedicated derived `ResultProfile` sits between scientific candidate/evidence d
 - target bounding span and target gaps;
 - orientation;
 - maximum candidate source coverage when multiple projections exist;
+- point-query local-context state, exact tested window, and factual point/context relationships;
 - evidence tier and consumed resource roles; and
 - explicit not-yet-assessed/not-run boundaries for later result dimensions.
 

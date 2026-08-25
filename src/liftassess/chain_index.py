@@ -249,6 +249,21 @@ class ChainIndex:
     def lookup_catalog_path(self) -> Path:
         return self.root / "lookup-catalog.json"
 
+    def source_sequence_query_bound(self, sequence_name: str) -> int | None:
+        """Return the indexed chain's conservative source-sequence query bound.
+
+        UCSC liftOver map chains place the old/source assembly on the chain target
+        side.  The index lookup catalog records the minimum target size declared by
+        all indexed records for each source sequence.  This is suitable for safely
+        clipping region-addressable chain queries, but it is not a substitute for the
+        authoritative assembly-sequence metadata planned elsewhere in liftAssess.
+        """
+
+        sequence = self._lookup_catalog.sequences_by_name.get(sequence_name)
+        if sequence is None:
+            return None
+        return sequence.minimum_target_size
+
     def records_for_interval(
         self, interval: GenomicInterval
     ) -> tuple[ChainRecord, ...]:

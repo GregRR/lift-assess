@@ -21,13 +21,20 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
 
-from .chain_index import ChainIndexCorruptionError, load_cached_chain_index
+from .chain_index import ChainIndex, ChainIndexCorruptionError, load_cached_chain_index
 from .cli_input import parse_ucsc_locus, ucsc_assembly_identifier
 from .models import EvidenceAvailabilityTier, ProvenanceSource
 from .orchestration import (
     UCSCAssessmentReport,
     assess_ucsc_cached_bundle,
+    attach_point_query_context,
+    attach_query_context_result,
     attach_reverse_mapping_results,
+)
+from .query_context import (
+    DEFAULT_POINT_CONTEXT_BASES,
+    QueryContextNotRunReason,
+    point_context_not_run,
 )
 from .reporting import (
     render_assessment_details,
@@ -35,6 +42,7 @@ from .reporting import (
     render_assessment_summary,
 )
 from .resource_cache import (
+    CachedUCSCChainResource,
     CachedUCSCResourceBundle,
     CacheVerificationProgressCallback,
     UCSCBundleAcquisitionPlan,
@@ -153,6 +161,14 @@ def _build_parser() -> argparse.ArgumentParser:
             "(terms and transfer confirmations remain)"
         ),
     )
+    parser.add_argument(
+        "--context-bases",
+        type=_context_window_bases_arg,
+        help=(
+            "override the automatic 101-bp local-context window for a 1-bp point "
+            "query with an odd number of bases, e.g. 1001"
+        ),
+    )
     return parser
 
 
@@ -166,6 +182,8 @@ def _run(
     source_assembly = ucsc_assembly_identifier(args.source_db)
     target_assembly = ucsc_assembly_identifier(args.target_db)
     source_interval = parse_ucsc_locus(args.locus, assembly=source_assembly)
+    if args.context_bases is not None and source_interval.length != 1:
+        raise ValueError("--context-bases currently requires a 1-bp point query")
     cache_root = args.cache_dir or default_user_cache_root()
 
     cached_bundle = None
@@ -332,10 +350,19 @@ def _run(
             progress_callback=progress_callback,
             chain_index=None,
         )
+        chain_index = None
     if progress_callback is not None:
         progress_display.finish(
             candidates_exist=bool(report.candidates),
         )
+
+    report = _attach_cached_point_query_context(
+        report,
+        args=args,
+        cached_bundle=cached_bundle,
+        chain_index=chain_index,
+        stderr=stderr,
+    )
 
     report = _attach_cached_reverse_mapping_context(
         report,
@@ -352,6 +379,22 @@ def _run(
         rendered = render_assessment_summary(report)
     print(rendered, file=stdout)
     return 0
+
+
+def _context_window_bases_arg(value: str) -> int:
+    try:
+        window_bases = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "context window must be an integer number of bases"
+        ) from exc
+    if window_bases < 3:
+        raise argparse.ArgumentTypeError("context window must be at least 3 bases")
+    if window_bases % 2 == 0:
+        raise argparse.ArgumentTypeError(
+            "context window must contain an odd number of bases"
+        )
+    return window_bases
 
 
 def _discover_and_acquire_bundle(
@@ -476,6 +519,93 @@ def _ucsc_pair_lineage_provenance(source_db: str, target_db: str) -> ProvenanceS
             "(liftAssess CLI dependency grouping)"
         ),
     )
+
+
+def _attach_cached_point_query_context(
+    report: UCSCAssessmentReport,
+    *,
+    args: argparse.Namespace,
+    cached_bundle: CachedUCSCResourceBundle,
+    chain_index: ChainIndex | None,
+    stderr: TextIO,
+) -> UCSCAssessmentReport:
+    """Attach automatic point context without another whole-resource traversal."""
+
+    if report.source_interval.length != 1:
+        return report
+
+    requested_window_bases = args.context_bases or DEFAULT_POINT_CONTEXT_BASES
+    if chain_index is None:
+        _status(
+            "Point context not run: no prepared forward chain index is available; "
+            "no additional full chain scan was started. Run prepare-liftassess-index "
+            f"{report.source_db} {report.target_db} --evidence-tier "
+            f"{_human_evidence_tier(report.evidence_tier)}.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return attach_point_query_context(
+            report,
+            chain_context=CachedUCSCChainResource(
+                source_db=cached_bundle.source_db,
+                target_db=cached_bundle.target_db,
+                evidence_tier=cached_bundle.evidence_tier,
+                chain=cached_bundle.chain,
+            ),
+            chain_index=None,
+            requested_window_bases=requested_window_bases,
+        )
+
+    _status(
+        f"Assessing {requested_window_bases}-bp point context from the cached "
+        "forward chain index...",
+        quiet=args.quiet,
+        stderr=stderr,
+    )
+    chain_context = CachedUCSCChainResource(
+        source_db=cached_bundle.source_db,
+        target_db=cached_bundle.target_db,
+        evidence_tier=cached_bundle.evidence_tier,
+        chain=cached_bundle.chain,
+    )
+    try:
+        enriched = attach_point_query_context(
+            report,
+            chain_context=chain_context,
+            chain_index=chain_index,
+            requested_window_bases=requested_window_bases,
+        )
+    except ChainIndexCorruptionError as exc:
+        _status(
+            "Point context not run: cached forward chain index failed during "
+            f"context lookup ({exc}); no full chain fallback was started. Rebuild "
+            "it with prepare-liftassess-index "
+            f"{report.source_db} {report.target_db} --evidence-tier "
+            f"{_human_evidence_tier(report.evidence_tier)} --rebuild.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return attach_query_context_result(
+            report,
+            point_context_not_run(
+                requested_window_bases=requested_window_bases,
+                reason=QueryContextNotRunReason.INDEX_UNUSABLE,
+            ),
+        )
+
+    context_profile = enriched.result_profile.query_context
+    if (
+        context_profile.not_run_reason
+        is QueryContextNotRunReason.SOURCE_BOUNDS_UNAVAILABLE
+    ):
+        _status(
+            "Point context not run: the prepared chain index does not provide a "
+            f"source-sequence bound for {report.source_interval.sequence_name!r}; "
+            "no full chain fallback was started.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+    return enriched
 
 
 def _attach_cached_reverse_mapping_context(

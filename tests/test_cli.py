@@ -13,10 +13,13 @@ from liftassess import (
     CachedResource,
     CachedUCSCChainResource,
     CachedUCSCResourceBundle,
+    ChainIndex,
     ChainIndexCorruptionError,
     EvidenceAvailabilityTier,
     GenomicInterval,
     ProvenanceSource,
+    QueryContextState,
+    ResourceReadProgressCallback,
     ReverseCheckState,
     UCSCAssessmentReport,
     UCSCBundleResourceRole,
@@ -81,6 +84,29 @@ def _inspection(
 def _cached_bundle(tmp_path: Path) -> CachedUCSCResourceBundle:
     path = tmp_path / "chain.gz"
     chain = "chain 100 chr1 1000 + 100 120 chrA 2000 + 500 520 1\n20\n\n"
+    with gzip.open(path, mode="wt", encoding="utf-8", newline="") as handle:
+        handle.write(chain)
+    resource = CachedResource(
+        path=path,
+        source_url=_CHAIN_URL,
+        retrieved_at="2026-08-16T00:00:00Z",
+        sha256=sha256_identifier_for_file(path).value,
+        size_bytes=path.stat().st_size,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(_CHAIN_URL),
+        cache_hit=False,
+    )
+    return CachedUCSCResourceBundle(
+        source_db=_SOURCE_DB,
+        target_db=_TARGET_DB,
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        chain=resource,
+    )
+
+
+def _cached_point_context_bundle(tmp_path: Path) -> CachedUCSCResourceBundle:
+    path = tmp_path / "point-context-chain.gz"
+    chain = "chain 100 chr1 2000 + 0 1500 chrA 3000 + 500 2000 1\n1500\n\n"
     with gzip.open(path, mode="wt", encoding="utf-8", newline="") as handle:
         handle.write(chain)
     resource = CachedResource(
@@ -1830,3 +1856,315 @@ def test_comparative_progress_display_starts_later_resources_as_pending(
     assert "Net" in text
     assert "Reciprocal-best" in text
     assert text.count("pending") == 3
+
+
+def test_run_automatically_assesses_101bp_point_context_from_forward_index(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    forward = _cached_point_context_bundle(tmp_path)
+    cache_root = tmp_path / "cache"
+    build_cached_chain_index(cache_root, forward.chain)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target, **kwargs: forward,
+    )
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        lambda *args, **kwargs: None,
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-101",
+            "--cache-dir",
+            str(cache_root),
+            "--offline",
+            "--json",
+        ]
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
+
+    assert exit_code == 0
+    payload = json.loads(stdout.getvalue())
+    context = payload["query_context"]
+    assert context["check_state"] == QueryContextState.RUN.value
+    assert context["requested_window_bases"] == 101
+    assert context["actual_window_bases"] == 101
+    assert context["tested_source_interval"]["start"] == 50
+    assert context["tested_source_interval"]["end"] == 151
+    assert context["evidence_scope"] == "forward_chain_only"
+    assert len(context["candidates"]) == 1
+    assert "Assessing 101-bp point context" in stderr.getvalue()
+
+
+def test_run_point_context_without_forward_index_is_not_run_without_extra_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    forward = _cached_point_context_bundle(tmp_path)
+    cache_root = tmp_path / "cache"
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target, **kwargs: forward,
+    )
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        lambda *args, **kwargs: None,
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-101",
+            "--cache-dir",
+            str(cache_root),
+            "--offline",
+            "--json",
+        ]
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
+
+    assert exit_code == 0
+    payload = json.loads(stdout.getvalue())
+    assert payload["query_context"]["check_state"] == QueryContextState.NOT_RUN.value
+    assert payload["query_context"]["not_run_reason"] == "INDEX_UNAVAILABLE"
+    assert "no additional full chain scan was started" in stderr.getvalue()
+
+
+def test_run_marks_point_context_not_run_after_index_lookup_corruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    forward = _cached_point_context_bundle(tmp_path)
+    cache_root = tmp_path / "cache"
+    build_cached_chain_index(cache_root, forward.chain)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target, **kwargs: forward,
+    )
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        lambda *args, **kwargs: None,
+    )
+
+    real_assess = assess_ucsc_cached_bundle
+    assessment_calls = 0
+
+    def count_assessment(
+        source_interval: GenomicInterval,
+        bundle: CachedUCSCResourceBundle,
+        *,
+        target_assembly: AssemblyIdentifier,
+        alignment_provenance: ProvenanceSource,
+        progress_callback: ResourceReadProgressCallback | None = None,
+        chain_index: ChainIndex | None = None,
+    ) -> UCSCAssessmentReport:
+        nonlocal assessment_calls
+        assessment_calls += 1
+        return real_assess(
+            source_interval,
+            bundle,
+            target_assembly=target_assembly,
+            alignment_provenance=alignment_provenance,
+            progress_callback=progress_callback,
+            chain_index=chain_index,
+        )
+
+    monkeypatch.setattr(cli, "assess_ucsc_cached_bundle", count_assessment)
+    monkeypatch.setattr(
+        cli,
+        "attach_point_query_context",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ChainIndexCorruptionError("fixture point-context query corruption")
+        ),
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-101",
+            "--cache-dir",
+            str(cache_root),
+            "--offline",
+            "--json",
+        ]
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
+
+    assert exit_code == 0
+    assert assessment_calls == 1
+    context = json.loads(stdout.getvalue())["query_context"]
+    assert context["check_state"] == QueryContextState.NOT_RUN.value
+    assert context["not_run_reason"] == "INDEX_UNUSABLE"
+    assert "no full chain fallback was started" in stderr.getvalue()
+
+
+def test_run_accepts_explicit_larger_odd_point_context_window(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    forward = _cached_point_context_bundle(tmp_path)
+    cache_root = tmp_path / "cache"
+    build_cached_chain_index(cache_root, forward.chain)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target, **kwargs: forward,
+    )
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        lambda *args, **kwargs: None,
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:751-751",
+            "--context-bases",
+            "1001",
+            "--cache-dir",
+            str(cache_root),
+            "--offline",
+            "--json",
+        ]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    context = json.loads(stdout.getvalue())["query_context"]
+    assert context["requested_window_bases"] == 1001
+    assert context["actual_window_bases"] == 1001
+    assert context["tested_source_interval"]["start"] == 250
+    assert context["tested_source_interval"]["end"] == 1251
+
+
+def test_main_rejects_explicit_point_context_for_interval_query(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = cli.main(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--context-bases",
+            "1001",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "--context-bases currently requires a 1-bp point query" in captured.err
+
+
+def test_run_point_context_details_state_chain_only_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    forward = _cached_point_context_bundle(tmp_path)
+    cache_root = tmp_path / "cache"
+    build_cached_chain_index(cache_root, forward.chain)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target, **kwargs: forward,
+    )
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        lambda *args, **kwargs: None,
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-101",
+            "--cache-dir",
+            str(cache_root),
+            "--offline",
+            "--details",
+        ]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    rendered = stdout.getvalue()
+    assert "Point neighborhood context" in rendered
+    assert (
+        "Evidence scope: forward chain only; net/reciprocal-best not re-run" in rendered
+    )
+    assert "Tested source window: chr1:51-151 (1-based inclusive)" in rendered
+
+
+def test_run_point_context_summary_reports_exact_tested_window(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    forward = _cached_point_context_bundle(tmp_path)
+    cache_root = tmp_path / "cache"
+    build_cached_chain_index(cache_root, forward.chain)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle",
+        lambda cache_root, source, target, **kwargs: forward,
+    )
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        lambda *args, **kwargs: None,
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-101",
+            "--cache-dir",
+            str(cache_root),
+            "--offline",
+        ]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    rendered = stdout.getvalue()
+    assert "Local context (forward chain only)" in rendered
+    assert "chr1:51-151 (1-based inclusive); 101 bp tested" in rendered
+    assert "point and local context map together" in rendered

@@ -1,20 +1,30 @@
 from __future__ import annotations
 
 import gzip
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from liftassess import (
     AssemblyIdentifier,
     CachedResource,
+    CachedUCSCChainResource,
     CachedUCSCResourceBundle,
     EvidenceAvailabilityTier,
     EvidenceKind,
     FactualHeadline,
     GenomicInterval,
+    MappingSegment,
     ProvenanceSource,
+    QueryContextFinding,
+    QueryContextNotRunReason,
+    QueryContextState,
     UCSCAssessmentReport,
     UCSCBundleResourceRole,
     assess_ucsc_cached_bundle,
+    attach_point_query_context,
+    attach_query_context_result,
     build_cached_chain_index,
     sha256_identifier_for_file,
     ucsc_resource_terms,
@@ -492,3 +502,298 @@ def test_cached_bundle_progress_reports_exact_consumed_raw_byte_totals(
         ),
     }
     assert all(0 < read <= total for _, read, total in events)
+
+def test_indexed_point_context_maps_clean_window_without_reusing_comparative_evidence(
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    bundle = _liftover_bundle(
+        tmp_path,
+        _chain_text(chain_id=17, start=0, length=300, target_start=500),
+    )
+    alignment = ProvenanceSource("alignment", "shared UCSC alignment")
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 100, 101),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=alignment,
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+
+    enriched = attach_point_query_context(
+        report,
+        chain_context=CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        chain_index=index,
+    )
+
+    context = enriched.result_profile.query_context
+    assert context.check_state is QueryContextState.RUN
+    assert context.tested_source_interval == GenomicInterval(source, "chr1", 50, 151)
+    assert context.actual_window_bases == 101
+    assert context.findings == (QueryContextFinding.AGREES_WITH_POINT,)
+    assert context.point_and_local_context_map_together
+    assert len(context.candidate_profiles) == 1
+    assert enriched.query_context_result is not None
+    assert {
+        observation.kind
+        for observation in enriched.query_context_result.candidates[0].evidence
+    } == {
+        EvidenceKind.CHAIN_SCORE,
+        EvidenceKind.MAPPING_COVERAGE,
+        EvidenceKind.CHAIN_GAPS,
+    }
+
+
+def test_point_context_without_index_is_explicitly_not_run(tmp_path: Path) -> None:
+    source, target = _assemblies()
+    bundle = _liftover_bundle(
+        tmp_path,
+        _chain_text(chain_id=17, start=0, length=300, target_start=500),
+    )
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 100, 101),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
+    )
+
+    enriched = attach_point_query_context(
+        report,
+        chain_context=CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        chain_index=None,
+    )
+
+    context = enriched.result_profile.query_context
+    assert context.check_state is QueryContextState.NOT_RUN
+    assert context.not_run_reason is QueryContextNotRunReason.INDEX_UNAVAILABLE
+    assert enriched.query_context_result is not None
+    assert enriched.query_context_result.candidates == ()
+
+
+def test_point_context_without_indexed_source_bound_is_explicitly_not_run(
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    bundle = _liftover_bundle(
+        tmp_path,
+        _chain_text(chain_id=17, start=0, length=300, target_start=500),
+    )
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chrMissing", 100, 101),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+
+    enriched = attach_point_query_context(
+        report,
+        chain_context=CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        chain_index=index,
+    )
+
+    context = enriched.result_profile.query_context
+    assert context.check_state is QueryContextState.NOT_RUN
+    assert context.not_run_reason is QueryContextNotRunReason.SOURCE_BOUNDS_UNAVAILABLE
+    assert enriched.query_context_result is not None
+    assert enriched.query_context_result.candidates == ()
+
+
+def test_point_context_reports_partial_local_geometry_as_scale_change(
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    bundle = _liftover_bundle(
+        tmp_path,
+        _chain_text(chain_id=17, start=90, length=21, target_start=500),
+    )
+    alignment = ProvenanceSource("alignment", "shared UCSC alignment")
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 100, 101),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=alignment,
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+
+    enriched = attach_point_query_context(
+        report,
+        chain_context=CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        chain_index=index,
+    )
+
+    context = enriched.result_profile.query_context
+    assert context.check_state is QueryContextState.RUN
+    assert set(context.findings) == {
+        QueryContextFinding.REVEALS_FRAGMENTATION,
+        QueryContextFinding.CHANGES_WITH_QUERY_SCALE,
+    }
+    assert not context.point_and_local_context_map_together
+    assert context.maximum_candidate_covered_source_bases == 21
+    assert context.actual_window_bases == 101
+
+
+def test_comparative_point_context_uses_all_chain_geometry_without_net_rbest_repass(
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    bundle = _comparative_bundle(
+        tmp_path,
+        chain_text=_chain_text(chain_id=1, start=0, length=300, target_start=500),
+        reciprocal_chain_text=_chain_text(
+            chain_id=101,
+            start=0,
+            length=300,
+            target_start=500,
+        ),
+    )
+    alignment = ProvenanceSource("alignment", "shared UCSC alignment")
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 105, 106),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=alignment,
+    )
+    assert any(
+        observation.kind is EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP
+        for observation in report.candidates[0].evidence
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+
+    enriched = attach_point_query_context(
+        report,
+        chain_context=CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        chain_index=index,
+    )
+
+    assert enriched.result_profile.query_context.check_state is QueryContextState.RUN
+    assert enriched.query_context_result is not None
+    context_evidence_kinds = {
+        observation.kind
+        for observation in enriched.query_context_result.candidates[0].evidence
+    }
+    assert EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP not in context_evidence_kinds
+    assert EvidenceKind.NET_CLASSIFICATION not in context_evidence_kinds
+
+
+def test_query_context_rejects_shared_candidate_id_with_shifted_point_geometry(
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    bundle = _liftover_bundle(
+        tmp_path,
+        _chain_text(chain_id=17, start=0, length=300, target_start=500),
+    )
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 100, 101),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+    enriched = attach_point_query_context(
+        report,
+        chain_context=CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        chain_index=index,
+    )
+    assert enriched.query_context_result is not None
+    context_candidate = enriched.query_context_result.candidates[0]
+
+    shifted_segments = tuple(
+        MappingSegment(
+            source_interval=segment.source_interval,
+            target_interval=GenomicInterval(
+                assembly=segment.target_interval.assembly,
+                sequence_name=segment.target_interval.sequence_name,
+                start=segment.target_interval.start + 1,
+                end=segment.target_interval.end + 1,
+            ),
+        )
+        for segment in context_candidate.segments
+    )
+    shifted_candidate = replace(
+        context_candidate,
+        target_interval=GenomicInterval(
+            assembly=context_candidate.target_interval.assembly,
+            sequence_name=context_candidate.target_interval.sequence_name,
+            start=context_candidate.target_interval.start + 1,
+            end=context_candidate.target_interval.end + 1,
+        ),
+        segments=shifted_segments,
+    )
+    mismatched_context = replace(
+        enriched.query_context_result,
+        candidates=(shifted_candidate,),
+    )
+
+    with pytest.raises(ValueError, match="reproduce the point mapping"):
+        attach_query_context_result(report, mismatched_context)
+
+
+def test_reverse_orientation_point_context_reproduces_point_geometry(
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    bundle = _liftover_bundle(
+        tmp_path,
+        ("chain 100 chr1 1000 + 0 300 chrA 2000 - 500 800 17\n300\n\n"),
+    )
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 100, 101),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+
+    enriched = attach_point_query_context(
+        report,
+        chain_context=CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        chain_index=index,
+    )
+
+    assert report.candidates[0].target_interval == GenomicInterval(
+        target, "chrA", 1399, 1400
+    )
+    assert enriched.query_context_result is not None
+    assert enriched.query_context_result.candidates[
+        0
+    ].target_interval == GenomicInterval(target, "chrA", 1349, 1450)
+    context = enriched.result_profile.query_context
+    assert context.findings == (QueryContextFinding.AGREES_WITH_POINT,)
+    assert context.point_and_local_context_map_together

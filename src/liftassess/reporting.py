@@ -23,11 +23,14 @@ from .models import (
     ReciprocalBestMembershipSummary,
 )
 from .orchestration import UCSCAssessmentReport, UCSCAssessmentResource
+from .query_context import QueryContextNotRunReason, QueryContextState
 from .resource_cache import CachedResource
 from .result_profile import (
     CandidateResultProfile,
     CandidateReverseMappingProfile,
     FactualHeadline,
+    QueryContextFinding,
+    QueryContextProfile,
     ResultProfile,
     SourceCoverageState,
 )
@@ -73,6 +76,8 @@ def render_assessment_summary(report: UCSCAssessmentReport) -> str:
     else:
         lines.extend(_multiple_candidate_summary_lines(report, profile))
 
+    lines.extend(_query_context_summary_lines(profile.query_context))
+
     lines.append(f"Evidence: {_evidence_summary(profile)}")
     lines.append(f"Interpretation: {profile.interpretation}")
     lines.append(
@@ -114,6 +119,57 @@ def _single_candidate_summary_lines(
         )
     lines.append(f"Reverse mapping: {_reverse_summary_text(profile.reverse_mapping)}")
     return lines
+
+
+def _query_context_summary_lines(profile: QueryContextProfile) -> list[str]:
+    if profile.check_state is QueryContextState.NOT_RUN:
+        if profile.requested_window_bases is None:
+            return []
+        reason = _query_context_not_run_text(profile.not_run_reason)
+        return [
+            (
+                "Local context: not run "
+                f"for the requested {profile.requested_window_bases}-bp window; {reason}."
+            )
+        ]
+
+    tested = profile.tested_source_interval
+    if tested is None or profile.actual_window_bases is None:
+        raise ValueError("completed query context requires an exact tested window")
+    prefix = (
+        "Local context (forward chain only): "
+        f"{format_display_interval(tested)}; {profile.actual_window_bases} bp tested"
+    )
+    if profile.actual_window_bases != profile.requested_window_bases:
+        prefix += f" from requested {profile.requested_window_bases} bp"
+
+    if profile.point_and_local_context_map_together:
+        return [prefix + "; point and local context map together."]
+    findings = set(profile.findings)
+    if QueryContextFinding.REVEALS_FRAGMENTATION in findings:
+        return [
+            prefix
+            + "; local context reveals partial/fragmented or discontinuous geometry."
+        ]
+    if QueryContextFinding.CHANGES_WITH_QUERY_SCALE in findings:
+        return [prefix + "; the chain-projection result changes with query scale."]
+    if QueryContextFinding.AGREES_WITH_POINT in findings:
+        return [prefix + "; local context agrees with the point-level chain result."]
+    raise ValueError("completed query context requires at least one factual finding")
+
+
+def _query_context_not_run_text(
+    reason: QueryContextNotRunReason | None,
+) -> str:
+    if reason is QueryContextNotRunReason.INDEX_UNAVAILABLE:
+        return "prepared forward chain index unavailable"
+    if reason is QueryContextNotRunReason.INDEX_UNUSABLE:
+        return "prepared forward chain index unusable"
+    if reason is QueryContextNotRunReason.SOURCE_BOUNDS_UNAVAILABLE:
+        return "source-sequence bounds unavailable from the prepared chain index"
+    if reason is None:
+        return "no context execution reason recorded"
+    raise ValueError(f"unsupported query-context not-run reason: {reason!r}")
 
 
 def _multiple_candidate_summary_lines(
@@ -340,6 +396,10 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
     ):
         lines.extend(_candidate_detail_lines(candidate, candidate_profile))
 
+    if report.query_context_result is not None:
+        lines.extend(("", "Point neighborhood context"))
+        lines.extend(_query_context_detail_lines(report))
+
     if report.reverse_mapping_results is not None:
         lines.extend(("", "Reverse mapping results"))
         if not report.reverse_mapping_results:
@@ -448,6 +508,7 @@ def render_assessment_json(report: UCSCAssessmentReport) -> str:
         "source_interval": _interval_json(report.source_interval),
         "result_profile": _result_profile_json(report.result_profile),
         "candidates": [_candidate_json(candidate) for candidate in report.candidates],
+        "query_context": _query_context_json(report),
         "reverse_mapping": _reverse_mapping_json(report),
         "resources": [
             _assessment_resource_json(assessment_resource)
@@ -491,6 +552,7 @@ def _result_profile_json(profile: ResultProfile) -> dict[str, object]:
             _candidate_profile_json(candidate)
             for candidate in profile.candidate_profiles
         ],
+        "query_context": _query_context_profile_json(profile.query_context),
         "scope": {
             "target_role": profile.scope.target_role.value,
             "actual_reverse_mapping": profile.scope.reverse_result.value,
@@ -506,6 +568,70 @@ def _result_profile_json(profile: ResultProfile) -> dict[str, object]:
             ),
             "downstream_workflow_assessed": profile.scope.downstream_workflow_assessed,
         },
+    }
+
+
+def _query_context_profile_json(profile: QueryContextProfile) -> dict[str, object]:
+    return {
+        "check_state": profile.check_state.value,
+        "findings": [finding.value for finding in profile.findings],
+        "requested_window_bases": profile.requested_window_bases,
+        "tested_source_interval": (
+            _interval_json(profile.tested_source_interval)
+            if profile.tested_source_interval is not None
+            else None
+        ),
+        "actual_window_bases": profile.actual_window_bases,
+        "not_run_reason": (
+            profile.not_run_reason.value if profile.not_run_reason is not None else None
+        ),
+        "projection_count": (
+            profile.projection_count.value
+            if profile.projection_count is not None
+            else None
+        ),
+        "source_coverage": (
+            profile.source_coverage.value
+            if profile.source_coverage is not None
+            else None
+        ),
+        "maximum_candidate_covered_source_bases": (
+            profile.maximum_candidate_covered_source_bases
+        ),
+        "union_covered_source_bases": profile.union_covered_source_bases,
+        "headline": profile.headline.value if profile.headline is not None else None,
+        "point_and_local_context_map_together": (
+            profile.point_and_local_context_map_together
+        ),
+        "candidate_profiles": [
+            _candidate_profile_json(candidate)
+            for candidate in profile.candidate_profiles
+        ],
+    }
+
+
+def _query_context_json(report: UCSCAssessmentReport) -> dict[str, object]:
+    result = report.query_context_result
+    profile = report.result_profile.query_context
+    return {
+        "check_state": profile.check_state.value,
+        "evidence_scope": "forward_chain_only",
+        "requested_window_bases": profile.requested_window_bases,
+        "tested_source_interval": (
+            _interval_json(profile.tested_source_interval)
+            if profile.tested_source_interval is not None
+            else None
+        ),
+        "actual_window_bases": profile.actual_window_bases,
+        "not_run_reason": (
+            profile.not_run_reason.value if profile.not_run_reason is not None else None
+        ),
+        "findings": [finding.value for finding in profile.findings],
+        "candidates": (
+            [_candidate_json(candidate) for candidate in result.candidates]
+            if result is not None and result.check_state is QueryContextState.RUN
+            else []
+        ),
     }
 
 
@@ -802,6 +928,8 @@ def _provenance_source_json(source: ProvenanceSource) -> dict[str, object]:
 def _candidate_detail_lines(
     candidate: NormalizedCandidate,
     profile: CandidateResultProfile,
+    *,
+    include_reverse_mapping: bool = True,
 ) -> list[str]:
     lines = [
         _candidate_heading(candidate),
@@ -860,36 +988,37 @@ def _candidate_detail_lines(
     else:
         lines.append("  Target gap intervals: none")
 
-    reverse = profile.reverse_mapping
-    lines.append(f"  Reverse mapping check: {reverse.check_state.value}")
-    if reverse.check_state is ReverseCheckState.RUN:
-        assert reverse.relationship is not None
-        assert reverse.original_source_covered_bases is not None
-        assert reverse.original_source_coverage is not None
-        assert reverse.exact_original_geometry_return is not None
-        assert reverse.reverse_projection_count is not None
-        assert reverse.segments_with_reverse_projection is not None
-        lines.extend(
-            (
-                f"  Reverse relationship: {reverse.relationship.value}",
+    if include_reverse_mapping:
+        reverse = profile.reverse_mapping
+        lines.append(f"  Reverse mapping check: {reverse.check_state.value}")
+        if reverse.check_state is ReverseCheckState.RUN:
+            assert reverse.relationship is not None
+            assert reverse.original_source_covered_bases is not None
+            assert reverse.original_source_coverage is not None
+            assert reverse.exact_original_geometry_return is not None
+            assert reverse.reverse_projection_count is not None
+            assert reverse.segments_with_reverse_projection is not None
+            lines.extend(
                 (
-                    "  Reverse original-source coverage: "
-                    f"{reverse.original_source_covered_bases}/"
-                    f"{reverse.original_source_bases} "
-                    f"({reverse.original_source_coverage.value})"
-                ),
-                (
-                    "  Exact original aligned geometry reconstructed: "
-                    f"{'yes' if reverse.exact_original_geometry_return else 'no'}"
-                ),
-                f"  Reverse projections: {reverse.reverse_projection_count}",
-                (
-                    "  Forward target segments with reverse projection: "
-                    f"{reverse.segments_with_reverse_projection}/"
-                    f"{len(reverse.queried_target_segments)}"
-                ),
+                    f"  Reverse relationship: {reverse.relationship.value}",
+                    (
+                        "  Reverse original-source coverage: "
+                        f"{reverse.original_source_covered_bases}/"
+                        f"{reverse.original_source_bases} "
+                        f"({reverse.original_source_coverage.value})"
+                    ),
+                    (
+                        "  Exact original aligned geometry reconstructed: "
+                        f"{'yes' if reverse.exact_original_geometry_return else 'no'}"
+                    ),
+                    f"  Reverse projections: {reverse.reverse_projection_count}",
+                    (
+                        "  Forward target segments with reverse projection: "
+                        f"{reverse.segments_with_reverse_projection}/"
+                        f"{len(reverse.queried_target_segments)}"
+                    ),
+                )
             )
-        )
 
     lines.append(f"  Evidence observations ({len(candidate.evidence)}):")
     for observation in candidate.evidence:
@@ -897,6 +1026,72 @@ def _candidate_detail_lines(
         lines.append(f"    {observation.kind.value}: {value_lines[0]}")
         lines.extend(f"      {line}" for line in value_lines[1:])
         lines.append(f"      provenance: {observation.provenance.source_id}")
+    return lines
+
+
+def _query_context_detail_lines(report: UCSCAssessmentReport) -> list[str]:
+    result = report.query_context_result
+    if result is None:
+        return ["  Check state: NOT_RUN"]
+    profile = report.result_profile.query_context
+    lines = [
+        f"  Check state: {profile.check_state.value}",
+        f"  Requested window: {profile.requested_window_bases} bases",
+        "  Evidence scope: forward chain only; net/reciprocal-best not re-run",
+    ]
+    if profile.check_state is QueryContextState.NOT_RUN:
+        if profile.not_run_reason is None:
+            raise ValueError("unperformed query context requires a not-run reason")
+        lines.append(f"  Not-run reason: {profile.not_run_reason.value}")
+        return lines
+
+    assert profile.tested_source_interval is not None
+    assert profile.actual_window_bases is not None
+    assert profile.projection_count is not None
+    assert profile.source_coverage is not None
+    assert profile.headline is not None
+    lines.extend(
+        (
+            (
+                "  Tested source window: "
+                f"{format_display_interval(profile.tested_source_interval)}"
+            ),
+            f"  Actual tested width: {profile.actual_window_bases} bases",
+            f"  Context headline: {_headline_text(profile.headline)}",
+            f"  Context projection count: {profile.projection_count.value}",
+            f"  Context source coverage: {profile.source_coverage.value}",
+            (
+                "  Maximum context candidate source coverage: "
+                f"{profile.maximum_candidate_covered_source_bases}/"
+                f"{profile.actual_window_bases}"
+            ),
+            (
+                "  Union context source coverage: "
+                f"{profile.union_covered_source_bases}/{profile.actual_window_bases}"
+            ),
+            "  Findings: "
+            + (", ".join(finding.value for finding in profile.findings) or "none"),
+            (
+                "  Point and local context map together: "
+                f"{'yes' if profile.point_and_local_context_map_together else 'no'}"
+            ),
+            "  Context candidates:",
+        )
+    )
+    if not result.candidates:
+        lines.append("    none")
+        return lines
+    for candidate, candidate_profile in zip(
+        result.candidates,
+        profile.candidate_profiles,
+        strict=True,
+    ):
+        candidate_lines = _candidate_detail_lines(
+            candidate,
+            candidate_profile,
+            include_reverse_mapping=False,
+        )
+        lines.extend(f"  {line}" for line in candidate_lines)
     return lines
 
 

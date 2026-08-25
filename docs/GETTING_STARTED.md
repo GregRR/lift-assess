@@ -176,6 +176,30 @@ When a reverse-direction chain of the same publication class as the forward asse
 
 This is distinct from UCSC reciprocal-best membership. If no matching reverse chain is cached, the result reports `UNAVAILABLE`. If the matching chain is cached but its prepared index is absent or unusable, the result reports `NOT_RUN`; normal assessment does not fall back to a surprise exhaustive scan. During an explicit `--refresh`, reverse mapping is also `NOT_RUN` rather than combining freshly reacquired forward resources with an unrefreshed reverse chain; reverse-direction refresh is never implicit. Prepare the exact reverse chain class explicitly with `prepare-liftassess-index TARGET_DB SOURCE_DB --evidence-tier COMPARATIVE` or `--evidence-tier LIFTOVER-ONLY`, matching the forward result. Normal assessment does not silently download reverse resources or build an index.
 
+### `Local context`
+
+For a 1-bp query, liftAssess automatically requests a centered 101-bp neighborhood from the same
+prepared forward chain index used for fast candidate lookup. The summary always states the exact
+source window actually tested. Near a sequence boundary, the tested window may be shorter than 101
+bases because it is clipped rather than shifted.
+
+This automatic neighborhood is **forward chain only**. Its point/context relationship is derived
+from projection identity and structural geometry, not from chain-score ranking or a hidden
+threshold. For a `COMPARATIVE` point, net and reciprocal-best evidence may be available for the point
+itself, but those resources are not re-run
+for the neighborhood. If the matching forward chain index is missing, unusable, or cannot provide a
+safe source bound, local context reports `NOT_RUN` and does not start another whole-chain scan.
+
+The 101-bp default is context, not a confidence threshold. To request a different larger odd-width
+window for a point, use for example:
+
+```bash
+assess-liftover hg19 hg38 chr1:120904787-120904787 --context-bases 1001
+```
+
+Ordinary interval queries are not widened automatically, and liftAssess never recursively expands a
+point from 101 bp to 1 kb or 10 kb because the first context result looks unusual.
+
 ### `Interpretation`
 
 A deterministic sentence that stays close to the measured geometry/evidence. It does not choose a biologically correct locus.
@@ -194,7 +218,7 @@ Routine one-complete-projection results stay compact. The current first result-p
 
 For large intervals and multiple projections, source coverage leads the story. The report gives actual measured coverage; it does not apply a built-in 90% or other quality threshold.
 
-Actual reverse-mapping context is now reported when the matching prepared reverse index is available. Later roadmap capabilities will add additional progressive-disclosure triggers such as automatic point-neighborhood disagreement, paired filtered/all-chain comparison, batch relationships, target-role metadata, and typed contextual evidence. Those later checks are not silently implied by the current output.
+Actual reverse-mapping context is reported when the matching prepared reverse index is available. For 1-bp point queries, liftAssess also requests automatic 101-bp local chain context when the prepared forward chain index is available. Later roadmap capabilities will add additional progressive-disclosure triggers such as paired filtered/all-chain comparison, batch relationships, target-role metadata, and typed contextual evidence. Those later checks are not silently implied by the current output.
 
 ## 7. Ask for the full human-readable dossier
 

@@ -26,6 +26,11 @@ from .models import (
     NormalizedCandidate,
     ReciprocalBestMembershipSummary,
 )
+from .query_context import (
+    PointQueryContextResult,
+    QueryContextNotRunReason,
+    QueryContextState,
+)
 from .reverse_mapping import (
     CandidateReverseMappingResult,
     ReverseCheckState,
@@ -71,12 +76,6 @@ class TargetRoleState(str, Enum):
     NOT_ASSESSED = "NOT_ASSESSED"
 
 
-class QueryContextState(str, Enum):
-    """Point/neighborhood comparison state reserved for a later milestone."""
-
-    NOT_RUN = "NOT_RUN"
-
-
 class ComparativeRelationshipState(str, Enum):
     """Cross-resource comparative synthesis state for the current slice."""
 
@@ -107,6 +106,14 @@ class FactualHeadline(str, Enum):
     SOURCE_INTERVAL_SPLITS_ACROSS_MULTIPLE_PROJECTIONS = (
         "SOURCE_INTERVAL_SPLITS_ACROSS_MULTIPLE_PROJECTIONS"
     )
+
+
+class QueryContextFinding(str, Enum):
+    """Factual relationships between a point and its tested local context."""
+
+    AGREES_WITH_POINT = "AGREES_WITH_POINT"
+    REVEALS_FRAGMENTATION = "REVEALS_FRAGMENTATION"
+    CHANGES_WITH_QUERY_SCALE = "CHANGES_WITH_QUERY_SCALE"
 
 
 @dataclass(frozen=True)
@@ -148,6 +155,25 @@ class CandidateResultProfile:
 
 
 @dataclass(frozen=True)
+class QueryContextProfile:
+    """Derived facts for one automatic or explicitly sized point neighborhood."""
+
+    check_state: QueryContextState
+    findings: tuple[QueryContextFinding, ...]
+    requested_window_bases: int | None
+    tested_source_interval: GenomicInterval | None
+    actual_window_bases: int | None
+    not_run_reason: QueryContextNotRunReason | None
+    projection_count: ProjectionCountState | None
+    source_coverage: SourceCoverageState | None
+    maximum_candidate_covered_source_bases: int | None
+    union_covered_source_bases: int | None
+    candidate_profiles: tuple[CandidateResultProfile, ...]
+    headline: FactualHeadline | None
+    point_and_local_context_map_together: bool
+
+
+@dataclass(frozen=True)
 class ResultScopeProfile:
     """Explicit scope states for orthogonal result dimensions."""
 
@@ -182,6 +208,7 @@ class ResultProfile:
     interpretation: str
     evidence_tier: EvidenceAvailabilityTier
     consumed_resource_roles: tuple[str, ...]
+    query_context: QueryContextProfile
     scope: ResultScopeProfile = field(default_factory=ResultScopeProfile)
 
 
@@ -192,6 +219,7 @@ def build_result_profile(
     evidence_tier: EvidenceAvailabilityTier,
     consumed_resource_roles: tuple[str, ...] = (),
     reverse_mapping_results: tuple[CandidateReverseMappingResult, ...] | None = None,
+    query_context_result: PointQueryContextResult | None = None,
 ) -> ResultProfile:
     """Derive one deterministic factual profile from normalized scientific data."""
 
@@ -212,26 +240,13 @@ def build_result_profile(
     )
 
     projection_count = _projection_count(len(candidates))
-    if not candidate_profiles:
-        maximum_covered = 0
-        maximum_ids: tuple[str, ...] = ()
-        coverage_state = SourceCoverageState.NONE
-        union_covered = 0
-    else:
-        maximum_covered = max(
-            candidate.covered_source_bases for candidate in candidate_profiles
+    maximum_covered, maximum_ids, coverage_state, union_covered = (
+        _aggregate_candidate_coverage(
+            source_interval,
+            candidates,
+            candidate_profiles,
         )
-        maximum_ids = tuple(
-            candidate.candidate_id
-            for candidate in candidate_profiles
-            if candidate.covered_source_bases == maximum_covered
-        )
-        coverage_state = (
-            SourceCoverageState.COMPLETE
-            if maximum_covered == source_interval.length
-            else SourceCoverageState.PARTIAL
-        )
-        union_covered = _union_covered_source_bases(candidates)
+    )
 
     headline = _headline(
         projection_count,
@@ -239,6 +254,13 @@ def build_result_profile(
         maximum_covered=maximum_covered,
         union_covered=union_covered,
         source_bases=source_interval.length,
+    )
+    query_context = _query_context_profile(
+        source_interval,
+        candidates,
+        candidate_profiles,
+        evidence_tier=evidence_tier,
+        query_context_result=query_context_result,
     )
     return ResultProfile(
         source_interval=source_interval,
@@ -255,10 +277,209 @@ def build_result_profile(
         interpretation=_interpretation(headline),
         evidence_tier=evidence_tier,
         consumed_resource_roles=consumed_resource_roles,
+        query_context=query_context,
         scope=ResultScopeProfile(
             reverse_result=_reverse_scope_state(reverse_profiles),
+            query_context=query_context.check_state,
         ),
     )
+
+
+def _query_context_profile(
+    source_interval: GenomicInterval,
+    point_candidates: tuple[NormalizedCandidate, ...],
+    point_candidate_profiles: tuple[CandidateResultProfile, ...],
+    *,
+    evidence_tier: EvidenceAvailabilityTier,
+    query_context_result: PointQueryContextResult | None,
+) -> QueryContextProfile:
+    if query_context_result is None:
+        return QueryContextProfile(
+            check_state=QueryContextState.NOT_RUN,
+            findings=(),
+            requested_window_bases=None,
+            tested_source_interval=None,
+            actual_window_bases=None,
+            not_run_reason=None,
+            projection_count=None,
+            source_coverage=None,
+            maximum_candidate_covered_source_bases=None,
+            union_covered_source_bases=None,
+            candidate_profiles=(),
+            headline=None,
+            point_and_local_context_map_together=False,
+        )
+
+    if source_interval.length != 1:
+        raise ValueError("point query context can only be attached to a one-base query")
+    if query_context_result.check_state is QueryContextState.NOT_RUN:
+        return QueryContextProfile(
+            check_state=QueryContextState.NOT_RUN,
+            findings=(),
+            requested_window_bases=query_context_result.requested_window_bases,
+            tested_source_interval=None,
+            actual_window_bases=None,
+            not_run_reason=query_context_result.not_run_reason,
+            projection_count=None,
+            source_coverage=None,
+            maximum_candidate_covered_source_bases=None,
+            union_covered_source_bases=None,
+            candidate_profiles=(),
+            headline=None,
+            point_and_local_context_map_together=False,
+        )
+
+    tested_interval = query_context_result.tested_source_interval
+    if tested_interval is None:
+        raise ValueError("completed point context requires its tested source interval")
+    if (
+        tested_interval.assembly != source_interval.assembly
+        or tested_interval.sequence_name != source_interval.sequence_name
+        or tested_interval.start > source_interval.start
+        or tested_interval.end < source_interval.end
+    ):
+        raise ValueError(
+            "point context interval must contain the assessed source point"
+        )
+
+    context_candidates = query_context_result.candidates
+    _validate_candidate_ids(context_candidates)
+    validate_distinct_candidate_geometries(context_candidates)
+    context_reverse_profiles = _reverse_mapping_profiles(context_candidates, None)
+    context_candidate_profiles = tuple(
+        _candidate_result_profile(
+            tested_interval,
+            candidate,
+            evidence_tier=evidence_tier,
+            reverse_mapping=reverse_profile,
+            require_comparative_evidence=False,
+        )
+        for candidate, reverse_profile in zip(
+            context_candidates,
+            context_reverse_profiles,
+            strict=True,
+        )
+    )
+    projection_count = _projection_count(len(context_candidates))
+    maximum_covered, _, coverage_state, union_covered = _aggregate_candidate_coverage(
+        tested_interval,
+        context_candidates,
+        context_candidate_profiles,
+    )
+    context_headline = _headline(
+        projection_count,
+        context_candidate_profiles,
+        maximum_covered=maximum_covered,
+        union_covered=union_covered,
+        source_bases=tested_interval.length,
+    )
+
+    point_candidates_by_id = {
+        candidate.candidate_id: candidate for candidate in point_candidates
+    }
+    context_candidates_by_id = {
+        candidate.candidate_id: candidate for candidate in context_candidates
+    }
+    point_candidate_ids = frozenset(point_candidates_by_id)
+    context_candidate_ids = frozenset(context_candidates_by_id)
+    for candidate_id in point_candidate_ids & context_candidate_ids:
+        _validate_point_context_candidate_geometry(
+            point_candidates_by_id[candidate_id],
+            context_candidates_by_id[candidate_id],
+        )
+    reveals_fragmentation = any(
+        candidate.coverage_state is SourceCoverageState.PARTIAL
+        or candidate.fragmented
+        or candidate.target_discontinuous
+        for candidate in context_candidate_profiles
+    )
+    changes_with_scale = (
+        point_candidate_ids != context_candidate_ids or reveals_fragmentation
+    )
+    findings: list[QueryContextFinding] = []
+    if not changes_with_scale:
+        findings.append(QueryContextFinding.AGREES_WITH_POINT)
+    if reveals_fragmentation:
+        findings.append(QueryContextFinding.REVEALS_FRAGMENTATION)
+    if changes_with_scale:
+        findings.append(QueryContextFinding.CHANGES_WITH_QUERY_SCALE)
+
+    point_and_local_context_map_together = (
+        len(point_candidate_profiles) == 1
+        and len(context_candidate_profiles) == 1
+        and point_candidate_profiles[0].candidate_id
+        == context_candidate_profiles[0].candidate_id
+        and context_candidate_profiles[0].coverage_state is SourceCoverageState.COMPLETE
+        and not context_candidate_profiles[0].fragmented
+        and not context_candidate_profiles[0].target_discontinuous
+    )
+    return QueryContextProfile(
+        check_state=QueryContextState.RUN,
+        findings=tuple(findings),
+        requested_window_bases=query_context_result.requested_window_bases,
+        tested_source_interval=tested_interval,
+        actual_window_bases=tested_interval.length,
+        not_run_reason=None,
+        projection_count=projection_count,
+        source_coverage=coverage_state,
+        maximum_candidate_covered_source_bases=maximum_covered,
+        union_covered_source_bases=union_covered,
+        candidate_profiles=context_candidate_profiles,
+        headline=context_headline,
+        point_and_local_context_map_together=point_and_local_context_map_together,
+    )
+
+
+def _validate_point_context_candidate_geometry(
+    point_candidate: NormalizedCandidate,
+    context_candidate: NormalizedCandidate,
+) -> None:
+    """Require a shared chain candidate to reproduce the point projection exactly."""
+
+    mismatch = (
+        "query-context candidate geometry must reproduce the point mapping "
+        "for shared candidate IDs"
+    )
+    if point_candidate.orientation is not context_candidate.orientation:
+        raise ValueError(mismatch)
+    if point_candidate.mapping_provenance != context_candidate.mapping_provenance:
+        raise ValueError(mismatch)
+    if len(point_candidate.segments) != 1:
+        raise ValueError(mismatch)
+
+    point_segment = point_candidate.segments[0]
+    point_source = point_segment.source_interval
+    matching_context_segments = tuple(
+        segment
+        for segment in context_candidate.segments
+        if segment.source_interval.assembly == point_source.assembly
+        and segment.source_interval.sequence_name == point_source.sequence_name
+        and segment.source_interval.start <= point_source.start
+        and segment.source_interval.end >= point_source.end
+    )
+    if len(matching_context_segments) != 1:
+        raise ValueError(mismatch)
+
+    context_segment = matching_context_segments[0]
+    context_source = context_segment.source_interval
+    context_target = context_segment.target_interval
+    offset_start = point_source.start - context_source.start
+    offset_end = point_source.end - context_source.start
+    if context_candidate.orientation is MappingOrientation.SAME:
+        expected_target_start = context_target.start + offset_start
+        expected_target_end = context_target.start + offset_end
+    else:
+        expected_target_start = context_target.end - offset_end
+        expected_target_end = context_target.end - offset_start
+
+    point_target = point_segment.target_interval
+    if (
+        point_target.assembly != context_target.assembly
+        or point_target.sequence_name != context_target.sequence_name
+        or point_target.start != expected_target_start
+        or point_target.end != expected_target_end
+    ):
+        raise ValueError(mismatch)
 
 
 def _reverse_mapping_profiles(
@@ -362,6 +583,7 @@ def _candidate_result_profile(
     *,
     evidence_tier: EvidenceAvailabilityTier,
     reverse_mapping: CandidateReverseMappingProfile,
+    require_comparative_evidence: bool = True,
 ) -> CandidateResultProfile:
     _validate_candidate_geometry(source_interval, candidate)
 
@@ -424,7 +646,10 @@ def _candidate_result_profile(
     reciprocal_observation = _single_observation(
         candidate,
         EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP,
-        required=evidence_tier is EvidenceAvailabilityTier.COMPARATIVE,
+        required=(
+            evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+            and require_comparative_evidence
+        ),
     )
     if evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
         if reciprocal_observation is not None:
@@ -488,6 +713,35 @@ def _candidate_result_profile(
         ),
         orientation=candidate.orientation,
         reverse_mapping=reverse_mapping,
+    )
+
+
+def _aggregate_candidate_coverage(
+    source_interval: GenomicInterval,
+    candidates: tuple[NormalizedCandidate, ...],
+    candidate_profiles: tuple[CandidateResultProfile, ...],
+) -> tuple[int, tuple[str, ...], SourceCoverageState, int]:
+    if not candidate_profiles:
+        return 0, (), SourceCoverageState.NONE, 0
+
+    maximum_covered = max(
+        candidate.covered_source_bases for candidate in candidate_profiles
+    )
+    maximum_ids = tuple(
+        candidate.candidate_id
+        for candidate in candidate_profiles
+        if candidate.covered_source_bases == maximum_covered
+    )
+    coverage_state = (
+        SourceCoverageState.COMPLETE
+        if maximum_covered == source_interval.length
+        else SourceCoverageState.PARTIAL
+    )
+    return (
+        maximum_covered,
+        maximum_ids,
+        coverage_state,
+        _union_covered_source_bases(candidates),
     )
 
 

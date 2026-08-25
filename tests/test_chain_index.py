@@ -110,6 +110,25 @@ def test_build_and_query_chain_index_preserves_records_and_order(
     assert result.manifest.record_count == 3
 
 
+def test_chain_index_exposes_conservative_source_sequence_query_bound(
+    tmp_path: Path,
+) -> None:
+    chain_path = tmp_path / "example.chain"
+    index_path = tmp_path / "index"
+    _write_chain(chain_path)
+    identifier, size_bytes = _identifier_and_size(chain_path)
+    index = build_chain_index(
+        chain_path,
+        index_path,
+        source_chain_sha256_identifier=identifier,
+        source_chain_size_bytes=size_bytes,
+    ).index
+
+    assert index.source_sequence_query_bound("chr1") == 200_000
+    assert index.source_sequence_query_bound("chr2") == 100_000
+    assert index.source_sequence_query_bound("chrMissing") is None
+
+
 def test_chain_crossing_bin_boundary_is_discoverable_from_both_bins(
     tmp_path: Path,
 ) -> None:
