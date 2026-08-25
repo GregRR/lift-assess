@@ -94,8 +94,8 @@ assessment when the exact forward chain has a prepared validated index. The cont
 - reports the exact tested source window and its actual width;
 - clips at indexed source-sequence bounds rather than shifting the point away from center;
 - evaluates chain projection count, source coverage, fragmentation, and target discontinuity;
-- reports whether local chain geometry agrees with the point, reveals fragmentation, or changes
-  materially with query scale; and
+- reports agreement, newly revealed partial coverage, fragmentation, and target discontinuity as
+  distinct facts, together with whether the result changes materially with query scale; and
 - never silently widens again to 1 kb, 10 kb, or another scale.
 
 Automatic context is **forward chain only**. The point/context relationship is derived from

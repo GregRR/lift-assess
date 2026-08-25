@@ -575,8 +575,8 @@ Integrated point-context behavior:
 - absence/unusability of the prepared forward index, or unavailable safe source bounds from that
   index, leaves the context check explicitly `NOT_RUN`; index corruption never falls back to a full
   context scan;
-- point/context relationships are derived as factual states for agreement, newly revealed
-  fragmentation/discontinuity, and material change with query scale;
+- point/context relationships are derived as separate factual states for agreement, newly revealed
+  partial coverage, fragmentation, target discontinuity, and material change with query scale;
 - 101 bp is described as a product/context default, not a confidence threshold or universal
   biological scale;
 - ordinary interval queries are not automatically widened;

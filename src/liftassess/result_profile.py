@@ -112,8 +112,19 @@ class QueryContextFinding(str, Enum):
     """Factual relationships between a point and its tested local context."""
 
     AGREES_WITH_POINT = "AGREES_WITH_POINT"
+    REVEALS_PARTIAL_COVERAGE = "REVEALS_PARTIAL_COVERAGE"
     REVEALS_FRAGMENTATION = "REVEALS_FRAGMENTATION"
+    REVEALS_TARGET_DISCONTINUITY = "REVEALS_TARGET_DISCONTINUITY"
     CHANGES_WITH_QUERY_SCALE = "CHANGES_WITH_QUERY_SCALE"
+
+
+_QUERY_CONTEXT_CHAIN_EVIDENCE_KINDS = frozenset(
+    {
+        EvidenceKind.CHAIN_GAPS,
+        EvidenceKind.CHAIN_SCORE,
+        EvidenceKind.MAPPING_COVERAGE,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -343,6 +354,7 @@ def _query_context_profile(
         )
 
     context_candidates = query_context_result.candidates
+    _validate_query_context_evidence_scope(context_candidates)
     _validate_candidate_ids(context_candidates)
     validate_distinct_candidate_geometries(context_candidates)
     context_reverse_profiles = _reverse_mapping_profiles(context_candidates, None)
@@ -387,20 +399,31 @@ def _query_context_profile(
             point_candidates_by_id[candidate_id],
             context_candidates_by_id[candidate_id],
         )
-    reveals_fragmentation = any(
+    reveals_partial_coverage = any(
         candidate.coverage_state is SourceCoverageState.PARTIAL
-        or candidate.fragmented
-        or candidate.target_discontinuous
         for candidate in context_candidate_profiles
     )
+    reveals_fragmentation = any(
+        candidate.fragmented for candidate in context_candidate_profiles
+    )
+    reveals_target_discontinuity = any(
+        candidate.target_discontinuous for candidate in context_candidate_profiles
+    )
     changes_with_scale = (
-        point_candidate_ids != context_candidate_ids or reveals_fragmentation
+        point_candidate_ids != context_candidate_ids
+        or reveals_partial_coverage
+        or reveals_fragmentation
+        or reveals_target_discontinuity
     )
     findings: list[QueryContextFinding] = []
     if not changes_with_scale:
         findings.append(QueryContextFinding.AGREES_WITH_POINT)
+    if reveals_partial_coverage:
+        findings.append(QueryContextFinding.REVEALS_PARTIAL_COVERAGE)
     if reveals_fragmentation:
         findings.append(QueryContextFinding.REVEALS_FRAGMENTATION)
+    if reveals_target_discontinuity:
+        findings.append(QueryContextFinding.REVEALS_TARGET_DISCONTINUITY)
     if changes_with_scale:
         findings.append(QueryContextFinding.CHANGES_WITH_QUERY_SCALE)
 
@@ -428,6 +451,24 @@ def _query_context_profile(
         headline=context_headline,
         point_and_local_context_map_together=point_and_local_context_map_together,
     )
+
+
+def _validate_query_context_evidence_scope(
+    candidates: tuple[NormalizedCandidate, ...],
+) -> None:
+    invalid_kinds = sorted(
+        {
+            observation.kind.value
+            for candidate in candidates
+            for observation in candidate.evidence
+            if observation.kind not in _QUERY_CONTEXT_CHAIN_EVIDENCE_KINDS
+        }
+    )
+    if invalid_kinds:
+        raise ValueError(
+            "point query context can contain only forward-chain evidence; found "
+            + ", ".join(invalid_kinds)
+        )
 
 
 def _validate_point_context_candidate_geometry(

@@ -13,6 +13,7 @@ from liftassess import (
     CachedUCSCResourceBundle,
     EvidenceAvailabilityTier,
     EvidenceKind,
+    EvidenceObservation,
     FactualHeadline,
     GenomicInterval,
     MappingSegment,
@@ -646,12 +647,46 @@ def test_point_context_reports_partial_local_geometry_as_scale_change(
     context = enriched.result_profile.query_context
     assert context.check_state is QueryContextState.RUN
     assert set(context.findings) == {
-        QueryContextFinding.REVEALS_FRAGMENTATION,
+        QueryContextFinding.REVEALS_PARTIAL_COVERAGE,
         QueryContextFinding.CHANGES_WITH_QUERY_SCALE,
     }
     assert not context.point_and_local_context_map_together
     assert context.maximum_candidate_covered_source_bases == 21
     assert context.actual_window_bases == 101
+
+
+def test_point_context_keeps_structural_findings_separate(tmp_path: Path) -> None:
+    source, target = _assemblies()
+    bundle = _liftover_bundle(
+        tmp_path,
+        ("chain 100 chr1 1000 + 50 151 chrA 2000 + 500 610 17\n70 1 10\n30\n\n"),
+    )
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 100, 101),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+
+    enriched = attach_point_query_context(
+        report,
+        chain_context=CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        chain_index=index,
+    )
+
+    context = enriched.result_profile.query_context
+    assert set(context.findings) == {
+        QueryContextFinding.REVEALS_PARTIAL_COVERAGE,
+        QueryContextFinding.REVEALS_FRAGMENTATION,
+        QueryContextFinding.REVEALS_TARGET_DISCONTINUITY,
+        QueryContextFinding.CHANGES_WITH_QUERY_SCALE,
+    }
 
 
 def test_comparative_point_context_uses_all_chain_geometry_without_net_rbest_repass(
@@ -700,6 +735,52 @@ def test_comparative_point_context_uses_all_chain_geometry_without_net_rbest_rep
     }
     assert EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP not in context_evidence_kinds
     assert EvidenceKind.NET_CLASSIFICATION not in context_evidence_kinds
+
+
+def test_query_context_rejects_non_chain_evidence_kind(tmp_path: Path) -> None:
+    source, target = _assemblies()
+    bundle = _liftover_bundle(
+        tmp_path,
+        _chain_text(chain_id=17, start=0, length=300, target_start=500),
+    )
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 100, 101),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+    enriched = attach_point_query_context(
+        report,
+        chain_context=CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        chain_index=index,
+    )
+    assert enriched.query_context_result is not None
+    context_candidate = enriched.query_context_result.candidates[0]
+    invalid_candidate = replace(
+        context_candidate,
+        evidence=context_candidate.evidence
+        + (
+            EvidenceObservation(
+                observation_id="unexpected-net-classification",
+                kind=EvidenceKind.NET_CLASSIFICATION,
+                value="top",
+                provenance=context_candidate.mapping_provenance,
+            ),
+        ),
+    )
+    invalid_context = replace(
+        enriched.query_context_result,
+        candidates=(invalid_candidate,),
+    )
+
+    with pytest.raises(ValueError, match="only forward-chain evidence"):
+        attach_query_context_result(report, invalid_context)
 
 
 def test_query_context_rejects_shared_candidate_id_with_shifted_point_geometry(

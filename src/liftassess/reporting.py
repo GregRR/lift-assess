@@ -146,11 +146,15 @@ def _query_context_summary_lines(profile: QueryContextProfile) -> list[str]:
     if profile.point_and_local_context_map_together:
         return [prefix + "; point and local context map together."]
     findings = set(profile.findings)
+    revealed_facts: list[str] = []
+    if QueryContextFinding.REVEALS_PARTIAL_COVERAGE in findings:
+        revealed_facts.append("partial source coverage")
     if QueryContextFinding.REVEALS_FRAGMENTATION in findings:
-        return [
-            prefix
-            + "; local context reveals partial/fragmented or discontinuous geometry."
-        ]
+        revealed_facts.append("fragmented mapping geometry")
+    if QueryContextFinding.REVEALS_TARGET_DISCONTINUITY in findings:
+        revealed_facts.append("target discontinuity")
+    if revealed_facts:
+        return [prefix + "; local context reveals " + ", ".join(revealed_facts) + "."]
     if QueryContextFinding.CHANGES_WITH_QUERY_SCALE in findings:
         return [prefix + "; the chain-projection result changes with query scale."]
     if QueryContextFinding.AGREES_WITH_POINT in findings:
