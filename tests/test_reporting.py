@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from liftassess import (
@@ -8,6 +9,7 @@ from liftassess import (
     CachedResource,
     ChainGap,
     ChainGapSummary,
+    ComparativeEvidenceRelationship,
     EvidenceAvailabilityTier,
     EvidenceKind,
     EvidenceObservation,
@@ -30,6 +32,8 @@ from liftassess import (
     UCSCAssessmentReport,
     UCSCAssessmentResource,
     UCSCBundleResourceRole,
+    build_comparative_evidence_relationship,
+    build_filtered_all_chain_comparison,
     build_result_profile,
     reporting,
     ucsc_resource_terms,
@@ -66,6 +70,14 @@ RBEST = ProvenanceSource(
     "reciprocal-best resource",
     identifiers=(
         ProvenanceIdentifier(ProvenanceIdentifierKind.SHA256, "sha256:" + "c" * 64),
+    ),
+    derived_from=(ALIGNMENT,),
+)
+FILTERED_CHAIN = ProvenanceSource(
+    "filtered-chain-file",
+    "ordinary filtered liftOver chain resource",
+    identifiers=(
+        ProvenanceIdentifier(ProvenanceIdentifierKind.SHA256, "sha256:" + "f" * 64),
     ),
     derived_from=(ALIGNMENT,),
 )
@@ -292,6 +304,81 @@ def _report(
     )
 
 
+def _with_depth1_top_net(candidate: NormalizedCandidate) -> NormalizedCandidate:
+    fill = ProvenanceSource(
+        f"{candidate.candidate_id}:top-fill",
+        "depth-1 top net fill",
+        derived_from=(NET,),
+    )
+    return replace(
+        candidate,
+        evidence=candidate.evidence
+        + (
+            EvidenceObservation(
+                f"{candidate.candidate_id}:net-classification",
+                EvidenceKind.NET_CLASSIFICATION,
+                "top",
+                fill,
+            ),
+            EvidenceObservation(
+                f"{candidate.candidate_id}:net-hierarchy",
+                EvidenceKind.NET_HIERARCHY,
+                NetHierarchySummary(depth=1, source_fill_interval=SOURCE),
+                fill,
+            ),
+        ),
+    )
+
+
+def _filtered_candidate(candidate: NormalizedCandidate) -> NormalizedCandidate:
+    evidence = tuple(
+        replace(observation, provenance=FILTERED_CHAIN)
+        for observation in candidate.evidence
+        if observation.kind in {EvidenceKind.MAPPING_COVERAGE, EvidenceKind.CHAIN_GAPS}
+    )
+    return replace(
+        candidate,
+        candidate_id=f"filtered:{candidate.candidate_id}",
+        mapping_provenance=FILTERED_CHAIN,
+        evidence=evidence,
+    )
+
+
+def _with_filtered_all_chain_comparison(
+    report: UCSCAssessmentReport,
+    filtered_candidates: tuple[NormalizedCandidate, ...],
+) -> UCSCAssessmentReport:
+    comparison = build_filtered_all_chain_comparison(
+        SOURCE,
+        report.candidates,
+        filtered_candidates,
+        all_chain_provenance=CHAIN,
+        filtered_chain_provenance=FILTERED_CHAIN,
+    )
+    relationship = build_comparative_evidence_relationship(comparison)
+    profile = build_result_profile(
+        SOURCE,
+        report.candidates,
+        evidence_tier=report.evidence_tier,
+        consumed_resource_roles=report.result_profile.consumed_resource_roles,
+        filtered_all_chain_comparison=comparison,
+        comparative_evidence_relationship=relationship,
+    )
+    comparison_resource = _resource(
+        UCSCBundleResourceRole.CHAIN,
+        consumed=True,
+        provenance=FILTERED_CHAIN,
+        digest_char="f",
+    )
+    return replace(
+        report,
+        result_profile=profile,
+        filtered_all_chain_comparison=comparison,
+        comparative_evidence_relationship=relationship,
+        filtered_chain_comparison_resource=comparison_resource,
+    )
+
+
 def test_format_display_interval_makes_coordinate_convention_explicit() -> None:
     interval = GenomicInterval(SOURCE_ASSEMBLY, "chr1", 12344, 12400)
 
@@ -470,6 +557,13 @@ def test_json_schema_v2_uses_result_profile_and_removes_legacy_verdict_fields() 
         "union_covered_source_bases": 100,
     }
     assert payload["result_profile"]["scope"]["actual_reverse_mapping"] == "NOT_RUN"
+    assert payload["result_profile"]["comparative_relationship"]["state"] == (
+        "NOT_ASSESSED"
+    )
+    assert payload["filtered_all_chain_comparison"] == {"assessed": False}
+    assert payload["semantics"]["comparative_relationships"] == (
+        "categorical_not_scores_or_votes"
+    )
     assert (
         payload["candidates"][0]["target_bounding_interval"]["coordinate_system"]
         == "0-based-half-open"
@@ -526,6 +620,167 @@ def test_comparative_json_keeps_exact_observations() -> None:
     assert evidence_by_kind["NET_HIERARCHY"]["value"]["depth"] == 3
     assert evidence_by_kind["RECIPROCAL_BEST_MEMBERSHIP"]["value"]["status"] == "FULL"
     assert payload["provenance"]["sources"]
+
+
+def test_comparative_summary_explains_why_one_placement_is_favored() -> None:
+    favored = _with_depth1_top_net(
+        _candidate(
+            41,
+            target_spans=((1000, 1100),),
+            reciprocal_best=ReciprocalBestMembershipStatus.FULL,
+        )
+    )
+    competitor = _candidate(
+        42,
+        target_spans=((2000, 2100),),
+        reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+    )
+    report = _with_filtered_all_chain_comparison(
+        _report((favored, competitor), tier=EvidenceAvailabilityTier.COMPARATIVE),
+        (_filtered_candidate(favored),),
+    )
+
+    summary = render_assessment_summary(report)
+
+    assert "all-chain reveals 1 additional placement" in summary
+    assert "available categorical evidence favors one placement" in summary
+    assert "Favored placement: chrA:1001-1100" in summary
+    assert (
+        "only complete placement retained by the ordinary filtered liftOver chain"
+        in summary
+    )
+    assert "depth-1 top-net support plus full reciprocal-best membership" in summary
+    assert "no competing complete placement has that same joint support" in summary
+    assert "not independent votes" in summary
+
+
+def test_mixed_comparative_summary_names_the_conflicting_placements() -> None:
+    filtered_only = _candidate(
+        51,
+        target_spans=((1000, 1100),),
+        reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+    )
+    top_rbest = _with_depth1_top_net(
+        _candidate(
+            52,
+            target_spans=((3000, 3100),),
+            reciprocal_best=ReciprocalBestMembershipStatus.FULL,
+        )
+    )
+    report = _with_filtered_all_chain_comparison(
+        _report((filtered_only, top_rbest), tier=EvidenceAvailabilityTier.COMPARATIVE),
+        (_filtered_candidate(filtered_only),),
+    )
+
+    summary = render_assessment_summary(report)
+
+    assert (
+        report.comparative_evidence_relationship is not None
+        and report.comparative_evidence_relationship.relationship
+        is ComparativeEvidenceRelationship.MIXED_CONFLICTING
+    )
+    assert "available categorical evidence is mixed/conflicting" in summary
+    assert "Complete placements retained by filtered chain: chrA:1001-1100" in summary
+    assert "Complete placements with depth-1 top-net support: chrA:3001-3100" in summary
+    assert (
+        "Complete placements with full reciprocal-best membership: chrA:3001-3100"
+        in summary
+    )
+
+
+def test_nonseparating_comparative_summary_exposes_missing_category_support() -> None:
+    retained = _candidate(
+        61,
+        target_spans=((1000, 1100),),
+        reciprocal_best=ReciprocalBestMembershipStatus.FULL,
+    )
+    competitor = _candidate(
+        62,
+        target_spans=((4000, 4100),),
+        reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+    )
+    report = _with_filtered_all_chain_comparison(
+        _report((retained, competitor), tier=EvidenceAvailabilityTier.COMPARATIVE),
+        (_filtered_candidate(retained),),
+    )
+
+    summary = render_assessment_summary(report)
+
+    assert (
+        report.comparative_evidence_relationship is not None
+        and report.comparative_evidence_relationship.relationship
+        is ComparativeEvidenceRelationship.DOES_NOT_SEPARATE_PLACEMENTS
+    )
+    assert "does not separate the complete placements" in summary
+    assert "Complete placements retained by filtered chain: chrA:1001-1100" in summary
+    assert "Complete placements with depth-1 top-net support: none" in summary
+    assert (
+        "Complete placements with full reciprocal-best membership: chrA:1001-1100"
+        in summary
+    )
+
+
+def test_comparative_details_and_json_expose_inventory_support_and_provenance() -> None:
+    favored = _with_depth1_top_net(
+        _candidate(
+            71,
+            target_spans=((1000, 1100),),
+            reciprocal_best=ReciprocalBestMembershipStatus.FULL,
+        )
+    )
+    competitor = _candidate(
+        72,
+        target_spans=((5000, 5100),),
+        reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+    )
+    report = _with_filtered_all_chain_comparison(
+        _report((favored, competitor), tier=EvidenceAvailabilityTier.COMPARATIVE),
+        (_filtered_candidate(favored),),
+    )
+
+    details = render_assessment_details(report)
+    payload = json.loads(reporting.render_assessment_json(report))
+
+    assert "Filtered/all-chain comparative relationship" in details
+    assert "Inventory state: ALL_CHAIN_REVEALS_ADDITIONAL_PLACEMENTS" in details
+    assert "Categorical relationship: FAVORS_ONE_PLACEMENT" in details
+    assert "retained by filtered chain=yes" in details
+    assert "depth-1 top-net=yes" in details
+    assert "full reciprocal-best=yes" in details
+    assert "Filtered-chain comparison resource" in details
+    assert "consumed for paired comparison" in details
+    assert "Derived from: alignment" in details
+
+    profile = payload["result_profile"]["comparative_relationship"]
+    assert profile["state"] == "FAVORS_ONE_PLACEMENT"
+    assert profile["favored_candidate_id"] == favored.candidate_id
+    assert profile["placement_support"][0] == {
+        "candidate_id": favored.candidate_id,
+        "complete_source_coverage": True,
+        "depth1_top_net": True,
+        "full_reciprocal_best": True,
+        "retained_by_filtered_chain": True,
+    }
+
+    comparison = payload["filtered_all_chain_comparison"]
+    assert comparison["assessed"] is True
+    assert comparison["inventory_state"] == "ALL_CHAIN_REVEALS_ADDITIONAL_PLACEMENTS"
+    assert comparison["categorical_relationship"] == "FAVORS_ONE_PLACEMENT"
+    assert comparison["candidate_matches"] == [
+        {
+            "all_chain_candidate_id": favored.candidate_id,
+            "filtered_candidate_id": f"filtered:{favored.candidate_id}",
+        }
+    ]
+    assert comparison["additional_all_chain_candidate_ids"] == [competitor.candidate_id]
+    assert comparison["filtered_chain_resource"]["consumed_by_engine"] is True
+    assert comparison["provenance"] == {
+        "all_chain_source_id": CHAIN.source_id,
+        "filtered_chain_source_id": FILTERED_CHAIN.source_id,
+        "shared_alignment_lineage_source_ids": [ALIGNMENT.source_id],
+    }
+    provenance_ids = {item["source_id"] for item in payload["provenance"]["sources"]}
+    assert FILTERED_CHAIN.source_id in provenance_ids
 
 
 def test_provider_checksum_text_and_resource_json_preserve_transfer_metadata() -> None:

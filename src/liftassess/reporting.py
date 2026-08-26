@@ -9,6 +9,7 @@ biological correctness claim.
 import json
 
 from .chain import chain_id_from_candidate_id
+from .comparative_inventory import FilteredAllChainInventoryState
 from .models import (
     AssemblyIdentifier,
     ChainGapSummary,
@@ -28,6 +29,9 @@ from .resource_cache import CachedResource
 from .result_profile import (
     CandidateResultProfile,
     CandidateReverseMappingProfile,
+    ComparativePlacementProfile,
+    ComparativeRelationshipProfile,
+    ComparativeRelationshipState,
     FactualHeadline,
     QueryContextFinding,
     QueryContextProfile,
@@ -77,6 +81,7 @@ def render_assessment_summary(report: UCSCAssessmentReport) -> str:
         lines.extend(_multiple_candidate_summary_lines(report, profile))
 
     lines.extend(_query_context_summary_lines(profile.query_context))
+    lines.extend(_comparative_summary_lines(report, profile.comparative_relationship))
 
     lines.append(f"Evidence: {_evidence_summary(profile)}")
     lines.append(f"Interpretation: {profile.interpretation}")
@@ -179,6 +184,155 @@ def _query_context_not_run_text(
     if reason is None:
         return "no context execution reason recorded"
     raise ValueError(f"unsupported query-context not-run reason: {reason!r}")
+
+
+def _comparative_summary_lines(
+    report: UCSCAssessmentReport,
+    profile: ComparativeRelationshipProfile,
+) -> list[str]:
+    if profile.state is ComparativeRelationshipState.NOT_ASSESSED:
+        return []
+    if profile.inventory_state is None:
+        raise ValueError("assessed comparative relationship requires inventory state")
+    if report.filtered_all_chain_comparison is None:
+        raise ValueError("assessed comparative relationship requires paired inventory")
+    if report.filtered_chain_comparison_resource is None:
+        raise ValueError("assessed comparative relationship requires filtered chain")
+
+    all_chain_count = len(report.filtered_all_chain_comparison.all_chain_candidates)
+    filtered_count = len(report.filtered_all_chain_comparison.filtered_candidates)
+    lines: list[str] = []
+    if (
+        profile.inventory_state
+        is FilteredAllChainInventoryState.FILTERED_AND_ALL_CHAIN_AGREE
+    ):
+        lines.append(
+            "Filtered/all-chain comparison: inventories agree "
+            f"({_placement_count_text(filtered_count)} filtered; "
+            f"{_placement_count_text(all_chain_count)} all-chain)."
+        )
+    else:
+        additional = len(profile.additional_all_chain_candidate_ids)
+        lines.append(
+            "Filtered/all-chain comparison: all-chain reveals "
+            f"{additional} additional "
+            f"{'placement' if additional == 1 else 'placements'} beyond the ordinary "
+            "filtered liftOver chain."
+        )
+
+    if profile.state is ComparativeRelationshipState.NO_COMPETING_FULL_PLACEMENTS:
+        lines.append(
+            "Comparative relationship: no competing complete all-chain placements; "
+            "fewer than two complete placements are available to separate."
+        )
+        return lines
+
+    if profile.state is ComparativeRelationshipState.FAVORS_ONE_PLACEMENT:
+        favored_id = profile.favored_candidate_id
+        if favored_id is None:
+            raise ValueError("favored comparative relationship requires candidate ID")
+        lines.extend(
+            (
+                (
+                    "Comparative relationship: available categorical evidence favors "
+                    "one placement."
+                ),
+                "  Favored placement: "
+                + _comparative_candidate_label(report, favored_id),
+                (
+                    "  Why: it is the only complete placement retained by the "
+                    "ordinary filtered liftOver chain, and it has depth-1 top-net "
+                    "support plus full reciprocal-best membership; no competing "
+                    "complete placement has that same joint support."
+                ),
+            )
+        )
+        return lines
+
+    support_lines = _comparative_support_summary_lines(report, profile)
+    if profile.state is ComparativeRelationshipState.DOES_NOT_SEPARATE_PLACEMENTS:
+        lines.append(
+            "Comparative relationship: available categorical evidence does not "
+            "separate the complete placements."
+        )
+        lines.extend(support_lines)
+        return lines
+    if profile.state is ComparativeRelationshipState.MIXED_CONFLICTING:
+        lines.append(
+            "Comparative relationship: available categorical evidence is "
+            "mixed/conflicting."
+        )
+        lines.extend(support_lines)
+        return lines
+    raise ValueError(f"unsupported comparative relationship state: {profile.state!r}")
+
+
+def _placement_count_text(count: int) -> str:
+    noun = "placement" if count == 1 else "placements"
+    return f"{count} {noun}"
+
+
+def _comparative_support_summary_lines(
+    report: UCSCAssessmentReport,
+    profile: ComparativeRelationshipProfile,
+) -> list[str]:
+    complete = tuple(
+        item for item in profile.placement_support if item.complete_source_coverage
+    )
+    return [
+        "  Complete placements retained by filtered chain: "
+        + _comparative_support_set_text(
+            report,
+            tuple(item for item in complete if item.retained_by_filtered_chain),
+        ),
+        "  Complete placements with depth-1 top-net support: "
+        + _comparative_support_set_text(
+            report,
+            tuple(item for item in complete if item.depth1_top_net),
+        ),
+        "  Complete placements with full reciprocal-best membership: "
+        + _comparative_support_set_text(
+            report,
+            tuple(item for item in complete if item.full_reciprocal_best),
+        ),
+    ]
+
+
+def _comparative_support_set_text(
+    report: UCSCAssessmentReport,
+    support: tuple[ComparativePlacementProfile, ...],
+) -> str:
+    if not support:
+        return "none"
+    if len(support) > _DEFAULT_INLINE_PROJECTION_LIMIT:
+        return (
+            f"{len(support)} placements; use --details or --json for exact placement "
+            "identities"
+        )
+    return ", ".join(
+        _comparative_candidate_label(report, item.candidate_id) for item in support
+    )
+
+
+def _comparative_candidate_label(
+    report: UCSCAssessmentReport,
+    candidate_id: str,
+) -> str:
+    candidates = tuple(
+        candidate
+        for candidate in report.candidates
+        if candidate.candidate_id == candidate_id
+    )
+    if len(candidates) != 1:
+        raise ValueError(
+            "comparative placement support must identify exactly one report candidate"
+        )
+    candidate = candidates[0]
+    interval = candidate.target_interval
+    return (
+        f"{interval.sequence_name}:{interval.start + 1}-{interval.end} "
+        f"({candidate.orientation.value.lower()} orientation; {candidate_id})"
+    )
 
 
 def _multiple_candidate_summary_lines(
@@ -314,6 +468,73 @@ def _reverse_set_summary(profile: ResultProfile) -> str:
     )
 
 
+def _comparative_detail_lines(report: UCSCAssessmentReport) -> list[str]:
+    comparison = report.filtered_all_chain_comparison
+    relationship = report.comparative_evidence_relationship
+    profile = report.result_profile.comparative_relationship
+    if comparison is None or relationship is None:
+        raise ValueError(
+            "comparative details require paired inventory and relationship"
+        )
+
+    lines = [
+        f"  Inventory state: {comparison.relationship.value}",
+        f"  All-chain placements: {len(comparison.all_chain_candidates)}",
+        f"  Filtered-chain placements: {len(comparison.filtered_candidates)}",
+        (
+            "  Additional all-chain placements: "
+            + (
+                ", ".join(comparison.additional_all_chain_candidate_ids)
+                if comparison.additional_all_chain_candidate_ids
+                else "none"
+            )
+        ),
+        f"  Categorical relationship: {relationship.relationship.value}",
+        (
+            "  Favored candidate: "
+            + (
+                relationship.favored_candidate_id
+                if relationship.favored_candidate_id is not None
+                else "none"
+            )
+        ),
+        (
+            "  Shared alignment lineage: "
+            + ", ".join(
+                parent.source_id
+                for parent in comparison.all_chain_provenance.derived_from
+            )
+        ),
+        (
+            "  Dependency note: filtered chain, net, and reciprocal-best observations "
+            "are categorical relationships within UCSC-derived alignment lineage, not "
+            "independent votes."
+        ),
+        "  Placement support (all-chain order is reproducibility only, not rank):",
+    ]
+    if not profile.placement_support:
+        lines.append("    none")
+        return lines
+    for item in profile.placement_support:
+        lines.append(
+            "    - "
+            + _comparative_candidate_label(report, item.candidate_id)
+            + "; complete source coverage="
+            + _yes_no(item.complete_source_coverage)
+            + "; retained by filtered chain="
+            + _yes_no(item.retained_by_filtered_chain)
+            + "; depth-1 top-net="
+            + _yes_no(item.depth1_top_net)
+            + "; full reciprocal-best="
+            + _yes_no(item.full_reciprocal_best)
+        )
+    return lines
+
+
+def _yes_no(value: bool) -> str:
+    return "yes" if value else "no"
+
+
 def _headline_text(headline: FactualHeadline) -> str:
     return headline.value.replace("_", " ")
 
@@ -409,6 +630,10 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
         lines.extend(("", "Point neighborhood context"))
         lines.extend(_query_context_detail_lines(report))
 
+    if report.filtered_all_chain_comparison is not None:
+        lines.extend(("", "Filtered/all-chain comparative relationship"))
+        lines.extend(_comparative_detail_lines(report))
+
     if report.reverse_mapping_results is not None:
         lines.extend(("", "Reverse mapping results"))
         if not report.reverse_mapping_results:
@@ -470,6 +695,33 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
             )
         )
 
+    if report.filtered_chain_comparison_resource is not None:
+        lines.extend(("", "Filtered-chain comparison resource"))
+        comparison_resource = report.filtered_chain_comparison_resource
+        resource = comparison_resource.resource
+        lines.extend(
+            (
+                (
+                    f"{report.source_db}->{report.target_db} ordinary filtered "
+                    "liftOver chain [consumed for paired comparison]"
+                ),
+                f"  Source URL: {resource.source_url}",
+                f"  Cache path: {resource.path}",
+                f"  Retrieved at: {resource.retrieved_at}",
+                f"  Size: {resource.size_bytes} bytes",
+                f"  SHA-256: {resource.sha256}",
+                f"  Provider checksum: {_provider_checksum_text(resource)}",
+                (
+                    "  File provenance: "
+                    + (
+                        comparison_resource.file_provenance.source_id
+                        if comparison_resource.file_provenance is not None
+                        else "none"
+                    )
+                ),
+            )
+        )
+
     lines.extend(("", "Provenance dependency graph"))
     for source in _report_provenance_sources(report):
         lines.append(source.source_id)
@@ -506,6 +758,7 @@ def render_assessment_json(report: UCSCAssessmentReport) -> str:
             "interval_coordinates": _JSON_INTERVAL_COORDINATE_SYSTEM,
             "candidate_order": "reproducibility_only_not_rank",
             "result_dimensions": "orthogonal_not_votes",
+            "comparative_relationships": "categorical_not_scores_or_votes",
             "provenance_edges": "dependence_not_independent_confirmation",
         },
         "ucsc_database_pair": {
@@ -519,6 +772,7 @@ def render_assessment_json(report: UCSCAssessmentReport) -> str:
         "candidates": [_candidate_json(candidate) for candidate in report.candidates],
         "query_context": _query_context_json(report),
         "reverse_mapping": _reverse_mapping_json(report),
+        "filtered_all_chain_comparison": _filtered_all_chain_comparison_json(report),
         "resources": [
             _assessment_resource_json(assessment_resource)
             for assessment_resource in report.resources
@@ -562,6 +816,9 @@ def _result_profile_json(profile: ResultProfile) -> dict[str, object]:
             for candidate in profile.candidate_profiles
         ],
         "query_context": _query_context_profile_json(profile.query_context),
+        "comparative_relationship": _comparative_relationship_profile_json(
+            profile.comparative_relationship
+        ),
         "scope": {
             "target_role": profile.scope.target_role.value,
             "actual_reverse_mapping": profile.scope.reverse_result.value,
@@ -576,6 +833,85 @@ def _result_profile_json(profile: ResultProfile) -> dict[str, object]:
                 profile.scope.gene_transcript_identity_assessed
             ),
             "downstream_workflow_assessed": profile.scope.downstream_workflow_assessed,
+        },
+    }
+
+
+def _comparative_relationship_profile_json(
+    profile: ComparativeRelationshipProfile,
+) -> dict[str, object]:
+    return {
+        "state": profile.state.value,
+        "inventory_state": (
+            profile.inventory_state.value
+            if profile.inventory_state is not None
+            else None
+        ),
+        "favored_candidate_id": profile.favored_candidate_id,
+        "additional_all_chain_candidate_ids": list(
+            profile.additional_all_chain_candidate_ids
+        ),
+        "placement_support": [
+            {
+                "candidate_id": item.candidate_id,
+                "complete_source_coverage": item.complete_source_coverage,
+                "retained_by_filtered_chain": item.retained_by_filtered_chain,
+                "depth1_top_net": item.depth1_top_net,
+                "full_reciprocal_best": item.full_reciprocal_best,
+            }
+            for item in profile.placement_support
+        ],
+    }
+
+
+def _filtered_all_chain_comparison_json(
+    report: UCSCAssessmentReport,
+) -> dict[str, object]:
+    comparison = report.filtered_all_chain_comparison
+    relationship = report.comparative_evidence_relationship
+    resource = report.filtered_chain_comparison_resource
+    if comparison is None:
+        if relationship is not None or resource is not None:
+            raise ValueError(
+                "unassessed filtered/all-chain comparison cannot carry relationship "
+                "or resource state"
+            )
+        return {"assessed": False}
+    if relationship is None or resource is None:
+        raise ValueError(
+            "assessed filtered/all-chain comparison requires relationship and resource"
+        )
+
+    return {
+        "assessed": True,
+        "inventory_state": comparison.relationship.value,
+        "categorical_relationship": relationship.relationship.value,
+        "favored_candidate_id": relationship.favored_candidate_id,
+        "all_chain_candidate_ids": list(comparison.all_chain_candidate_ids),
+        "filtered_candidate_ids": [
+            candidate.candidate_id for candidate in comparison.filtered_candidates
+        ],
+        "candidate_matches": [
+            {
+                "filtered_candidate_id": match.filtered_candidate_id,
+                "all_chain_candidate_id": match.all_chain_candidate_id,
+            }
+            for match in comparison.candidate_matches
+        ],
+        "additional_all_chain_candidate_ids": list(
+            comparison.additional_all_chain_candidate_ids
+        ),
+        "filtered_candidates": [
+            _candidate_json(candidate) for candidate in comparison.filtered_candidates
+        ],
+        "filtered_chain_resource": _assessment_resource_json(resource),
+        "provenance": {
+            "all_chain_source_id": comparison.all_chain_provenance.source_id,
+            "filtered_chain_source_id": comparison.filtered_chain_provenance.source_id,
+            "shared_alignment_lineage_source_ids": [
+                parent.source_id
+                for parent in comparison.all_chain_provenance.derived_from
+            ],
         },
     }
 
@@ -1260,6 +1596,17 @@ def _report_provenance_sources(
         and report.reverse_mapping_resource.file_provenance is not None
     ):
         roots.append(report.reverse_mapping_resource.file_provenance)
+    if (
+        report.filtered_chain_comparison_resource is not None
+        and report.filtered_chain_comparison_resource.file_provenance is not None
+    ):
+        roots.append(report.filtered_chain_comparison_resource.file_provenance)
+    if report.filtered_all_chain_comparison is not None:
+        roots.append(report.filtered_all_chain_comparison.all_chain_provenance)
+        roots.append(report.filtered_all_chain_comparison.filtered_chain_provenance)
+        for candidate in report.filtered_all_chain_comparison.filtered_candidates:
+            roots.append(candidate.mapping_provenance)
+            roots.extend(observation.provenance for observation in candidate.evidence)
     if report.reverse_mapping_results is not None:
         for result in report.reverse_mapping_results:
             for segment_result in result.segment_results:
