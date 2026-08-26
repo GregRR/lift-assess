@@ -15,6 +15,7 @@ from liftassess import (
     CachedUCSCResourceBundle,
     ChainIndex,
     ChainIndexCorruptionError,
+    ComparativeRelationshipState,
     EvidenceAvailabilityTier,
     GenomicInterval,
     ProvenanceSource,
@@ -982,6 +983,286 @@ def test_comparative_cli_run_shares_pair_provenance_across_consumed_resources(
         and resource.file_provenance.derived_from == (report.alignment_provenance,)
         for resource in consumed
     )
+
+
+def test_comparative_cli_attaches_filtered_all_chain_from_prepared_index(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    comparative_dir = tmp_path / "comparative"
+    comparative_dir.mkdir()
+    filtered_dir = tmp_path / "filtered"
+    filtered_dir.mkdir()
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(
+            AssemblyIdentifier(name=_SOURCE_DB, provider="UCSC"),
+            "chr1",
+            100,
+            120,
+        ),
+        _comparative_cached_bundle(comparative_dir),
+        target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
+        alignment_provenance=cli._ucsc_pair_lineage_provenance(_SOURCE_DB, _TARGET_DB),
+    )
+    filtered_bundle = _cached_bundle(filtered_dir)
+    filtered_chain = CachedUCSCChainResource(
+        source_db=filtered_bundle.source_db,
+        target_db=filtered_bundle.target_db,
+        evidence_tier=filtered_bundle.evidence_tier,
+        chain=filtered_bundle.chain,
+    )
+    filtered_index = build_cached_chain_index(
+        tmp_path / "index-cache",
+        filtered_bundle.chain,
+    ).index
+
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        lambda *args, **kwargs: filtered_chain,
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_cached_chain_index",
+        lambda *args, **kwargs: filtered_index,
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_chain_resource",
+        lambda *args, **kwargs: filtered_chain,
+    )
+    args = cli._build_parser().parse_args(
+        [_SOURCE_DB, _TARGET_DB, "chr1:101-120", "--offline"]
+    )
+    stderr = StringIO()
+
+    enriched = cli._attach_cached_filtered_all_chain_comparison(
+        report,
+        args=args,
+        cache_root=tmp_path / "cache",
+        stderr=stderr,
+    )
+
+    assert enriched.filtered_all_chain_comparison is not None
+    assert (
+        enriched.result_profile.scope.comparative_relationship
+        is ComparativeRelationshipState.NO_COMPETING_FULL_PLACEMENTS
+    )
+    assert "Comparing ordinary filtered liftOver and all-chain placements" in (
+        stderr.getvalue()
+    )
+
+
+def test_comparative_cli_run_renders_paired_filtered_all_chain_result(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    discovered = _comparative_discovered_bundle()
+    comparative_dir = tmp_path / "comparative-cli"
+    comparative_dir.mkdir()
+    cached = _comparative_cached_bundle(comparative_dir)
+    filtered_dir = tmp_path / "filtered-cli"
+    filtered_dir.mkdir()
+    filtered_bundle = _cached_bundle(filtered_dir)
+    filtered_chain = CachedUCSCChainResource(
+        source_db=filtered_bundle.source_db,
+        target_db=filtered_bundle.target_db,
+        evidence_tier=filtered_bundle.evidence_tier,
+        chain=filtered_bundle.chain,
+    )
+    filtered_index = build_cached_chain_index(
+        tmp_path / "filtered-cli-index-cache",
+        filtered_bundle.chain,
+    ).index
+
+    monkeypatch.setattr(
+        cli,
+        "discover_ucsc_resources",
+        lambda source, target: discovered,
+    )
+    monkeypatch.setattr(
+        cli,
+        "inspect_ucsc_bundle_transfer_plan",
+        lambda plan, *, terms_acknowledged: _comparative_inspection(),
+    )
+    monkeypatch.setattr(
+        cli,
+        "acquire_ucsc_resource_bundle",
+        lambda plan, cache_root, **kwargs: cached,
+    )
+
+    def resolve_chain(
+        cache_root: object,
+        source_db: str,
+        target_db: str,
+        *,
+        evidence_tier: EvidenceAvailabilityTier,
+    ) -> CachedUCSCChainResource | None:
+        del cache_root
+        if (
+            source_db == _SOURCE_DB
+            and target_db == _TARGET_DB
+            and evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY
+        ):
+            return filtered_chain
+        return None
+
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        resolve_chain,
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_cached_chain_index",
+        lambda cache_root, resource: (
+            filtered_index if resource.sha256 == filtered_bundle.chain.sha256 else None
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_chain_resource",
+        lambda *args, **kwargs: filtered_chain,
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--acknowledge-ucsc-terms",
+            "--accept-transfer-plan",
+        ]
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert "Filtered/all-chain comparison: inventories agree" in stdout.getvalue()
+    assert "Comparing ordinary filtered liftOver and all-chain placements" in (
+        stderr.getvalue()
+    )
+
+
+def test_comparative_cli_skips_filtered_comparison_without_prepared_index(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    comparative_dir = tmp_path / "comparative-no-filtered-index"
+    comparative_dir.mkdir()
+    filtered_dir = tmp_path / "filtered-no-index"
+    filtered_dir.mkdir()
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(
+            AssemblyIdentifier(name=_SOURCE_DB, provider="UCSC"),
+            "chr1",
+            100,
+            120,
+        ),
+        _comparative_cached_bundle(comparative_dir),
+        target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
+        alignment_provenance=cli._ucsc_pair_lineage_provenance(_SOURCE_DB, _TARGET_DB),
+    )
+    filtered_bundle = _cached_bundle(filtered_dir)
+    filtered_chain = CachedUCSCChainResource(
+        source_db=filtered_bundle.source_db,
+        target_db=filtered_bundle.target_db,
+        evidence_tier=filtered_bundle.evidence_tier,
+        chain=filtered_bundle.chain,
+    )
+    executed = False
+
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        lambda *args, **kwargs: filtered_chain,
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_cached_chain_index",
+        lambda *args, **kwargs: None,
+    )
+
+    def fail_if_loaded(*args: object, **kwargs: object) -> CachedUCSCChainResource:
+        nonlocal executed
+        del args, kwargs
+        executed = True
+        raise AssertionError("filtered chain must not be queried without an index")
+
+    monkeypatch.setattr(cli, "load_cached_ucsc_chain_resource", fail_if_loaded)
+    args = cli._build_parser().parse_args(
+        [_SOURCE_DB, _TARGET_DB, "chr1:101-120", "--offline"]
+    )
+    stderr = StringIO()
+
+    unchanged = cli._attach_cached_filtered_all_chain_comparison(
+        report,
+        args=args,
+        cache_root=tmp_path / "cache",
+        stderr=stderr,
+    )
+
+    assert unchanged is report
+    assert executed is False
+    assert (
+        report.result_profile.scope.comparative_relationship
+        is ComparativeRelationshipState.NOT_ASSESSED
+    )
+    assert "no prepared index is available" in stderr.getvalue()
+    assert "no full filtered-chain scan was started" in stderr.getvalue()
+
+
+def test_comparative_cli_refresh_does_not_mix_unrefreshed_filtered_chain(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    comparative_dir = tmp_path / "comparative-refresh"
+    comparative_dir.mkdir()
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(
+            AssemblyIdentifier(name=_SOURCE_DB, provider="UCSC"),
+            "chr1",
+            100,
+            120,
+        ),
+        _comparative_cached_bundle(comparative_dir),
+        target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
+        alignment_provenance=cli._ucsc_pair_lineage_provenance(_SOURCE_DB, _TARGET_DB),
+    )
+    called = False
+
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        nonlocal called
+        del args, kwargs
+        called = True
+        raise AssertionError("refresh must not consume an unrefreshed filtered chain")
+
+    monkeypatch.setattr(
+        cli, "resolve_cached_ucsc_chain_resource_metadata", fail_if_called
+    )
+    args = cli._build_parser().parse_args(
+        [_SOURCE_DB, _TARGET_DB, "chr1:101-120", "--refresh"]
+    )
+    stderr = StringIO()
+
+    unchanged = cli._attach_cached_filtered_all_chain_comparison(
+        report,
+        args=args,
+        cache_root=tmp_path / "cache",
+        stderr=stderr,
+    )
+
+    assert unchanged is report
+    assert called is False
+    assert "not run during --refresh" in stderr.getvalue()
 
 
 def test_pair_lineage_is_stable_per_direction_and_distinct_across_pairs() -> None:

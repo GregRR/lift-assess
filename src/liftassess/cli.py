@@ -27,6 +27,7 @@ from .models import EvidenceAvailabilityTier, ProvenanceSource
 from .orchestration import (
     UCSCAssessmentReport,
     assess_ucsc_cached_bundle,
+    attach_filtered_all_chain_comparison,
     attach_point_query_context,
     attach_query_context_result,
     attach_reverse_mapping_results,
@@ -356,6 +357,13 @@ def _run(
             candidates_exist=bool(report.candidates),
         )
 
+    report = _attach_cached_filtered_all_chain_comparison(
+        report,
+        args=args,
+        cache_root=cache_root,
+        stderr=stderr,
+    )
+
     report = _attach_cached_point_query_context(
         report,
         args=args,
@@ -519,6 +527,106 @@ def _ucsc_pair_lineage_provenance(source_db: str, target_db: str) -> ProvenanceS
             "(liftAssess CLI dependency grouping)"
         ),
     )
+
+
+def _attach_cached_filtered_all_chain_comparison(
+    report: UCSCAssessmentReport,
+    *,
+    args: argparse.Namespace,
+    cache_root: Path,
+    stderr: TextIO,
+) -> UCSCAssessmentReport:
+    """Attach paired filtered/all-chain facts without provider access or full scans."""
+
+    if report.evidence_tier is not EvidenceAvailabilityTier.COMPARATIVE:
+        return report
+
+    if args.refresh:
+        _status(
+            "Filtered/all-chain comparison not run during --refresh: the ordinary "
+            "filtered liftOver chain was not refreshed automatically.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return report
+
+    structural = resolve_cached_ucsc_chain_resource_metadata(
+        cache_root,
+        report.source_db,
+        report.target_db,
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+    )
+    if structural is None:
+        _status(
+            "Filtered/all-chain comparison not run: no cached ordinary filtered "
+            "liftOver chain is available; UCSC was not contacted.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return report
+
+    try:
+        filtered_index = load_cached_chain_index(cache_root, structural.chain)
+    except ChainIndexCorruptionError as exc:
+        _status(
+            "Filtered/all-chain comparison not run: cached filtered-chain index is "
+            f"unusable ({exc}). Rebuild it with prepare-liftassess-index "
+            f"{report.source_db} {report.target_db} --evidence-tier LIFTOVER-ONLY "
+            "--rebuild.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return report
+
+    if filtered_index is None:
+        _status(
+            "Filtered/all-chain comparison not run: the ordinary filtered liftOver "
+            "chain is cached but no prepared index is available. Run "
+            f"prepare-liftassess-index {report.source_db} {report.target_db} "
+            "--evidence-tier LIFTOVER-ONLY; no full filtered-chain scan was started.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return report
+
+    filtered_chain = load_cached_ucsc_chain_resource(
+        cache_root,
+        report.source_db,
+        report.target_db,
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        trusted_artifact_sha256_identifiers=frozenset({structural.chain.sha256}),
+    )
+    if filtered_chain is None:
+        _status(
+            "Filtered/all-chain comparison not run: cached filtered chain does not "
+            "match the validated index identity.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return report
+
+    _status(
+        "Comparing ordinary filtered liftOver and all-chain placements using the "
+        "prepared filtered-chain index...",
+        quiet=args.quiet,
+        stderr=stderr,
+    )
+    try:
+        return attach_filtered_all_chain_comparison(
+            report,
+            filtered_chain=filtered_chain,
+            filtered_chain_index=filtered_index,
+        )
+    except ChainIndexCorruptionError as exc:
+        _status(
+            "Filtered/all-chain comparison not run: cached filtered-chain index "
+            f"failed during lookup ({exc}). Rebuild it with prepare-liftassess-index "
+            f"{report.source_db} {report.target_db} --evidence-tier LIFTOVER-ONLY "
+            "--rebuild; no full filtered-chain scan was started.",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        return report
 
 
 def _attach_cached_point_query_context(
