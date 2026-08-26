@@ -29,7 +29,9 @@ from liftassess import (
     attach_filtered_all_chain_comparison,
     attach_point_query_context,
     attach_query_context_result,
+    attach_reverse_mapping_results,
     build_cached_chain_index,
+    reverse_mapping_unavailable,
     sha256_identifier_for_file,
     ucsc_resource_terms,
 )
@@ -228,7 +230,115 @@ def test_filtered_all_chain_comparison_uses_prepared_filtered_index(
         == (alignment,)
     )
     assert (
-        enriched.result_profile.scope.comparative_relationship.value == "NOT_ASSESSED"
+        enriched.result_profile.scope.comparative_relationship.value
+        == "NO_COMPETING_FULL_PLACEMENTS"
+    )
+    assert (
+        enriched.result_profile.comparative_relationship.inventory_state
+        is FilteredAllChainInventoryState.FILTERED_AND_ALL_CHAIN_AGREE
+    )
+    assert enriched.result_profile.comparative_relationship.favored_candidate_id is None
+    first_support = enriched.result_profile.comparative_relationship.placement_support[
+        0
+    ]
+    assert first_support.candidate_id == report.candidates[0].candidate_id
+
+
+def test_comparative_profile_survives_reverse_context_rebuild(tmp_path: Path) -> None:
+    source, target = _assemblies()
+    source_interval = GenomicInterval(source, "chr1", 105, 115)
+    alignment = ProvenanceSource("alignment", "shared UCSC alignment")
+    report = assess_ucsc_cached_bundle(
+        source_interval,
+        _comparative_bundle(tmp_path),
+        target_assembly=target,
+        alignment_provenance=alignment,
+    )
+    filtered_bundle = _liftover_bundle(tmp_path, _chain_text(chain_id=91))
+    filtered_chain = CachedUCSCChainResource(
+        source_db=filtered_bundle.source_db,
+        target_db=filtered_bundle.target_db,
+        evidence_tier=filtered_bundle.evidence_tier,
+        chain=filtered_bundle.chain,
+    )
+    filtered_index = build_cached_chain_index(
+        tmp_path / "filtered-reverse-preservation-index",
+        filtered_bundle.chain,
+    ).index
+    compared = attach_filtered_all_chain_comparison(
+        report,
+        filtered_chain=filtered_chain,
+        filtered_chain_index=filtered_index,
+    )
+
+    enriched = attach_reverse_mapping_results(
+        compared,
+        tuple(
+            reverse_mapping_unavailable(candidate) for candidate in compared.candidates
+        ),
+    )
+
+    assert (
+        enriched.result_profile.scope.comparative_relationship.value
+        == "NO_COMPETING_FULL_PLACEMENTS"
+    )
+    assert (
+        enriched.result_profile.comparative_relationship.inventory_state
+        is FilteredAllChainInventoryState.FILTERED_AND_ALL_CHAIN_AGREE
+    )
+
+
+def test_comparative_profile_survives_point_context_rebuild(tmp_path: Path) -> None:
+    source, target = _assemblies()
+    source_interval = GenomicInterval(source, "chr1", 105, 106)
+    alignment = ProvenanceSource("alignment", "shared UCSC alignment")
+    bundle = _comparative_bundle(tmp_path)
+    report = assess_ucsc_cached_bundle(
+        source_interval,
+        bundle,
+        target_assembly=target,
+        alignment_provenance=alignment,
+    )
+    filtered_bundle = _liftover_bundle(tmp_path, _chain_text(chain_id=91))
+    filtered_chain = CachedUCSCChainResource(
+        source_db=filtered_bundle.source_db,
+        target_db=filtered_bundle.target_db,
+        evidence_tier=filtered_bundle.evidence_tier,
+        chain=filtered_bundle.chain,
+    )
+    filtered_index = build_cached_chain_index(
+        tmp_path / "filtered-context-preservation-index",
+        filtered_bundle.chain,
+    ).index
+    compared = attach_filtered_all_chain_comparison(
+        report,
+        filtered_chain=filtered_chain,
+        filtered_chain_index=filtered_index,
+    )
+    all_chain = CachedUCSCChainResource(
+        source_db=bundle.source_db,
+        target_db=bundle.target_db,
+        evidence_tier=bundle.evidence_tier,
+        chain=bundle.chain,
+    )
+    all_chain_index = build_cached_chain_index(
+        tmp_path / "all-chain-context-preservation-index",
+        bundle.chain,
+    ).index
+
+    enriched = attach_point_query_context(
+        compared,
+        chain_context=all_chain,
+        chain_index=all_chain_index,
+    )
+
+    assert (
+        enriched.result_profile.scope.comparative_relationship.value
+        == "NO_COMPETING_FULL_PLACEMENTS"
+    )
+    assert (
+        enriched.result_profile.comparative_relationship.inventory_state
+        is FilteredAllChainInventoryState.FILTERED_AND_ALL_CHAIN_AGREE
     )
 
 

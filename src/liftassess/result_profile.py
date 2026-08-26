@@ -14,6 +14,14 @@ from ._candidate_geometry import (
     canonical_mapping_segments,
     validate_distinct_candidate_geometries,
 )
+from .comparative_inventory import (
+    FilteredAllChainComparisonResult,
+    FilteredAllChainInventoryState,
+)
+from .comparative_relationship import (
+    ComparativeEvidenceRelationshipResult,
+    build_comparative_evidence_relationship,
+)
 from .models import (
     ChainGapSummary,
     EvidenceAvailabilityTier,
@@ -77,9 +85,13 @@ class TargetRoleState(str, Enum):
 
 
 class ComparativeRelationshipState(str, Enum):
-    """Cross-resource comparative synthesis state for the current slice."""
+    """Cross-resource comparative synthesis state."""
 
     NOT_ASSESSED = "NOT_ASSESSED"
+    NO_COMPETING_FULL_PLACEMENTS = "NO_COMPETING_FULL_PLACEMENTS"
+    FAVORS_ONE_PLACEMENT = "FAVORS_ONE_PLACEMENT"
+    DOES_NOT_SEPARATE_PLACEMENTS = "DOES_NOT_SEPARATE_PLACEMENTS"
+    MIXED_CONFLICTING = "MIXED_CONFLICTING"
 
 
 class BatchRelationshipState(str, Enum):
@@ -167,6 +179,28 @@ class CandidateResultProfile:
 
 
 @dataclass(frozen=True)
+class ComparativePlacementProfile:
+    """Renderer-facing categorical support facts for one all-chain placement."""
+
+    candidate_id: str
+    complete_source_coverage: bool
+    retained_by_filtered_chain: bool
+    depth1_top_net: bool
+    full_reciprocal_best: bool
+
+
+@dataclass(frozen=True)
+class ComparativeRelationshipProfile:
+    """Derived paired-inventory and categorical comparative facts."""
+
+    state: ComparativeRelationshipState
+    inventory_state: FilteredAllChainInventoryState | None
+    favored_candidate_id: str | None
+    additional_all_chain_candidate_ids: tuple[str, ...]
+    placement_support: tuple[ComparativePlacementProfile, ...]
+
+
+@dataclass(frozen=True)
 class QueryContextProfile:
     """Derived facts for one automatic or explicitly sized point neighborhood."""
 
@@ -221,6 +255,7 @@ class ResultProfile:
     evidence_tier: EvidenceAvailabilityTier
     consumed_resource_roles: tuple[str, ...]
     query_context: QueryContextProfile
+    comparative_relationship: ComparativeRelationshipProfile
     scope: ResultScopeProfile = field(default_factory=ResultScopeProfile)
 
 
@@ -232,6 +267,10 @@ def build_result_profile(
     consumed_resource_roles: tuple[str, ...] = (),
     reverse_mapping_results: tuple[CandidateReverseMappingResult, ...] | None = None,
     query_context_result: PointQueryContextResult | None = None,
+    filtered_all_chain_comparison: FilteredAllChainComparisonResult | None = None,
+    comparative_evidence_relationship: (
+        ComparativeEvidenceRelationshipResult | None
+    ) = None,
 ) -> ResultProfile:
     """Derive one deterministic factual profile from normalized scientific data."""
 
@@ -274,6 +313,12 @@ def build_result_profile(
         evidence_tier=evidence_tier,
         query_context_result=query_context_result,
     )
+    comparative_relationship = _comparative_relationship_profile(
+        candidates,
+        evidence_tier=evidence_tier,
+        comparison=filtered_all_chain_comparison,
+        relationship=comparative_evidence_relationship,
+    )
     return ResultProfile(
         source_interval=source_interval,
         input_validity=InputValidityState.NOT_ASSESSED,
@@ -290,9 +335,66 @@ def build_result_profile(
         evidence_tier=evidence_tier,
         consumed_resource_roles=consumed_resource_roles,
         query_context=query_context,
+        comparative_relationship=comparative_relationship,
         scope=ResultScopeProfile(
             reverse_result=_reverse_scope_state(reverse_profiles),
             query_context=query_context.check_state,
+            comparative_relationship=comparative_relationship.state,
+        ),
+    )
+
+
+def _comparative_relationship_profile(
+    candidates: tuple[NormalizedCandidate, ...],
+    *,
+    evidence_tier: EvidenceAvailabilityTier,
+    comparison: FilteredAllChainComparisonResult | None,
+    relationship: ComparativeEvidenceRelationshipResult | None,
+) -> ComparativeRelationshipProfile:
+    if comparison is None and relationship is None:
+        return ComparativeRelationshipProfile(
+            state=ComparativeRelationshipState.NOT_ASSESSED,
+            inventory_state=None,
+            favored_candidate_id=None,
+            additional_all_chain_candidate_ids=(),
+            placement_support=(),
+        )
+    if comparison is None or relationship is None:
+        raise ValueError(
+            "comparative result profile requires both paired inventory and "
+            "categorical relationship"
+        )
+    if evidence_tier is not EvidenceAvailabilityTier.COMPARATIVE:
+        raise ValueError(
+            "comparative result profile requires COMPARATIVE evidence tier"
+        )
+    if comparison.all_chain_candidates != candidates:
+        raise ValueError(
+            "comparative result profile all-chain inventory must match candidates"
+        )
+    expected_relationship = build_comparative_evidence_relationship(comparison)
+    if relationship != expected_relationship:
+        raise ValueError(
+            "comparative result profile relationship must match paired inventory "
+            "and candidate evidence"
+        )
+
+    return ComparativeRelationshipProfile(
+        state=ComparativeRelationshipState(relationship.relationship.value),
+        inventory_state=comparison.relationship,
+        favored_candidate_id=relationship.favored_candidate_id,
+        additional_all_chain_candidate_ids=(
+            comparison.additional_all_chain_candidate_ids
+        ),
+        placement_support=tuple(
+            ComparativePlacementProfile(
+                candidate_id=item.candidate_id,
+                complete_source_coverage=item.complete_source_coverage,
+                retained_by_filtered_chain=item.retained_by_filtered_chain,
+                depth1_top_net=item.depth1_top_net,
+                full_reciprocal_best=item.full_reciprocal_best,
+            )
+            for item in relationship.placement_support
         ),
     )
 

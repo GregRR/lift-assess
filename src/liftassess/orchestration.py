@@ -50,7 +50,11 @@ from .resource_files import (
     build_ucsc_candidates_from_cached_bundle,
     build_ucsc_chain_candidates_for_intervals_from_cached_chain,
 )
-from .result_profile import ResultProfile, build_result_profile
+from .result_profile import (
+    ComparativeRelationshipState,
+    ResultProfile,
+    build_result_profile,
+)
 from .reverse_mapping import (
     CandidateReverseMappingResult,
     ReverseCheckState,
@@ -298,6 +302,12 @@ class UCSCAssessmentReport:
         comparison = self.filtered_all_chain_comparison
         resource = self.filtered_chain_comparison_resource
         relationship = self.comparative_evidence_relationship
+        profile = self.result_profile.comparative_relationship
+        if self.result_profile.scope.comparative_relationship is not profile.state:
+            raise ValueError(
+                "result profile comparative scope must match comparative profile"
+            )
+
         if comparison is None:
             if resource is not None:
                 raise ValueError(
@@ -306,6 +316,10 @@ class UCSCAssessmentReport:
             if relationship is not None:
                 raise ValueError(
                     "comparative evidence relationship requires paired inventory"
+                )
+            if profile.state is not ComparativeRelationshipState.NOT_ASSESSED:
+                raise ValueError(
+                    "missing paired inventory must remain NOT_ASSESSED in the profile"
                 )
             return
         if relationship is None:
@@ -363,6 +377,49 @@ class UCSCAssessmentReport:
             raise ValueError(
                 "comparative evidence relationship must match the paired inventory "
                 "and candidate evidence"
+            )
+        if profile.inventory_state is not comparison.relationship:
+            raise ValueError(
+                "result profile comparative inventory state must match the report"
+            )
+        if profile.state.value != relationship.relationship.value:
+            raise ValueError(
+                "result profile comparative relationship must match the report"
+            )
+        if profile.favored_candidate_id != relationship.favored_candidate_id:
+            raise ValueError(
+                "result profile favored candidate must match the report relationship"
+            )
+        if (
+            profile.additional_all_chain_candidate_ids
+            != comparison.additional_all_chain_candidate_ids
+        ):
+            raise ValueError(
+                "result profile additional all-chain placements must match the report"
+            )
+        expected_support = tuple(
+            (
+                item.candidate_id,
+                item.complete_source_coverage,
+                item.retained_by_filtered_chain,
+                item.depth1_top_net,
+                item.full_reciprocal_best,
+            )
+            for item in relationship.placement_support
+        )
+        actual_support = tuple(
+            (
+                item.candidate_id,
+                item.complete_source_coverage,
+                item.retained_by_filtered_chain,
+                item.depth1_top_net,
+                item.full_reciprocal_best,
+            )
+            for item in profile.placement_support
+        )
+        if actual_support != expected_support:
+            raise ValueError(
+                "result profile comparative placement support must match the report"
             )
 
 
@@ -481,8 +538,19 @@ def attach_filtered_all_chain_comparison(
         consumed_by_engine=True,
         file_provenance=filtered_chain_provenance,
     )
+    profile = build_result_profile(
+        report.source_interval,
+        report.candidates,
+        evidence_tier=report.evidence_tier,
+        consumed_resource_roles=report.result_profile.consumed_resource_roles,
+        reverse_mapping_results=report.reverse_mapping_results,
+        query_context_result=report.query_context_result,
+        filtered_all_chain_comparison=comparison,
+        comparative_evidence_relationship=relationship,
+    )
     return replace(
         report,
+        result_profile=profile,
         filtered_all_chain_comparison=comparison,
         comparative_evidence_relationship=relationship,
         filtered_chain_comparison_resource=comparison_resource,
@@ -507,6 +575,8 @@ def attach_query_context_result(
         consumed_resource_roles=report.result_profile.consumed_resource_roles,
         reverse_mapping_results=report.reverse_mapping_results,
         query_context_result=query_context_result,
+        filtered_all_chain_comparison=report.filtered_all_chain_comparison,
+        comparative_evidence_relationship=report.comparative_evidence_relationship,
     )
     return replace(
         report,
@@ -653,6 +723,8 @@ def attach_reverse_mapping_results(
         consumed_resource_roles=report.result_profile.consumed_resource_roles,
         reverse_mapping_results=reverse_mapping_results,
         query_context_result=report.query_context_result,
+        filtered_all_chain_comparison=report.filtered_all_chain_comparison,
+        comparative_evidence_relationship=report.comparative_evidence_relationship,
     )
     return replace(
         report,

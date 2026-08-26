@@ -8,16 +8,21 @@ from liftassess import (
     AssemblyIdentifier,
     ChainGap,
     ChainGapSummary,
+    ComparativeEvidenceRelationshipResult,
+    ComparativeRelationshipState,
     EvidenceAvailabilityTier,
     EvidenceKind,
     EvidenceObservation,
     FactualHeadline,
+    FilteredAllChainComparisonResult,
+    FilteredAllChainInventoryState,
     GenomicInterval,
     InputValidityState,
     MappingCoverageStatus,
     MappingCoverageSummary,
     MappingOrientation,
     MappingSegment,
+    NetHierarchySummary,
     NormalizedCandidate,
     OrientationState,
     PointQueryContextResult,
@@ -29,6 +34,8 @@ from liftassess import (
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
     SourceCoverageState,
+    build_comparative_evidence_relationship,
+    build_filtered_all_chain_comparison,
     build_result_profile,
     reverse_mapping_unavailable,
 )
@@ -38,6 +45,10 @@ TARGET_ASSEMBLY = AssemblyIdentifier("targetAsm", "test")
 SOURCE = GenomicInterval(SOURCE_ASSEMBLY, "chr1", 100, 200)
 ALIGNMENT = ProvenanceSource("alignment", "shared test alignment")
 CHAIN = ProvenanceSource("chain", "chain resource", derived_from=(ALIGNMENT,))
+FILTERED_CHAIN = ProvenanceSource(
+    "filtered-chain", "filtered chain resource", derived_from=(ALIGNMENT,)
+)
+NET = ProvenanceSource("net", "net resource", derived_from=(ALIGNMENT,))
 RBEST = ProvenanceSource("rbest", "rbest resource", derived_from=(ALIGNMENT,))
 POINT = GenomicInterval(SOURCE_ASSEMBLY, "chr1", 150, 151)
 POINT_CONTEXT = GenomicInterval(SOURCE_ASSEMBLY, "chr1", 100, 201)
@@ -177,6 +188,64 @@ def _candidate(
         segments=segments,
         evidence=tuple(evidence),
     )
+
+
+def _filtered_candidate(candidate: NormalizedCandidate) -> NormalizedCandidate:
+    chain_evidence = tuple(
+        replace(observation, provenance=FILTERED_CHAIN)
+        for observation in candidate.evidence
+        if observation.kind in {EvidenceKind.MAPPING_COVERAGE, EvidenceKind.CHAIN_GAPS}
+    )
+    return replace(
+        candidate,
+        candidate_id=f"filtered:{candidate.candidate_id}",
+        mapping_provenance=FILTERED_CHAIN,
+        evidence=chain_evidence,
+    )
+
+
+def _with_depth1_top_net(candidate: NormalizedCandidate) -> NormalizedCandidate:
+    fill = ProvenanceSource(
+        f"{candidate.candidate_id}:fill",
+        "top net fill",
+        derived_from=(NET,),
+    )
+    return replace(
+        candidate,
+        evidence=candidate.evidence
+        + (
+            EvidenceObservation(
+                f"{candidate.candidate_id}:net:classification",
+                EvidenceKind.NET_CLASSIFICATION,
+                "top",
+                fill,
+            ),
+            EvidenceObservation(
+                f"{candidate.candidate_id}:net:hierarchy",
+                EvidenceKind.NET_HIERARCHY,
+                NetHierarchySummary(depth=1, source_fill_interval=SOURCE),
+                fill,
+            ),
+        ),
+    )
+
+
+def _comparative_inputs(
+    candidates: tuple[NormalizedCandidate, ...],
+    *,
+    filtered_candidate: NormalizedCandidate,
+) -> tuple[
+    FilteredAllChainComparisonResult,
+    ComparativeEvidenceRelationshipResult,
+]:
+    comparison = build_filtered_all_chain_comparison(
+        SOURCE,
+        candidates,
+        (filtered_candidate,),
+        all_chain_provenance=CHAIN,
+        filtered_chain_provenance=FILTERED_CHAIN,
+    )
+    return comparison, build_comparative_evidence_relationship(comparison)
 
 
 def test_no_projection_has_factual_no_projection_profile() -> None:
@@ -351,6 +420,107 @@ def test_comparative_tier_preserves_rbest_without_aggregate_result() -> None:
     assert profile.headline is FactualHeadline.ONE_COMPLETE_CHAIN_PROJECTION
     assert profile.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
     assert profile.scope.comparative_relationship.value == "NOT_ASSESSED"
+
+
+def test_comparative_relationship_profile_preserves_b14_style_support() -> None:
+    favored = _with_depth1_top_net(
+        _candidate(
+            "favored",
+            reciprocal_best=ReciprocalBestMembershipStatus.FULL,
+        )
+    )
+    competitor = _candidate(
+        "competitor",
+        target_spans=((2000, 2100),),
+        reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+    )
+    comparison, relationship = _comparative_inputs(
+        (favored, competitor),
+        filtered_candidate=_filtered_candidate(favored),
+    )
+
+    profile = build_result_profile(
+        SOURCE,
+        (favored, competitor),
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        filtered_all_chain_comparison=comparison,
+        comparative_evidence_relationship=relationship,
+    )
+
+    comparative = profile.comparative_relationship
+    assert comparative.state is ComparativeRelationshipState.FAVORS_ONE_PLACEMENT
+    assert profile.scope.comparative_relationship is comparative.state
+    assert (
+        comparative.inventory_state
+        is FilteredAllChainInventoryState.ALL_CHAIN_REVEALS_ADDITIONAL_PLACEMENTS
+    )
+    assert comparative.favored_candidate_id == "favored"
+    assert comparative.additional_all_chain_candidate_ids == ("competitor",)
+    assert tuple(item.candidate_id for item in comparative.placement_support) == (
+        "favored",
+        "competitor",
+    )
+    favored_support = comparative.placement_support[0]
+    assert favored_support.complete_source_coverage
+    assert favored_support.retained_by_filtered_chain
+    assert favored_support.depth1_top_net
+    assert favored_support.full_reciprocal_best
+
+
+def test_zero_zero_comparative_inventory_is_structured_in_profile() -> None:
+    comparison = build_filtered_all_chain_comparison(
+        SOURCE,
+        (),
+        (),
+        all_chain_provenance=CHAIN,
+        filtered_chain_provenance=FILTERED_CHAIN,
+    )
+    relationship = build_comparative_evidence_relationship(comparison)
+
+    profile = build_result_profile(
+        SOURCE,
+        (),
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        filtered_all_chain_comparison=comparison,
+        comparative_evidence_relationship=relationship,
+    )
+
+    comparative = profile.comparative_relationship
+    assert (
+        comparative.state is ComparativeRelationshipState.NO_COMPETING_FULL_PLACEMENTS
+    )
+    assert (
+        comparative.inventory_state
+        is FilteredAllChainInventoryState.FILTERED_AND_ALL_CHAIN_AGREE
+    )
+    assert comparative.placement_support == ()
+    assert comparative.additional_all_chain_candidate_ids == ()
+
+
+def test_comparative_profile_requires_inventory_and_relationship_together() -> None:
+    candidate = _candidate(
+        "one",
+        reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+    )
+    comparison, relationship = _comparative_inputs(
+        (candidate,),
+        filtered_candidate=_filtered_candidate(candidate),
+    )
+
+    with pytest.raises(ValueError, match="requires both paired inventory"):
+        build_result_profile(
+            SOURCE,
+            (candidate,),
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+            filtered_all_chain_comparison=comparison,
+        )
+    with pytest.raises(ValueError, match="requires both paired inventory"):
+        build_result_profile(
+            SOURCE,
+            (candidate,),
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+            comparative_evidence_relationship=relationship,
+        )
 
 
 def test_no_projection_comparative_profile_does_not_require_candidate_evidence() -> (
