@@ -11,6 +11,7 @@ from liftassess import (
     CachedResource,
     CachedUCSCChainResource,
     CachedUCSCResourceBundle,
+    ComparativeEvidenceRelationship,
     EvidenceAvailabilityTier,
     EvidenceKind,
     EvidenceObservation,
@@ -216,6 +217,11 @@ def test_filtered_all_chain_comparison_uses_prepared_filtered_index(
         report.candidates[0].candidate_id
     )
     assert enriched.filtered_chain_comparison_resource is not None
+    assert enriched.comparative_evidence_relationship is not None
+    assert (
+        enriched.comparative_evidence_relationship.relationship
+        is ComparativeEvidenceRelationship.NO_COMPETING_FULL_PLACEMENTS
+    )
     assert (
         comparison.filtered_chain_provenance.derived_from
         == comparison.all_chain_provenance.derived_from

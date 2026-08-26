@@ -17,6 +17,10 @@ from .comparative_inventory import (
     FilteredAllChainComparisonResult,
     build_filtered_all_chain_comparison,
 )
+from .comparative_relationship import (
+    ComparativeEvidenceRelationshipResult,
+    build_comparative_evidence_relationship,
+)
 from .models import (
     AssemblyIdentifier,
     EvidenceAvailabilityTier,
@@ -107,6 +111,9 @@ class UCSCAssessmentReport:
     reverse_alignment_provenance: ProvenanceSource | None = None
     reverse_mapping_resource: UCSCAssessmentResource | None = None
     filtered_all_chain_comparison: FilteredAllChainComparisonResult | None = None
+    comparative_evidence_relationship: ComparativeEvidenceRelationshipResult | None = (
+        None
+    )
     filtered_chain_comparison_resource: UCSCAssessmentResource | None = None
 
     def __post_init__(self) -> None:
@@ -290,12 +297,22 @@ class UCSCAssessmentReport:
     def _validate_filtered_all_chain_comparison(self) -> None:
         comparison = self.filtered_all_chain_comparison
         resource = self.filtered_chain_comparison_resource
+        relationship = self.comparative_evidence_relationship
         if comparison is None:
             if resource is not None:
                 raise ValueError(
                     "filtered-chain comparison resource requires comparison results"
                 )
+            if relationship is not None:
+                raise ValueError(
+                    "comparative evidence relationship requires paired inventory"
+                )
             return
+        if relationship is None:
+            raise ValueError(
+                "paired filtered/all-chain inventory requires comparative evidence "
+                "relationship"
+            )
 
         if self.evidence_tier is not EvidenceAvailabilityTier.COMPARATIVE:
             raise ValueError(
@@ -340,6 +357,12 @@ class UCSCAssessmentReport:
             raise ValueError(
                 "filtered-chain comparison provenance must preserve the report "
                 "alignment lineage"
+            )
+        expected_relationship = build_comparative_evidence_relationship(comparison)
+        if relationship != expected_relationship:
+            raise ValueError(
+                "comparative evidence relationship must match the paired inventory "
+                "and candidate evidence"
             )
 
 
@@ -397,10 +420,11 @@ def attach_filtered_all_chain_comparison(
 ) -> UCSCAssessmentReport:
     """Attach one indexed ordinary-filtered versus all-chain candidate inventory.
 
-    This first M21 slice is intentionally index-only.  A missing prepared filtered
-    chain index is an explicit precondition failure; it never falls back to an
-    exhaustive filtered-chain traversal.  Comparative interpretation from net/rbest
-    asymmetry is a later layer.
+    The comparison remains index-only. A missing prepared filtered-chain index is
+    an explicit precondition failure and never falls back to exhaustive traversal.
+    The attached categorical relationship uses only filtered retention, depth-1 top-net
+    support, full reciprocal-best membership, and complete-placement geometry; human
+    and machine rendering remain a later layer.
     """
 
     if report.filtered_all_chain_comparison is not None:
@@ -450,6 +474,7 @@ def attach_filtered_all_chain_comparison(
         all_chain_provenance=all_chain_resource.file_provenance,
         filtered_chain_provenance=filtered_chain_provenance,
     )
+    relationship = build_comparative_evidence_relationship(comparison)
     comparison_resource = UCSCAssessmentResource(
         role=UCSCBundleResourceRole.CHAIN,
         resource=filtered_chain.chain,
@@ -459,6 +484,7 @@ def attach_filtered_all_chain_comparison(
     return replace(
         report,
         filtered_all_chain_comparison=comparison,
+        comparative_evidence_relationship=relationship,
         filtered_chain_comparison_resource=comparison_resource,
     )
 

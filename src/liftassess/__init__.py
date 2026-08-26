@@ -21,6 +21,12 @@ from .comparative_inventory import (
     FilteredAllChainInventoryState,
     build_filtered_all_chain_comparison,
 )
+from .comparative_relationship import (
+    ComparativeEvidenceRelationship,
+    ComparativeEvidenceRelationshipResult,
+    ComparativePlacementSupport,
+    build_comparative_evidence_relationship,
+)
 from .engine import build_ucsc_candidates
 from .models import (
     AssemblyIdentifier,
@@ -156,6 +162,9 @@ __all__ = [
     "ChainIndexCorruptionError",
     "ChainIndexError",
     "ChainIndexManifest",
+    "ComparativeEvidenceRelationship",
+    "ComparativeEvidenceRelationshipResult",
+    "ComparativePlacementSupport",
     "ComparativeRelationshipState",
     "EvidenceAvailabilityTier",
     "EvidenceKind",
@@ -227,6 +236,7 @@ __all__ = [
     "build_candidate_reverse_mapping_result",
     "build_centered_point_context_interval",
     "build_chain_index",
+    "build_comparative_evidence_relationship",
     "build_filtered_all_chain_comparison",
     "build_result_profile",
     "build_reverse_mapping_results_from_cached_bundle",
