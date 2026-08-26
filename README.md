@@ -172,6 +172,12 @@ For repeated work on a large assembly pair, an optional one-time preparation com
 prepare-liftassess-index canFam3 canFam4
 ```
 
+When both UCSC publication classes exist,
+`assess-liftover --evidence-tier LIFTOVER-ONLY` can explicitly acquire/use the ordinary
+filtered liftOver chain instead of the default COMPARATIVE-preferred selection. This is
+useful when preparing the filtered-chain side of a paired comparison; provider terms and
+transfer-plan acknowledgement remain unchanged.
+
 Index construction parses the complete chain once and can take many minutes and several GiB of additional local cache space for very large resources. Later `assess-liftover` CLI runs automatically reuse the exact-resource index when present. The CLI falls back to the original verified full traversal when the index is absent or unusable; lower-level library calls surface `ChainIndexCorruptionError` so callers can choose their own recovery policy. The index is a derived acceleration artifact; scientific provenance continues to identify the original UCSC chain bytes. See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for measured examples and scope.
 
 The default command emits a concise facts-first summary headed by a deterministic mapping headline. Uncomplicated results stay compact; currently detectable partial coverage, fragmented/discontinuous geometry, and multiple projections expand automatically with the material geometry. `COMPARATIVE` summaries also state that UCSC-derived observations may share upstream alignment lineage and are not independent votes. `--details` emits the complete currently available factual profile, exact mapped segments and gaps, evidence observations, resource URLs/checksums and consumed-vs-unconsumed status, scope boundaries, and the provenance dependency graph. `--json` emits schema version 2 of the same result semantics using canonical 0-based, half-open interval objects. Schema v2 intentionally omits the legacy aggregate `verdict`, verdict-derived `decision_reason`, and preferred-candidate fields. `--details` and `--json` are mutually exclusive. All report modes retain the explicit caveat that coordinate/evidence observations do not establish biological correctness.

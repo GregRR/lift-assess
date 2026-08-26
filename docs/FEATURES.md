@@ -313,6 +313,8 @@ The cache/acquisition layer implements:
 - retrieval metadata retained separately from exact byte identity.
 
 The default CLI is cache-first. A complete cached bundle is reused without contacting UCSC.
+`--evidence-tier COMPARATIVE` or `--evidence-tier LIFTOVER-ONLY` requests one exact
+publication class and disables automatic tier fallback for cache selection and discovery.
 Cached provider artifacts other than the indexed source chain retain normal SHA-256 verification;
 when an exact-resource chain index is already validated, that derived artifact carries the
 source-chain identity for indexed lookup. Query-relevant bin membership/record-locator rows and

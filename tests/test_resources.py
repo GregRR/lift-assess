@@ -495,3 +495,50 @@ def test_directory_listing_timeout_is_not_resource_absence(
         resource_module.UCSCResourceDiscoveryError, match="request timed out"
     ):
         resource_module._read_directory_links("https://example.invalid/")
+
+
+def test_exact_liftover_discovery_skips_comparative_publication() -> None:
+    comparative = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+    liftover = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/"
+
+    def read(url: str) -> frozenset[str] | None:
+        if url == comparative:
+            raise AssertionError("exact LIFTOVER-ONLY discovery must skip comparative")
+        if url == liftover:
+            return frozenset({"canFam3ToCanFam4.over.chain.gz"})
+        return None
+
+    result = _discover_ucsc_resources(
+        "canFam3",
+        "canFam4",
+        read,
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+    )
+
+    assert result == UCSCResourceBundle(
+        source_db="canFam3",
+        target_db="canFam4",
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        chain_url=f"{liftover}canFam3ToCanFam4.over.chain.gz",
+    )
+
+
+def test_exact_comparative_discovery_does_not_fall_back_to_liftover() -> None:
+    comparative = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/"
+    liftover = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/"
+
+    def read(url: str) -> frozenset[str] | None:
+        if url == comparative:
+            return frozenset()
+        if url == liftover:
+            raise AssertionError("exact COMPARATIVE discovery must not fall back")
+        return None
+
+    result = _discover_ucsc_resources(
+        "canFam3",
+        "canFam4",
+        read,
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+    )
+
+    assert result is None

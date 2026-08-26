@@ -718,14 +718,17 @@ def resolve_cached_ucsc_resource_bundle_metadata(
     cache_root: ResourcePath,
     source_db: str,
     target_db: str,
+    *,
+    evidence_tier: EvidenceAvailabilityTier | None = None,
 ) -> CachedUCSCResourceBundle | None:
     """Resolve the best structurally complete cached bundle without hashing bytes.
 
     This package-internal helper exists only so callers can look for a derived chain
     index before deciding whether rereading the original chain is necessary. Cache
     index metadata, exact artifact presence, and exact artifact size are checked, but
-    this function makes no integrity claim about artifact contents. Normal callers
-    should use :func:`load_cached_ucsc_resource_bundle`.
+    this function makes no integrity claim about artifact contents. ``evidence_tier``
+    selects one exact publication class when supplied; otherwise COMPARATIVE remains
+    preferred. Normal callers should use :func:`load_cached_ucsc_resource_bundle`.
     """
 
     root = Path(cache_root)
@@ -733,23 +736,25 @@ def resolve_cached_ucsc_resource_bundle_metadata(
     if not candidates:
         return None
 
-    comparative = _load_structural_cached_bundle_tier(
-        root,
-        candidates,
-        source_db=source_db,
-        target_db=target_db,
-        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
-    )
-    if comparative is not None:
-        return comparative
-
-    return _load_structural_cached_bundle_tier(
-        root,
-        candidates,
-        source_db=source_db,
-        target_db=target_db,
-        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
-    )
+    tiers: tuple[EvidenceAvailabilityTier, ...]
+    if evidence_tier is not None:
+        tiers = (evidence_tier,)
+    else:
+        tiers = (
+            EvidenceAvailabilityTier.COMPARATIVE,
+            EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        )
+    for selected_tier in tiers:
+        bundle = _load_structural_cached_bundle_tier(
+            root,
+            candidates,
+            source_db=source_db,
+            target_db=target_db,
+            evidence_tier=selected_tier,
+        )
+        if bundle is not None:
+            return bundle
+    return None
 
 
 def load_cached_ucsc_resource_bundle(
@@ -757,20 +762,23 @@ def load_cached_ucsc_resource_bundle(
     source_db: str,
     target_db: str,
     *,
+    evidence_tier: EvidenceAvailabilityTier | None = None,
     progress_callback: CacheVerificationProgressCallback | None = None,
 ) -> CachedUCSCResourceBundle | None:
     """Load the best complete fully verified bundle already present in a local cache.
 
     This public loader preserves the original integrity contract: every selected
     provider artifact is checked for exact size and SHA-256 before the bundle returns.
-    It performs no network access and prefers a complete ``COMPARATIVE`` bundle over a
-    ``LIFTOVER_ONLY`` chain when both are present.
+    It performs no network access. When ``evidence_tier`` is omitted, it prefers a
+    complete ``COMPARATIVE`` bundle over a ``LIFTOVER_ONLY`` chain; when supplied, it
+    returns only that exact publication class.
     """
 
     return load_cached_ucsc_resource_bundle_for_indexed_assessment(
         cache_root,
         source_db,
         target_db,
+        evidence_tier=evidence_tier,
         progress_callback=progress_callback,
     )
 
@@ -780,6 +788,7 @@ def load_cached_ucsc_resource_bundle_for_indexed_assessment(
     source_db: str,
     target_db: str,
     *,
+    evidence_tier: EvidenceAvailabilityTier | None = None,
     progress_callback: CacheVerificationProgressCallback | None = None,
     trusted_artifact_sha256_identifiers: frozenset[str] = frozenset(),
 ) -> CachedUCSCResourceBundle | None:
@@ -807,72 +816,62 @@ def load_cached_ucsc_resource_bundle_for_indexed_assessment(
         return None
 
     verification = _CacheVerificationTracker(progress_callback)
-    comparative_plan = _cache_verification_plan(
-        root,
-        candidates,
-        EvidenceAvailabilityTier.COMPARATIVE,
-        trusted_sha256_hexes=trusted_sha256_hexes,
-    )
-    comparative_verification = verification if comparative_plan else None
-    if comparative_verification is not None:
-        comparative_verification.start_attempt(comparative_plan)
-
-    comparative: dict[UCSCBundleResourceRole, CachedResource] = {}
-    for role in _bundle_roles_for_tier(EvidenceAvailabilityTier.COMPARATIVE):
-        resource = _first_verified_cached_candidate(
+    tiers: tuple[EvidenceAvailabilityTier, ...]
+    if evidence_tier is not None:
+        tiers = (evidence_tier,)
+    else:
+        tiers = (
+            EvidenceAvailabilityTier.COMPARATIVE,
+            EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        )
+    for selected_tier in tiers:
+        plan = _cache_verification_plan(
             root,
-            candidates.get((EvidenceAvailabilityTier.COMPARATIVE, role), []),
-            verification=comparative_verification,
+            candidates,
+            selected_tier,
             trusted_sha256_hexes=trusted_sha256_hexes,
         )
-        if resource is None:
-            break
-        comparative[role] = resource
-    else:
-        bundle = CachedUCSCResourceBundle(
-            source_db=source_db,
-            target_db=target_db,
-            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
-            chain=comparative[UCSCBundleResourceRole.CHAIN],
-            net=comparative[UCSCBundleResourceRole.NET],
-            syntenic_net=comparative[UCSCBundleResourceRole.SYNTENIC_NET],
-            reciprocal_best_chain=comparative[
-                UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN
-            ],
-            reciprocal_best_net=comparative[UCSCBundleResourceRole.RECIPROCAL_BEST_NET],
-        )
-        verification.complete()
-        return bundle
+        tier_verification = verification if plan else None
+        if tier_verification is not None:
+            tier_verification.start_attempt(plan)
 
-    liftover_plan = _cache_verification_plan(
-        root,
-        candidates,
-        EvidenceAvailabilityTier.LIFTOVER_ONLY,
-        trusted_sha256_hexes=trusted_sha256_hexes,
-    )
-    liftover_verification = verification if liftover_plan else None
-    if liftover_verification is not None:
-        liftover_verification.start_attempt(liftover_plan)
-
-    liftover = _first_verified_cached_candidate(
-        root,
-        candidates.get(
-            (EvidenceAvailabilityTier.LIFTOVER_ONLY, UCSCBundleResourceRole.CHAIN),
-            [],
-        ),
-        verification=liftover_verification,
-        trusted_sha256_hexes=trusted_sha256_hexes,
-    )
-    if liftover is None:
-        return None
-    bundle = CachedUCSCResourceBundle(
-        source_db=source_db,
-        target_db=target_db,
-        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
-        chain=liftover,
-    )
-    verification.complete()
-    return bundle
+        acquired: dict[UCSCBundleResourceRole, CachedResource] = {}
+        for role in _bundle_roles_for_tier(selected_tier):
+            resource = _first_verified_cached_candidate(
+                root,
+                candidates.get((selected_tier, role), []),
+                verification=tier_verification,
+                trusted_sha256_hexes=trusted_sha256_hexes,
+            )
+            if resource is None:
+                break
+            acquired[role] = resource
+        else:
+            if selected_tier is EvidenceAvailabilityTier.COMPARATIVE:
+                bundle = CachedUCSCResourceBundle(
+                    source_db=source_db,
+                    target_db=target_db,
+                    evidence_tier=selected_tier,
+                    chain=acquired[UCSCBundleResourceRole.CHAIN],
+                    net=acquired[UCSCBundleResourceRole.NET],
+                    syntenic_net=acquired[UCSCBundleResourceRole.SYNTENIC_NET],
+                    reciprocal_best_chain=acquired[
+                        UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN
+                    ],
+                    reciprocal_best_net=acquired[
+                        UCSCBundleResourceRole.RECIPROCAL_BEST_NET
+                    ],
+                )
+            else:
+                bundle = CachedUCSCResourceBundle(
+                    source_db=source_db,
+                    target_db=target_db,
+                    evidence_tier=selected_tier,
+                    chain=acquired[UCSCBundleResourceRole.CHAIN],
+                )
+            verification.complete()
+            return bundle
+    return None
 
 
 def _load_structural_cached_bundle_tier(

@@ -426,6 +426,16 @@ prepare-liftassess-index SOURCE_DB TARGET_DB --evidence-tier COMPARATIVE
 prepare-liftassess-index SOURCE_DB TARGET_DB --evidence-tier LIFTOVER-ONLY
 ```
 
+If the exact chain class is not cached yet, acquire it through the normal assessment workflow
+first. `--evidence-tier` disables automatic tier fallback, so this can retrieve the filtered
+chain even when a complete comparative bundle is also published:
+
+```bash
+assess-liftover SOURCE_DB TARGET_DB CHR:START-END --evidence-tier LIFTOVER-ONLY
+```
+
+The usual UCSC terms and transfer-plan acknowledgement still apply.
+
 Automatic reverse mapping requires the reverse-direction index whose publication class
 matches the forward assessment.
 

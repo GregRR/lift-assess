@@ -111,6 +111,14 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="resource cache directory (default: platform user cache)",
     )
+    parser.add_argument(
+        "--evidence-tier",
+        choices=("COMPARATIVE", "LIFTOVER-ONLY"),
+        help=(
+            "request one exact UCSC resource publication class instead of the "
+            "default COMPARATIVE-preferred discovery/cache selection"
+        ),
+    )
     network_mode = parser.add_mutually_exclusive_group()
     network_mode.add_argument(
         "--refresh",
@@ -173,6 +181,14 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _requested_evidence_tier(
+    args: argparse.Namespace,
+) -> EvidenceAvailabilityTier | None:
+    if args.evidence_tier is None:
+        return None
+    return EvidenceAvailabilityTier(args.evidence_tier.replace("-", "_"))
+
+
 def _run(
     args: argparse.Namespace,
     *,
@@ -186,6 +202,7 @@ def _run(
     if args.context_bases is not None and source_interval.length != 1:
         raise ValueError("--context-bases currently requires a 1-bp point query")
     cache_root = args.cache_dir or default_user_cache_root()
+    requested_evidence_tier = _requested_evidence_tier(args)
 
     cached_bundle = None
     chain_index = None
@@ -197,11 +214,19 @@ def _run(
             stderr=stderr,
         )
 
-        structural_bundle = resolve_cached_ucsc_resource_bundle_metadata(
-            cache_root,
-            args.source_db,
-            args.target_db,
-        )
+        if requested_evidence_tier is None:
+            structural_bundle = resolve_cached_ucsc_resource_bundle_metadata(
+                cache_root,
+                args.source_db,
+                args.target_db,
+            )
+        else:
+            structural_bundle = resolve_cached_ucsc_resource_bundle_metadata(
+                cache_root,
+                args.source_db,
+                args.target_db,
+                evidence_tier=requested_evidence_tier,
+            )
         if structural_bundle is not None:
             try:
                 chain_index = load_cached_chain_index(
@@ -227,20 +252,35 @@ def _run(
             else frozenset()
         )
         if cache_progress_callback is None:
-            if trusted_identifiers:
+            if trusted_identifiers and requested_evidence_tier is None:
                 cached_bundle = load_cached_ucsc_resource_bundle_for_indexed_assessment(
                     cache_root,
                     args.source_db,
                     args.target_db,
                     trusted_artifact_sha256_identifiers=trusted_identifiers,
                 )
-            else:
+            elif trusted_identifiers:
+                cached_bundle = load_cached_ucsc_resource_bundle_for_indexed_assessment(
+                    cache_root,
+                    args.source_db,
+                    args.target_db,
+                    evidence_tier=requested_evidence_tier,
+                    trusted_artifact_sha256_identifiers=trusted_identifiers,
+                )
+            elif requested_evidence_tier is None:
                 cached_bundle = load_cached_ucsc_resource_bundle(
                     cache_root,
                     args.source_db,
                     args.target_db,
                 )
-        elif trusted_identifiers:
+            else:
+                cached_bundle = load_cached_ucsc_resource_bundle(
+                    cache_root,
+                    args.source_db,
+                    args.target_db,
+                    evidence_tier=requested_evidence_tier,
+                )
+        elif trusted_identifiers and requested_evidence_tier is None:
             cached_bundle = load_cached_ucsc_resource_bundle_for_indexed_assessment(
                 cache_root,
                 args.source_db,
@@ -248,11 +288,28 @@ def _run(
                 progress_callback=cache_progress_callback,
                 trusted_artifact_sha256_identifiers=trusted_identifiers,
             )
+        elif trusted_identifiers:
+            cached_bundle = load_cached_ucsc_resource_bundle_for_indexed_assessment(
+                cache_root,
+                args.source_db,
+                args.target_db,
+                evidence_tier=requested_evidence_tier,
+                progress_callback=cache_progress_callback,
+                trusted_artifact_sha256_identifiers=trusted_identifiers,
+            )
+        elif requested_evidence_tier is None:
+            cached_bundle = load_cached_ucsc_resource_bundle(
+                cache_root,
+                args.source_db,
+                args.target_db,
+                progress_callback=cache_progress_callback,
+            )
         else:
             cached_bundle = load_cached_ucsc_resource_bundle(
                 cache_root,
                 args.source_db,
                 args.target_db,
+                evidence_tier=requested_evidence_tier,
                 progress_callback=cache_progress_callback,
             )
         if cached_bundle is not None:
@@ -266,8 +323,14 @@ def _run(
 
     if cached_bundle is None:
         if args.offline:
+            requested = (
+                ""
+                if requested_evidence_tier is None
+                else " " + requested_evidence_tier.value.replace("_", "-")
+            )
             print(
-                "error: --offline requires a complete verified cached UCSC bundle for "
+                "error: --offline requires a complete verified cached"
+                f"{requested} UCSC bundle for "
                 f"{args.source_db}→{args.target_db} under {cache_root}",
                 file=stderr,
             )
@@ -413,10 +476,23 @@ def _discover_and_acquire_bundle(
     stderr: TextIO,
 ) -> CachedUCSCResourceBundle | None:
     _status("Discovering UCSC resources...", quiet=args.quiet, stderr=stderr)
-    discovered = discover_ucsc_resources(args.source_db, args.target_db)
+    requested_evidence_tier = _requested_evidence_tier(args)
+    if requested_evidence_tier is None:
+        discovered = discover_ucsc_resources(args.source_db, args.target_db)
+    else:
+        discovered = discover_ucsc_resources(
+            args.source_db,
+            args.target_db,
+            evidence_tier=requested_evidence_tier,
+        )
     if discovered is None:
+        resource_label = (
+            "UCSC resources"
+            if requested_evidence_tier is None
+            else requested_evidence_tier.value.replace("_", "-") + " UCSC resources"
+        )
         print(
-            "error: no supported UCSC resources found for "
+            f"error: no supported {resource_label} found for "
             f"{args.source_db}→{args.target_db}",
             file=stderr,
         )

@@ -123,33 +123,48 @@ ListingReader = Callable[[str], frozenset[str] | None]
 
 
 def discover_ucsc_resources(
-    source_db: str, target_db: str
+    source_db: str,
+    target_db: str,
+    *,
+    evidence_tier: EvidenceAvailabilityTier | None = None,
 ) -> UCSCResourceBundle | None:
     """Discover verified UCSC resources for one assembly direction.
 
-    Return a ``COMPARATIVE`` bundle when the full v1 comparative set is
-    published, otherwise fall back to the UCSC liftOver chain and return
-    ``LIFTOVER_ONLY``.  Return ``None`` when the checked candidate listings are
-    reachable but contain no usable resource for this assembly pair.
+    By default, return a ``COMPARATIVE`` bundle when the full v1 comparative set
+    is published, otherwise fall back to the UCSC liftOver chain and return
+    ``LIFTOVER_ONLY``. When ``evidence_tier`` is supplied, discover only that exact
+    publication class and do not fall back to another tier. Return ``None`` when
+    the checked candidate listings are reachable but contain no requested resource.
 
     Network/server failures raise ``UCSCResourceDiscoveryError`` instead of
     being interpreted as resource absence.
     """
 
-    return _discover_ucsc_resources(source_db, target_db, _read_directory_links)
+    return _discover_ucsc_resources(
+        source_db,
+        target_db,
+        _read_directory_links,
+        evidence_tier=evidence_tier,
+    )
 
 
 def _discover_ucsc_resources(
     source_db: str,
     target_db: str,
     read_listing: ListingReader,
+    *,
+    evidence_tier: EvidenceAvailabilityTier | None = None,
 ) -> UCSCResourceBundle | None:
     _validate_ucsc_db(source_db)
     _validate_ucsc_db(target_db)
 
     target_title = _ucsc_title_db(target_db)
-    comparative_base = urljoin(_UCSC_GOLDEN_PATH, f"{source_db}/vs{target_title}/")
-    comparative_links = read_listing(comparative_base)
+    if evidence_tier is not EvidenceAvailabilityTier.LIFTOVER_ONLY:
+        comparative_base = urljoin(_UCSC_GOLDEN_PATH, f"{source_db}/vs{target_title}/")
+        comparative_links = read_listing(comparative_base)
+    else:
+        comparative_base = ""
+        comparative_links = None
     if comparative_links is not None:
         chain_name = f"{source_db}.{target_db}.all.chain.gz"
         net_name = f"{source_db}.{target_db}.net.gz"
@@ -182,6 +197,9 @@ def _discover_ucsc_resources(
                     ),
                     reciprocal_best_net_url=urljoin(reciprocal_base, rbest_net_name),
                 )
+
+    if evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
+        return None
 
     # A partial comparative directory must not be mislabeled COMPARATIVE.  The
     # lightweight liftOver chain remains useful on its own, so check that

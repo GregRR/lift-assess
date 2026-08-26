@@ -2449,3 +2449,57 @@ def test_run_point_context_summary_reports_exact_tested_window(
     assert "Local context (forward chain only)" in rendered
     assert "chr1:51-151 (1-based inclusive); 101 bp tested" in rendered
     assert "point and local context map together" in rendered
+
+
+def test_cli_can_explicitly_acquire_liftover_only_chain(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    requested: list[EvidenceAvailabilityTier | None] = []
+
+    def discover(
+        source: str,
+        target: str,
+        *,
+        evidence_tier: EvidenceAvailabilityTier | None = None,
+    ) -> UCSCResourceBundle:
+        assert (source, target) == (_SOURCE_DB, _TARGET_DB)
+        requested.append(evidence_tier)
+        return _discovered_bundle()
+
+    monkeypatch.setattr(cli, "discover_ucsc_resources", discover)
+    monkeypatch.setattr(
+        cli,
+        "inspect_ucsc_bundle_transfer_plan",
+        lambda plan, *, terms_acknowledged: _inspection(),
+    )
+    cached = _cached_bundle(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "acquire_ucsc_resource_bundle",
+        lambda plan, cache_root, **kwargs: cached,
+    )
+
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--evidence-tier",
+            "LIFTOVER-ONLY",
+            "--acknowledge-ucsc-terms",
+            "--accept-transfer-plan",
+        ]
+    )
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=StringIO(),
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    assert requested == [EvidenceAvailabilityTier.LIFTOVER_ONLY]

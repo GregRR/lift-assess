@@ -2374,3 +2374,31 @@ def test_chain_only_cache_loader_preserves_exact_publication_class(
     assert liftover is not None
     assert liftover.chain.source_url == liftover_chain_url
     assert liftover.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY
+
+
+def test_cached_bundle_loader_can_select_exact_liftover_tier(tmp_path: Path) -> None:
+    comparative = _comparative_bundle()
+    liftover = _liftover_bundle()
+    for index, url in enumerate(
+        (
+            comparative.chain_url,
+            comparative.net_url,
+            comparative.syntenic_net_url,
+            comparative.reciprocal_best_chain_url,
+            comparative.reciprocal_best_net_url,
+            liftover.chain_url,
+        )
+    ):
+        assert url is not None
+        _publish_cached_index_entry(tmp_path, url, f"resource-{index}".encode())
+
+    result = load_cached_ucsc_resource_bundle(
+        tmp_path,
+        "canFam3",
+        "canFam4",
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+    )
+
+    assert result is not None
+    assert result.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY
+    assert result.chain.source_url == liftover.chain_url
