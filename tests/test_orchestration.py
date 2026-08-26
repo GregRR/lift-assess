@@ -15,6 +15,7 @@ from liftassess import (
     EvidenceKind,
     EvidenceObservation,
     FactualHeadline,
+    FilteredAllChainInventoryState,
     GenomicInterval,
     MappingSegment,
     ProvenanceSource,
@@ -24,6 +25,7 @@ from liftassess import (
     UCSCAssessmentReport,
     UCSCBundleResourceRole,
     assess_ucsc_cached_bundle,
+    attach_filtered_all_chain_comparison,
     attach_point_query_context,
     attach_query_context_result,
     build_cached_chain_index,
@@ -158,6 +160,117 @@ def _assemblies() -> tuple[AssemblyIdentifier, AssemblyIdentifier]:
         AssemblyIdentifier(name="canFam3", provider="UCSC"),
         AssemblyIdentifier(name="canFam4", provider="UCSC"),
     )
+
+
+def test_filtered_all_chain_comparison_uses_prepared_filtered_index(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    source_interval = GenomicInterval(source, "chr1", 105, 115)
+    alignment = ProvenanceSource("alignment", "shared UCSC alignment")
+    report = assess_ucsc_cached_bundle(
+        source_interval,
+        _comparative_bundle(tmp_path),
+        target_assembly=target,
+        alignment_provenance=alignment,
+    )
+    filtered_bundle = _liftover_bundle(
+        tmp_path,
+        _chain_text(chain_id=91),
+    )
+    filtered_chain = CachedUCSCChainResource(
+        source_db=filtered_bundle.source_db,
+        target_db=filtered_bundle.target_db,
+        evidence_tier=filtered_bundle.evidence_tier,
+        chain=filtered_bundle.chain,
+    )
+    filtered_index = build_cached_chain_index(
+        tmp_path / "filtered-index-cache",
+        filtered_bundle.chain,
+    ).index
+
+    def fail_full_scan(*args: object, **kwargs: object) -> tuple[object, ...]:
+        del args, kwargs
+        raise AssertionError("filtered comparison must not start a whole-chain scan")
+
+    monkeypatch.setattr(
+        "liftassess.resource_files._iter_chain_file_with_provenance",
+        fail_full_scan,
+    )
+
+    enriched = attach_filtered_all_chain_comparison(
+        report,
+        filtered_chain=filtered_chain,
+        filtered_chain_index=filtered_index,
+    )
+
+    comparison = enriched.filtered_all_chain_comparison
+    assert comparison is not None
+    assert (
+        comparison.relationship
+        is FilteredAllChainInventoryState.FILTERED_AND_ALL_CHAIN_AGREE
+    )
+    assert len(comparison.filtered_candidates) == 1
+    assert comparison.candidate_matches[0].all_chain_candidate_id == (
+        report.candidates[0].candidate_id
+    )
+    assert enriched.filtered_chain_comparison_resource is not None
+    assert (
+        comparison.filtered_chain_provenance.derived_from
+        == comparison.all_chain_provenance.derived_from
+        == (alignment,)
+    )
+    assert (
+        enriched.result_profile.scope.comparative_relationship.value == "NOT_ASSESSED"
+    )
+
+
+def test_filtered_all_chain_comparison_requires_prepared_filtered_index(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 105, 115),
+        _comparative_bundle(tmp_path),
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource(
+            "alignment",
+            "shared UCSC alignment",
+        ),
+    )
+    filtered_bundle = _liftover_bundle(tmp_path, _chain_text(chain_id=91))
+    filtered_chain = CachedUCSCChainResource(
+        source_db=filtered_bundle.source_db,
+        target_db=filtered_bundle.target_db,
+        evidence_tier=filtered_bundle.evidence_tier,
+        chain=filtered_bundle.chain,
+    )
+    executed = False
+
+    def fail_if_executed(*args: object, **kwargs: object) -> tuple[object, ...]:
+        nonlocal executed
+        del args, kwargs
+        executed = True
+        raise AssertionError("comparison execution must not start without an index")
+
+    monkeypatch.setattr(
+        (
+            "liftassess.orchestration."
+            "build_ucsc_chain_candidates_for_intervals_from_cached_chain"
+        ),
+        fail_if_executed,
+    )
+
+    with pytest.raises(ValueError, match="requires a prepared filtered-chain index"):
+        attach_filtered_all_chain_comparison(
+            report,
+            filtered_chain=filtered_chain,
+            filtered_chain_index=None,
+        )
+
+    assert executed is False
 
 
 def test_cached_comparative_bundle_runs_engine_and_profile_end_to_end(

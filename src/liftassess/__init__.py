@@ -15,6 +15,12 @@ from .chain_index import (
     load_cached_chain_index,
     load_chain_index,
 )
+from .comparative_inventory import (
+    FilteredAllChainCandidateMatch,
+    FilteredAllChainComparisonResult,
+    FilteredAllChainInventoryState,
+    build_filtered_all_chain_comparison,
+)
 from .engine import build_ucsc_candidates
 from .models import (
     AssemblyIdentifier,
@@ -41,6 +47,7 @@ from .orchestration import (
     UCSCAssessmentReport,
     UCSCAssessmentResource,
     assess_ucsc_cached_bundle,
+    attach_filtered_all_chain_comparison,
     attach_point_query_context,
     attach_query_context_result,
     attach_reverse_mapping_context,
@@ -155,6 +162,9 @@ __all__ = [
     "EvidenceObservation",
     "ExternalContextState",
     "FactualHeadline",
+    "FilteredAllChainCandidateMatch",
+    "FilteredAllChainComparisonResult",
+    "FilteredAllChainInventoryState",
     "GenomicInterval",
     "InputValidityState",
     "MappingCoverageStatus",
@@ -208,6 +218,7 @@ __all__ = [
     "acquire_ucsc_resource",
     "acquire_ucsc_resource_bundle",
     "assess_ucsc_cached_bundle",
+    "attach_filtered_all_chain_comparison",
     "attach_point_query_context",
     "attach_query_context_result",
     "attach_reverse_mapping_context",
@@ -216,6 +227,7 @@ __all__ = [
     "build_candidate_reverse_mapping_result",
     "build_centered_point_context_interval",
     "build_chain_index",
+    "build_filtered_all_chain_comparison",
     "build_result_profile",
     "build_reverse_mapping_results_from_cached_bundle",
     "build_reverse_mapping_results_from_cached_chain",

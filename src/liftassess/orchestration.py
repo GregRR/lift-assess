@@ -13,6 +13,10 @@ scientific evidence unless the engine consumed the resource.
 from dataclasses import dataclass, replace
 
 from .chain_index import ChainIndex
+from .comparative_inventory import (
+    FilteredAllChainComparisonResult,
+    build_filtered_all_chain_comparison,
+)
 from .models import (
     AssemblyIdentifier,
     EvidenceAvailabilityTier,
@@ -102,6 +106,8 @@ class UCSCAssessmentReport:
     reverse_mapping_results: tuple[CandidateReverseMappingResult, ...] | None = None
     reverse_alignment_provenance: ProvenanceSource | None = None
     reverse_mapping_resource: UCSCAssessmentResource | None = None
+    filtered_all_chain_comparison: FilteredAllChainComparisonResult | None = None
+    filtered_chain_comparison_resource: UCSCAssessmentResource | None = None
 
     def __post_init__(self) -> None:
         expected_roles = _resource_roles_for_tier(self.evidence_tier)
@@ -152,6 +158,7 @@ class UCSCAssessmentReport:
 
         self._validate_query_context()
         self._validate_reverse_mapping_context()
+        self._validate_filtered_all_chain_comparison()
 
         for resource in self.resources:
             if resource.file_provenance is not None and (
@@ -280,6 +287,61 @@ class UCSCAssessmentReport:
                     "unperformed reverse mapping cannot consume a resource"
                 )
 
+    def _validate_filtered_all_chain_comparison(self) -> None:
+        comparison = self.filtered_all_chain_comparison
+        resource = self.filtered_chain_comparison_resource
+        if comparison is None:
+            if resource is not None:
+                raise ValueError(
+                    "filtered-chain comparison resource requires comparison results"
+                )
+            return
+
+        if self.evidence_tier is not EvidenceAvailabilityTier.COMPARATIVE:
+            raise ValueError(
+                "filtered/all-chain comparison requires a COMPARATIVE forward report"
+            )
+        if resource is None or resource.file_provenance is None:
+            raise ValueError(
+                "filtered/all-chain comparison requires consumed filtered-chain "
+                "resource provenance"
+            )
+        if resource.role is not UCSCBundleResourceRole.CHAIN:
+            raise ValueError("filtered/all-chain comparison resource must be a chain")
+        if not resource.consumed_by_engine:
+            raise ValueError("filtered/all-chain comparison chain must be consumed")
+        if comparison.source_interval != self.source_interval:
+            raise ValueError(
+                "filtered/all-chain comparison source interval must match the report"
+            )
+        if comparison.all_chain_candidates != self.candidates:
+            raise ValueError(
+                "filtered/all-chain comparison all-chain inventory must match "
+                "the report"
+            )
+
+        all_chain_resource = next(
+            item for item in self.resources if item.role is UCSCBundleResourceRole.CHAIN
+        )
+        if all_chain_resource.file_provenance is None:
+            raise ValueError(
+                "filtered/all-chain comparison requires consumed all-chain provenance"
+            )
+        if comparison.all_chain_provenance != all_chain_resource.file_provenance:
+            raise ValueError(
+                "filtered/all-chain comparison must identify the report all-chain"
+            )
+        if comparison.filtered_chain_provenance != resource.file_provenance:
+            raise ValueError(
+                "filtered/all-chain comparison must identify the consumed filtered "
+                "chain"
+            )
+        if resource.file_provenance.derived_from != (self.alignment_provenance,):
+            raise ValueError(
+                "filtered-chain comparison provenance must preserve the report "
+                "alignment lineage"
+            )
+
 
 def assess_ucsc_cached_bundle(
     source_interval: GenomicInterval,
@@ -324,6 +386,80 @@ def assess_ucsc_cached_bundle(
         target_db=bundle.target_db,
         alignment_provenance=alignment_provenance,
         resources=resources,
+    )
+
+
+def attach_filtered_all_chain_comparison(
+    report: UCSCAssessmentReport,
+    *,
+    filtered_chain: CachedUCSCChainResource,
+    filtered_chain_index: ChainIndex | None,
+) -> UCSCAssessmentReport:
+    """Attach one indexed ordinary-filtered versus all-chain candidate inventory.
+
+    This first M21 slice is intentionally index-only.  A missing prepared filtered
+    chain index is an explicit precondition failure; it never falls back to an
+    exhaustive filtered-chain traversal.  Comparative interpretation from net/rbest
+    asymmetry is a later layer.
+    """
+
+    if report.filtered_all_chain_comparison is not None:
+        raise ValueError("filtered/all-chain comparison is already attached")
+    if report.evidence_tier is not EvidenceAvailabilityTier.COMPARATIVE:
+        raise ValueError(
+            "filtered/all-chain comparison requires a COMPARATIVE forward report"
+        )
+    if (
+        filtered_chain.source_db != report.source_db
+        or filtered_chain.target_db != report.target_db
+    ):
+        raise ValueError("filtered liftOver chain must match the forward database pair")
+    if filtered_chain.evidence_tier is not EvidenceAvailabilityTier.LIFTOVER_ONLY:
+        raise ValueError(
+            "filtered/all-chain comparison requires the ordinary filtered liftOver "
+            "chain publication class"
+        )
+    if filtered_chain_index is None:
+        raise ValueError(
+            "filtered/all-chain comparison requires a prepared filtered-chain index"
+        )
+
+    filtered_chain_provenance = _cached_chain_resource_provenance(
+        filtered_chain,
+        alignment_provenance=report.alignment_provenance,
+    )
+    filtered_candidates = build_ucsc_chain_candidates_for_intervals_from_cached_chain(
+        (report.source_interval,),
+        filtered_chain,
+        target_assembly=report.target_assembly,
+        alignment_provenance=report.alignment_provenance,
+        chain_index=filtered_chain_index,
+    )[0]
+
+    all_chain_resource = next(
+        item for item in report.resources if item.role is UCSCBundleResourceRole.CHAIN
+    )
+    if all_chain_resource.file_provenance is None:
+        raise ValueError(
+            "filtered/all-chain comparison requires consumed all-chain provenance"
+        )
+    comparison = build_filtered_all_chain_comparison(
+        report.source_interval,
+        report.candidates,
+        filtered_candidates,
+        all_chain_provenance=all_chain_resource.file_provenance,
+        filtered_chain_provenance=filtered_chain_provenance,
+    )
+    comparison_resource = UCSCAssessmentResource(
+        role=UCSCBundleResourceRole.CHAIN,
+        resource=filtered_chain.chain,
+        consumed_by_engine=True,
+        file_provenance=filtered_chain_provenance,
+    )
+    return replace(
+        report,
+        filtered_all_chain_comparison=comparison,
+        filtered_chain_comparison_resource=comparison_resource,
     )
 
 
