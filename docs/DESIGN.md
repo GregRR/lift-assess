@@ -217,9 +217,10 @@ filtered `LIFTOVER-ONLY`) and consumes forward-chain-derived evidence only. The 
 boundary enforces that scope: context candidates may carry chain score, mapping coverage, and
 chain-gap observations, but not net, reciprocal-best, or other non-chain evidence. The point/context
 relationship itself is derived from candidate identity and exact coverage, fragmentation, and target
-discontinuity. Partial coverage, fragmentation, and target discontinuity remain separate factual
-findings rather than being collapsed into one label; raw chain score is not used as rank, threshold,
-or vote. Net and reciprocal-best resources are not re-run for the neighborhood, even when they were
+discontinuity. A completed context check with no chain projection at either the point or neighborhood
+scale is represented explicitly rather than being labeled as mapped agreement. Partial coverage,
+fragmentation, and target discontinuity remain separate factual findings rather than being collapsed
+into one label; raw chain score is not used as rank, threshold, or vote. Net and reciprocal-best resources are not re-run for the neighborhood, even when they were
 consumed for the point-level `COMPARATIVE`
 assessment; the report labels this evidence scope explicitly. If a usable matching forward chain
 index or a safe indexed source-sequence bound is unavailable, context is `NOT_RUN` rather than

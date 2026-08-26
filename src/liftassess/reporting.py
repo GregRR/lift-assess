@@ -157,6 +157,11 @@ def _query_context_summary_lines(profile: QueryContextProfile) -> list[str]:
         return [prefix + "; local context reveals " + ", ".join(revealed_facts) + "."]
     if QueryContextFinding.CHANGES_WITH_QUERY_SCALE in findings:
         return [prefix + "; the chain-projection result changes with query scale."]
+    if QueryContextFinding.NO_PROJECTION_AT_EITHER_SCALE in findings:
+        return [
+            prefix + "; no chain projection was found for the point or anywhere in "
+            "the tested local context."
+        ]
     if QueryContextFinding.AGREES_WITH_POINT in findings:
         return [prefix + "; local context agrees with the point-level chain result."]
     raise ValueError("completed query context requires at least one factual finding")

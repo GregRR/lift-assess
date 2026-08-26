@@ -112,6 +112,7 @@ class QueryContextFinding(str, Enum):
     """Factual relationships between a point and its tested local context."""
 
     AGREES_WITH_POINT = "AGREES_WITH_POINT"
+    NO_PROJECTION_AT_EITHER_SCALE = "NO_PROJECTION_AT_EITHER_SCALE"
     REVEALS_PARTIAL_COVERAGE = "REVEALS_PARTIAL_COVERAGE"
     REVEALS_FRAGMENTATION = "REVEALS_FRAGMENTATION"
     REVEALS_TARGET_DISCONTINUITY = "REVEALS_TARGET_DISCONTINUITY"
@@ -416,7 +417,9 @@ def _query_context_profile(
         or reveals_target_discontinuity
     )
     findings: list[QueryContextFinding] = []
-    if not changes_with_scale:
+    if not point_candidate_ids and not context_candidate_ids:
+        findings.append(QueryContextFinding.NO_PROJECTION_AT_EITHER_SCALE)
+    elif not changes_with_scale:
         findings.append(QueryContextFinding.AGREES_WITH_POINT)
     if reveals_partial_coverage:
         findings.append(QueryContextFinding.REVEALS_PARTIAL_COVERAGE)

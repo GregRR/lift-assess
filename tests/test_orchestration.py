@@ -30,6 +30,7 @@ from liftassess import (
     sha256_identifier_for_file,
     ucsc_resource_terms,
 )
+from liftassess.reporting import render_assessment_summary
 
 
 def _write_gzip(path: Path, text: str) -> None:
@@ -549,6 +550,44 @@ def test_indexed_point_context_maps_clean_window_without_reusing_comparative_evi
         EvidenceKind.MAPPING_COVERAGE,
         EvidenceKind.CHAIN_GAPS,
     }
+
+
+def test_indexed_point_context_with_no_projection_at_either_scale_is_explicit(
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    bundle = _liftover_bundle(
+        tmp_path,
+        _chain_text(chain_id=17, start=0, length=300, target_start=500),
+    )
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(source, "chr1", 500, 501),
+        bundle,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+
+    enriched = attach_point_query_context(
+        report,
+        chain_context=CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        chain_index=index,
+    )
+
+    context = enriched.result_profile.query_context
+    assert report.candidates == ()
+    assert context.check_state is QueryContextState.RUN
+    assert context.candidate_profiles == ()
+    assert context.findings == (QueryContextFinding.NO_PROJECTION_AT_EITHER_SCALE,)
+    assert not context.point_and_local_context_map_together
+    summary = render_assessment_summary(enriched)
+    assert "no chain projection was found for the point" in summary
+    assert "agrees with the point-level chain result" not in summary
 
 
 def test_point_context_without_index_is_explicitly_not_run(tmp_path: Path) -> None:

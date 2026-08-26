@@ -20,8 +20,11 @@ from liftassess import (
     MappingSegment,
     NormalizedCandidate,
     OrientationState,
+    PointQueryContextResult,
     ProjectionCountState,
     ProvenanceSource,
+    QueryContextFinding,
+    QueryContextState,
     ReciprocalBestMembershipStatus,
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
@@ -36,11 +39,14 @@ SOURCE = GenomicInterval(SOURCE_ASSEMBLY, "chr1", 100, 200)
 ALIGNMENT = ProvenanceSource("alignment", "shared test alignment")
 CHAIN = ProvenanceSource("chain", "chain resource", derived_from=(ALIGNMENT,))
 RBEST = ProvenanceSource("rbest", "rbest resource", derived_from=(ALIGNMENT,))
+POINT = GenomicInterval(SOURCE_ASSEMBLY, "chr1", 150, 151)
+POINT_CONTEXT = GenomicInterval(SOURCE_ASSEMBLY, "chr1", 100, 201)
 
 
 def _candidate(
     candidate_id: str,
     *,
+    source_interval: GenomicInterval = SOURCE,
     source_spans: tuple[tuple[int, int], ...] = ((100, 200),),
     target_spans: tuple[tuple[int, int], ...] = ((1000, 1100),),
     orientation: MappingOrientation = MappingOrientation.SAME,
@@ -50,7 +56,12 @@ def _candidate(
 ) -> NormalizedCandidate:
     segments = tuple(
         MappingSegment(
-            GenomicInterval(SOURCE_ASSEMBLY, "chr1", source_start, source_end),
+            GenomicInterval(
+                source_interval.assembly,
+                source_interval.sequence_name,
+                source_start,
+                source_end,
+            ),
             GenomicInterval(TARGET_ASSEMBLY, "chrA", target_start, target_end),
         )
         for (source_start, source_end), (target_start, target_end) in zip(
@@ -59,13 +70,27 @@ def _candidate(
     )
     covered = sum(end - start for start, end in source_spans)
     uncovered: list[GenomicInterval] = []
-    cursor = SOURCE.start
+    cursor = source_interval.start
     for start, end in source_spans:
         if cursor < start:
-            uncovered.append(GenomicInterval(SOURCE_ASSEMBLY, "chr1", cursor, start))
+            uncovered.append(
+                GenomicInterval(
+                    source_interval.assembly,
+                    source_interval.sequence_name,
+                    cursor,
+                    start,
+                )
+            )
         cursor = end
-    if cursor < SOURCE.end:
-        uncovered.append(GenomicInterval(SOURCE_ASSEMBLY, "chr1", cursor, SOURCE.end))
+    if cursor < source_interval.end:
+        uncovered.append(
+            GenomicInterval(
+                source_interval.assembly,
+                source_interval.sequence_name,
+                cursor,
+                source_interval.end,
+            )
+        )
 
     coverage = EvidenceObservation(
         f"{candidate_id}:coverage",
@@ -73,7 +98,7 @@ def _candidate(
         MappingCoverageSummary(
             status=(
                 MappingCoverageStatus.FULL
-                if covered == SOURCE.length
+                if covered == source_interval.length
                 else MappingCoverageStatus.PARTIAL
             ),
             covered_source_bases=(
@@ -81,7 +106,7 @@ def _candidate(
                 if covered_source_bases_override is None
                 else covered_source_bases_override
             ),
-            source_bases=SOURCE.length,
+            source_bases=source_interval.length,
             uncovered_source_intervals=tuple(uncovered),
         ),
         CHAIN,
@@ -835,3 +860,86 @@ def test_reverse_mapping_query_geometry_must_match_forward_candidate() -> None:
             evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
             reverse_mapping_results=(mismatched,),
         )
+
+
+def test_point_context_zero_at_both_scales_is_not_called_agreement() -> None:
+    profile = build_result_profile(
+        POINT,
+        (),
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        query_context_result=PointQueryContextResult(
+            check_state=QueryContextState.RUN,
+            requested_window_bases=101,
+            tested_source_interval=POINT_CONTEXT,
+            candidates=(),
+        ),
+    )
+
+    context = profile.query_context
+    assert context.findings == (QueryContextFinding.NO_PROJECTION_AT_EITHER_SCALE,)
+    assert context.projection_count is ProjectionCountState.NONE
+    assert not context.point_and_local_context_map_together
+
+
+def test_point_context_mapped_agreement_requires_real_candidate() -> None:
+    point_candidate = _candidate(
+        "shared",
+        source_interval=POINT,
+        source_spans=((150, 151),),
+        target_spans=((1050, 1051),),
+    )
+    context_candidate = _candidate(
+        "shared",
+        source_interval=POINT_CONTEXT,
+        source_spans=((100, 201),),
+        target_spans=((1000, 1101),),
+    )
+    profile = build_result_profile(
+        POINT,
+        (point_candidate,),
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        query_context_result=PointQueryContextResult(
+            check_state=QueryContextState.RUN,
+            requested_window_bases=101,
+            tested_source_interval=POINT_CONTEXT,
+            candidates=(context_candidate,),
+        ),
+    )
+
+    context = profile.query_context
+    assert context.findings == (QueryContextFinding.AGREES_WITH_POINT,)
+    assert context.point_and_local_context_map_together
+
+
+def test_point_context_profile_keeps_structural_findings_independent() -> None:
+    point_candidate = _candidate(
+        "shared",
+        source_interval=POINT,
+        source_spans=((150, 151),),
+        target_spans=((1050, 1051),),
+    )
+    context_candidate = _candidate(
+        "shared",
+        source_interval=POINT_CONTEXT,
+        source_spans=((100, 160), (161, 201)),
+        target_spans=((1000, 1060), (1070, 1110)),
+        target_gaps=((1060, 1070),),
+    )
+    profile = build_result_profile(
+        POINT,
+        (point_candidate,),
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        query_context_result=PointQueryContextResult(
+            check_state=QueryContextState.RUN,
+            requested_window_bases=101,
+            tested_source_interval=POINT_CONTEXT,
+            candidates=(context_candidate,),
+        ),
+    )
+
+    assert set(profile.query_context.findings) == {
+        QueryContextFinding.REVEALS_PARTIAL_COVERAGE,
+        QueryContextFinding.REVEALS_FRAGMENTATION,
+        QueryContextFinding.REVEALS_TARGET_DISCONTINUITY,
+        QueryContextFinding.CHANGES_WITH_QUERY_SCALE,
+    }
