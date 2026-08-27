@@ -618,6 +618,70 @@ label. Automatic CLI results use a conservative UCSC source/target pair dependen
 these observations are not presented as independent votes; that grouping does not verify one exact
 provider processing run, and each consumed file remains independently content-addressed.
 
+#### M21 real-data reproducibility record
+
+The B12–B14 canFam3→canFam4 validation is committed as an offline, cache/index-only verifier:
+
+```bash
+uv run python scripts/verify_m21_b12_b14.py \
+  --cache-root ~/Library/Caches/liftassess
+```
+
+The verifier never downloads resources or builds indexes. It requires the exact recorded comparative
+bundle, the ordinary filtered liftOver chain, and prepared indexes for both chain files. If an index is
+missing, prepare it explicitly before running the verifier:
+
+```bash
+uv run prepare-liftassess-index \
+  canFam3 canFam4 \
+  --evidence-tier LIFTOVER-ONLY
+
+uv run prepare-liftassess-index \
+  canFam3 canFam4 \
+  --evidence-tier COMPARATIVE
+```
+
+The COMPARATIVE preparation is intentionally a one-time complete pass over the 2.47 GiB all-chain;
+the verifier itself must not trigger that work. On the 2017 Intel iMac validation machine on
+2026-08-26, the filtered-chain index took 9.74 seconds and the comparative index took 4,294.81
+seconds (71m 34.81s), producing 9.34 MiB and 3.85 GiB of derived index data respectively.
+
+Recorded expectations for the exact content-addressed fixture are:
+
+- **B12 — `chrX:26956239-26956239`:** one complete all-chain placement and one filtered
+  placement with matching geometry; `FILTERED_AND_ALL_CHAIN_AGREE`;
+  `NO_COMPETING_FULL_PLACEMENTS`; 101-bp context `AGREES_WITH_POINT`.
+- **B13 — `chr28:1484906-1484906`:** one complete all-chain placement and one filtered
+  placement with matching geometry; `FILTERED_AND_ALL_CHAIN_AGREE`;
+  `NO_COMPETING_FULL_PLACEMENTS`; 101-bp context `AGREES_WITH_POINT`.
+- **B14 — `chr5:31705136-31705136`:** nine complete all-chain placements and one filtered
+  placement; `ALL_CHAIN_REVEALS_ADDITIONAL_PLACEMENTS`; `FAVORS_ONE_PLACEMENT`. Chain 4
+  (`chr5:31912777`) is the filtered-retained placement and is the only complete placement with both
+  depth-1 top-net support and full reciprocal-best membership; the eight competing complete
+  placements have neither. The 101-bp context reports partial coverage, fragmentation, target
+  discontinuity, and a change with query scale among the additional mappings.
+
+These are reproducibility expectations for specific UCSC resource bytes, not biological ground truth
+or an estimate of how frequently these relationships occur. A changed resource hash requires a new
+validation record rather than silently treating the old expectations as current. A successful verifier
+run ends with output of this form:
+
+```text
+PASS B12: all_chain=1 filtered=1 relationship=NO_COMPETING_FULL_PLACEMENTS
+PASS B13: all_chain=1 filtered=1 relationship=NO_COMPETING_FULL_PLACEMENTS
+PASS B14: all_chain=9 filtered=1 relationship=FAVORS_ONE_PLACEMENT
+M21 B12-B14 verification: PASS
+```
+
+Two low-priority review observations are recorded rather than expanded into M21 scope:
+
+- the default-summary formatter only needs one nested level today; before a future feature adds deeper
+  summary nesting, replace the current binary indentation transform with an explicitly depth-aware
+  representation rather than relying on incidental leading spaces;
+- schema v2 keeps the interpreted per-placement comparative facts in `result_profile` and the raw
+  paired inventory in `filtered_all_chain_comparison`, so consumers join them by `candidate_id`; revisit
+  that ergonomics only in a deliberate future schema revision rather than changing schema v2 here.
+
 ### 22. BED/table batch input and cross-record relationships
 
 Add first-class BED/simple interval-table batch assessment only on top of shared traversal/indexed
