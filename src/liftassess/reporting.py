@@ -67,7 +67,7 @@ def render_assessment_summary(report: UCSCAssessmentReport) -> str:
 
     profile = report.result_profile
     lines = [
-        _headline_text(profile.headline),
+        f"* {_headline_text(profile.headline)} *",
         f"Source: {format_display_interval(profile.source_interval)}",
     ]
 
@@ -93,7 +93,30 @@ def render_assessment_summary(report: UCSCAssessmentReport) -> str:
         "Details: use --details for the full profile/evidence or --json for schema v2."
     )
     lines.append(_BIOLOGICAL_CORRECTNESS_CAVEAT)
-    return "\n".join(lines)
+    return "\n".join(_format_summary_lines(lines))
+
+
+def _format_summary_lines(lines: list[str]) -> list[str]:
+    formatted: list[str] = []
+    for line in lines:
+        stripped = line.lstrip(" ")
+        source_indent = len(line) - len(stripped)
+
+        if stripped.startswith("- "):
+            formatted.append("    " + stripped)
+            continue
+
+        if ": " not in stripped:
+            formatted.append(line)
+            continue
+
+        label, value = stripped.split(": ", maxsplit=1)
+        label_indent = 4 if source_indent else 0
+        prefix = " " * label_indent
+        formatted.append(f"{prefix}{label}:")
+        formatted.append(f"{prefix}    {value}")
+
+    return formatted
 
 
 def _single_candidate_summary_lines(

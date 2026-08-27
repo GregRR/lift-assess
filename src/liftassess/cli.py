@@ -239,6 +239,7 @@ def _run(
                     f"using full chain verification/traversal ({exc}).",
                     quiet=args.quiet,
                     stderr=stderr,
+                    indent=4,
                 )
 
         cache_progress_display = _CacheVerificationProgressDisplay(stderr=stderr)
@@ -319,6 +320,7 @@ def _run(
                 "Use --refresh to check current provider resources.",
                 quiet=args.quiet,
                 stderr=stderr,
+                indent=4,
             )
 
     if cached_bundle is None:
@@ -360,12 +362,14 @@ def _run(
                 f"using full chain traversal ({exc}).",
                 quiet=args.quiet,
                 stderr=stderr,
+                indent=4,
             )
     if chain_index is not None:
         _status(
             "Using verified cached chain index for candidate lookup.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
 
     _status("Assessing locus...", quiet=args.quiet, stderr=stderr)
@@ -399,6 +403,7 @@ def _run(
             f"Cached chain index query failed; retrying with full traversal ({exc}).",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         if progress_callback is not None:
             progress_display = _AssessmentProgressDisplay(
@@ -623,6 +628,7 @@ def _attach_cached_filtered_all_chain_comparison(
             "filtered liftOver chain was not refreshed automatically.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return report
 
@@ -638,6 +644,7 @@ def _attach_cached_filtered_all_chain_comparison(
             "liftOver chain is available; UCSC was not contacted.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return report
 
@@ -651,6 +658,7 @@ def _attach_cached_filtered_all_chain_comparison(
             "--rebuild.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return report
 
@@ -662,6 +670,7 @@ def _attach_cached_filtered_all_chain_comparison(
             "--evidence-tier LIFTOVER-ONLY; no full filtered-chain scan was started.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return report
 
@@ -678,6 +687,7 @@ def _attach_cached_filtered_all_chain_comparison(
             "match the validated index identity.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return report
 
@@ -686,6 +696,7 @@ def _attach_cached_filtered_all_chain_comparison(
         "prepared filtered-chain index...",
         quiet=args.quiet,
         stderr=stderr,
+        indent=4,
     )
     try:
         return attach_filtered_all_chain_comparison(
@@ -701,6 +712,7 @@ def _attach_cached_filtered_all_chain_comparison(
             "--rebuild; no full filtered-chain scan was started.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return report
 
@@ -727,6 +739,7 @@ def _attach_cached_point_query_context(
             f"{_human_evidence_tier(report.evidence_tier)}.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return attach_point_query_context(
             report,
@@ -745,6 +758,7 @@ def _attach_cached_point_query_context(
         "forward chain index...",
         quiet=args.quiet,
         stderr=stderr,
+        indent=4,
     )
     chain_context = CachedUCSCChainResource(
         source_db=cached_bundle.source_db,
@@ -768,6 +782,7 @@ def _attach_cached_point_query_context(
             f"{_human_evidence_tier(report.evidence_tier)} --rebuild.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return attach_query_context_result(
             report,
@@ -788,6 +803,7 @@ def _attach_cached_point_query_context(
             "no full chain fallback was started.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
     return enriched
 
@@ -819,6 +835,7 @@ def _attach_cached_reverse_mapping_context(
             "were not refreshed automatically.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return attach_reverse_mapping_results(report, not_run)
 
@@ -835,6 +852,7 @@ def _attach_cached_reverse_mapping_context(
             "class; UCSC was not contacted.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return attach_reverse_mapping_results(report, unavailable)
 
@@ -848,6 +866,7 @@ def _attach_cached_reverse_mapping_context(
             f"{_human_evidence_tier(report.evidence_tier)} --rebuild.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return attach_reverse_mapping_results(report, not_run)
 
@@ -860,6 +879,7 @@ def _attach_cached_reverse_mapping_context(
             "scan was started.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return attach_reverse_mapping_results(report, not_run)
 
@@ -876,6 +896,7 @@ def _attach_cached_reverse_mapping_context(
             "validated index identity.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return attach_reverse_mapping_results(report, unavailable)
 
@@ -884,6 +905,7 @@ def _attach_cached_reverse_mapping_context(
         f"{reverse_source_db}→{reverse_target_db} chain...",
         quiet=args.quiet,
         stderr=stderr,
+        indent=4,
     )
     reverse_alignment = _ucsc_pair_lineage_provenance(
         reverse_source_db, reverse_target_db
@@ -905,6 +927,7 @@ def _attach_cached_reverse_mapping_context(
             "was started.",
             quiet=args.quiet,
             stderr=stderr,
+            indent=4,
         )
         return attach_reverse_mapping_results(report, not_run)
 
@@ -1278,9 +1301,15 @@ def _confirm(prompt: str, *, stdin: TextIO, stderr: TextIO) -> bool:
     return response.strip().casefold() in {"y", "yes"}
 
 
-def _status(message: str, *, quiet: bool, stderr: TextIO) -> None:
+def _status(
+    message: str,
+    *,
+    quiet: bool,
+    stderr: TextIO,
+    indent: int = 0,
+) -> None:
     if not quiet:
-        print(message, file=stderr)
+        print(" " * indent + message, file=stderr)
 
 
 if __name__ == "__main__":  # pragma: no cover - console-script path is primary.

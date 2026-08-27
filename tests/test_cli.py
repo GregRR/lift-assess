@@ -224,8 +224,8 @@ def test_cli_runs_end_to_end_with_interactive_acknowledgements(
     exit_code = cli._run(args, stdin=stdin, stdout=stdout, stderr=stderr)
 
     assert exit_code == 0
-    assert "Source: chr1:101-120 (1-based inclusive)" in stdout.getvalue()
-    assert "Evidence: LIFTOVER-ONLY" in stdout.getvalue()
+    assert "Source:\n    chr1:101-120 (1-based inclusive)" in stdout.getvalue()
+    assert "Evidence:\n    LIFTOVER-ONLY" in stdout.getvalue()
     assert "This does not establish biological correctness." in stdout.getvalue()
     assert "UCSC terms to review" in stderr.getvalue()
     assert "Transfer plan: LIFTOVER_ONLY (1 resource(s))" in stderr.getvalue()
@@ -289,7 +289,7 @@ def test_run_uses_cached_indexed_reverse_chain_without_provider_access(
     assert exit_code == 0
     assert seen_tiers == [EvidenceAvailabilityTier.LIFTOVER_ONLY]
     assert (
-        "Reverse mapping: exactly reconstructs the original aligned source geometry"
+        "Reverse mapping:\n    exactly reconstructs the original aligned source geometry"
         in stdout.getvalue()
     )
     assert (
@@ -369,7 +369,7 @@ def test_run_reports_reverse_unavailable_without_matching_cached_chain(
 
     assert exit_code == 0
     assert (
-        "Reverse mapping: unavailable from the current prepared reverse resources"
+        "Reverse mapping:\n    unavailable from the current prepared reverse resources"
         in stdout.getvalue()
     )
     assert "UCSC was not contacted" in stderr.getvalue()
@@ -524,7 +524,7 @@ def test_run_marks_reverse_not_run_after_index_lookup_corruption(
     assert exit_code == 0
     assert "failed during lookup" in stderr.getvalue()
     assert "no full reverse-chain scan was started" in stderr.getvalue()
-    assert "Reverse mapping: not run" in stdout.getvalue()
+    assert "Reverse mapping:\n    not run" in stdout.getvalue()
 
 
 def test_run_marks_reverse_not_run_when_matching_chain_is_not_indexed(
@@ -559,7 +559,7 @@ def test_run_marks_reverse_not_run_when_matching_chain_is_not_indexed(
     assert exit_code == 0
     assert "no prepared index is available" in stderr.getvalue()
     assert "no full reverse-chain scan was started" in stderr.getvalue()
-    assert "Reverse mapping: not run" in stdout.getvalue()
+    assert "Reverse mapping:\n    not run" in stdout.getvalue()
 
 
 def test_cli_explicit_acknowledgement_flags_skip_prompts(
@@ -825,7 +825,7 @@ def test_main_runs_success_path_through_console_boundary(
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert "Evidence: LIFTOVER-ONLY" in captured.out
+    assert "Evidence:\n    LIFTOVER-ONLY" in captured.out
     assert "This does not establish biological correctness." in captured.out
     assert "UCSC terms to review" in captured.err
 
@@ -966,7 +966,7 @@ def test_comparative_cli_run_shares_pair_provenance_across_consumed_resources(
     exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=StringIO())
 
     assert exit_code == 0
-    assert "Evidence: COMPARATIVE" in stdout.getvalue()
+    assert "Evidence:\n    COMPARATIVE" in stdout.getvalue()
     assert len(reports) == 1
     report = reports[0]
     assert report.alignment_provenance.source_id == "ucsc-pair:canFam3:canFam4"
@@ -1146,9 +1146,10 @@ def test_comparative_cli_run_renders_paired_filtered_all_chain_result(
     )
 
     assert exit_code == 0
-    assert "Filtered/all-chain comparison: inventories agree" in stdout.getvalue()
-    assert "Comparing ordinary filtered liftOver and all-chain placements" in (
-        stderr.getvalue()
+    assert "Filtered/all-chain comparison:\n    inventories agree" in stdout.getvalue()
+    assert (
+        "\n    Comparing ordinary filtered liftOver and all-chain placements"
+        in stderr.getvalue()
     )
 
 
@@ -1686,7 +1687,7 @@ def test_run_retries_full_traversal_after_mid_query_index_corruption(
     assert seen_indexes == [built.index, None]
     assert progress_modes == [True, False]
     assert "retrying with full traversal" in stderr.getvalue()
-    assert "Source: chr1:101-120 (1-based inclusive)" in stdout.getvalue()
+    assert "Source:\n    chr1:101-120 (1-based inclusive)" in stdout.getvalue()
 
 
 def test_run_uses_validated_index_identity_to_skip_redundant_chain_rehash(
@@ -1892,7 +1893,11 @@ def test_cli_reuses_complete_verified_cache_without_provider_access(
     exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
 
     assert exit_code == 0
-    assert "Evidence: LIFTOVER-ONLY" in stdout.getvalue()
+    assert "Evidence:\n    LIFTOVER-ONLY" in stdout.getvalue()
+    assert (
+        "Checking/verifying local UCSC cache...\n    Using verified cached"
+        in stderr.getvalue()
+    )
     assert "UCSC was not contacted" in stderr.getvalue()
     assert "UCSC terms to review" not in stderr.getvalue()
 
@@ -2093,7 +2098,7 @@ def test_run_integrates_zero_candidate_progress_without_consuming_comparative_ev
     )
 
     assert exit_code == 0
-    assert "Chain projections: 0" in stdout.getvalue()
+    assert "Chain projections:\n    0" in stdout.getvalue()
     progress = stderr.getvalue()
     assert "Chain" in progress
     assert "100%" in progress

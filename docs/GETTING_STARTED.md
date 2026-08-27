@@ -135,19 +135,28 @@ operation.
 A concise uncomplicated report has this general shape:
 
 ```text
-ONE COMPLETE CHAIN PROJECTION
-Source: chr1:10000001-10000100 (1-based inclusive)
-Source coverage: 100/100 bases
-Target: chr1:10027740-10027839 (1-based inclusive; same orientation)
-Reverse mapping: exactly reconstructs the original aligned source geometry
-Evidence: COMPARATIVE — ...
-Interpretation: ...
-Scope: coordinate projection/structure assessed; variant/gene identity not assessed.
+* ONE COMPLETE CHAIN PROJECTION *
+Source:
+    chr1:10000001-10000100 (1-based inclusive)
+Source coverage:
+    100/100 bases
+Target:
+    chr1:10027740-10027839 (1-based inclusive; same orientation)
+Reverse mapping:
+    exactly reconstructs the original aligned source geometry
+Evidence:
+    COMPARATIVE — ...
+Interpretation:
+    ...
+Scope:
+    coordinate projection/structure assessed; variant/gene identity not assessed.
+Details:
+    use --details for the full profile/evidence or --json for schema v2.
 This does not establish biological correctness.
-Use --details for the complete factual profile and evidence dossier.
 ```
 
-The lines answer different questions.
+The default summary keeps each reported item label on its own line and indents the
+corresponding value by four spaces so the result remains easy to scan.
 
 ### Factual headline
 

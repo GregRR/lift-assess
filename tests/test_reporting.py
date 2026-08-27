@@ -388,11 +388,14 @@ def test_format_display_interval_makes_coordinate_convention_explicit() -> None:
 def test_clean_default_summary_is_compact_facts_first_and_verdict_free() -> None:
     summary = render_assessment_summary(_report((_candidate(42),)))
 
-    assert summary.splitlines()[:4] == [
-        "ONE COMPLETE CHAIN PROJECTION",
-        "Source: chr1:101-200 (1-based inclusive)",
-        "Source coverage: 100/100 source bases",
-        "Target: chrA:1001-1100 (1-based inclusive; same orientation)",
+    assert summary.splitlines()[:7] == [
+        "* ONE COMPLETE CHAIN PROJECTION *",
+        "Source:",
+        "    chr1:101-200 (1-based inclusive)",
+        "Source coverage:",
+        "    100/100 source bases",
+        "Target:",
+        "    chrA:1001-1100 (1-based inclusive; same orientation)",
     ]
     assert "Assessment:" not in summary
     assert "WELL SUPPORTED" not in summary
@@ -415,12 +418,12 @@ def test_partial_fragmented_summary_expands_with_exact_coverage_and_gaps() -> No
 
     summary = render_assessment_summary(report)
 
-    assert summary.startswith("PARTIAL AND FRAGMENTED PROJECTION")
-    assert "Source coverage: 80/100 source bases" in summary
-    assert "Geometric mapped segments: 2" in summary
-    assert "Uncovered source: chr1:151-160" in summary
+    assert summary.startswith("* PARTIAL AND FRAGMENTED PROJECTION *")
+    assert "Source coverage:\n    80/100 source bases" in summary
+    assert "Geometric mapped segments:\n    2" in summary
+    assert "Uncovered source:\n    chr1:151-160" in summary
     assert "chr1:191-200" in summary
-    assert "Target gaps: chrA:1051-1060" in summary
+    assert "Target gaps:\n    chrA:1051-1060" in summary
     assert "bounding span of 2 geometric mapped segments" in summary
 
 
@@ -442,12 +445,15 @@ def test_multiple_projection_summary_leads_with_coverage_before_count() -> None:
 
     lines = render_assessment_summary(report).splitlines()
 
-    assert lines[0] == "SOURCE INTERVAL SPLITS ACROSS MULTIPLE PROJECTIONS"
-    assert lines.index("Maximum candidate source coverage: 60/100 bases") < lines.index(
-        "Chain projections: 2"
+    assert lines[0] == "* SOURCE INTERVAL SPLITS ACROSS MULTIPLE PROJECTIONS *"
+    assert lines.index("Maximum candidate source coverage:") < lines.index(
+        "Chain projections:"
     )
-    assert "Source bases represented across all projections: 100/100" in lines
-    assert "Projection order: reproducibility only; not rank." in lines
+    assert "    60/100 bases" in lines
+    assert "Source bases represented across all projections:" in lines
+    assert "    100/100" in lines
+    assert "Projection order:" in lines
+    assert "    reproducibility only; not rank." in lines
 
 
 def test_large_multiple_projection_summary_is_bounded_without_candidate_sampling() -> (
@@ -466,15 +472,18 @@ def test_large_multiple_projection_summary_is_bounded_without_candidate_sampling
     summary = render_assessment_summary(report)
     lines = summary.splitlines()
 
-    assert "Chain projections: 5" in lines
-    assert "Target sequences represented: 1" in lines
-    assert "Projection orientations: SAME" in lines
-    assert "Geometric mapped segments per projection: 1" in lines
-    assert "Projections at maximum source coverage: 5" in lines
-    assert not any(line.startswith("  - ") for line in lines)
+    assert "Chain projections:" in lines
+    assert "    5" in lines
+    assert "Target sequences represented:" in lines
+    assert "    1" in lines
+    assert "Projection orientations:" in lines
+    assert "    SAME" in lines
+    assert "Geometric mapped segments per projection:" in lines
+    assert "Projections at maximum source coverage:" in lines
+    assert not any(line.startswith("    - ") for line in lines)
     assert (
-        "Projection details: omitted from default output for this candidate set; "
-        "use --details or --json for every projection." in lines
+        "    omitted from default output for this candidate set; use --details or "
+        "--json for every projection." in lines
     )
 
 
@@ -644,7 +653,7 @@ def test_comparative_summary_explains_why_one_placement_is_favored() -> None:
 
     assert "all-chain reveals 1 additional placement" in summary
     assert "available categorical evidence favors one placement" in summary
-    assert "Favored placement: chrA:1001-1100" in summary
+    assert "    Favored placement:\n        chrA:1001-1100" in summary
     assert (
         "only complete placement retained by the ordinary filtered liftOver chain"
         in summary
@@ -680,11 +689,17 @@ def test_mixed_comparative_summary_names_the_conflicting_placements() -> None:
         is ComparativeEvidenceRelationship.MIXED_CONFLICTING
     )
     assert "available categorical evidence is mixed/conflicting" in summary
-    assert "Complete placements retained by filtered chain: chrA:1001-1100" in summary
-    assert "Complete placements with depth-1 top-net support: chrA:3001-3100" in summary
     assert (
-        "Complete placements with full reciprocal-best membership: chrA:3001-3100"
+        "    Complete placements retained by filtered chain:\n        chrA:1001-1100"
         in summary
+    )
+    assert (
+        "    Complete placements with depth-1 top-net support:\n        chrA:3001-3100"
+        in summary
+    )
+    assert (
+        "    Complete placements with full reciprocal-best membership:\n"
+        "        chrA:3001-3100" in summary
     )
 
 
@@ -712,11 +727,16 @@ def test_nonseparating_comparative_summary_exposes_missing_category_support() ->
         is ComparativeEvidenceRelationship.DOES_NOT_SEPARATE_PLACEMENTS
     )
     assert "does not separate the complete placements" in summary
-    assert "Complete placements retained by filtered chain: chrA:1001-1100" in summary
-    assert "Complete placements with depth-1 top-net support: none" in summary
     assert (
-        "Complete placements with full reciprocal-best membership: chrA:1001-1100"
+        "    Complete placements retained by filtered chain:\n        chrA:1001-1100"
         in summary
+    )
+    assert (
+        "    Complete placements with depth-1 top-net support:\n        none" in summary
+    )
+    assert (
+        "    Complete placements with full reciprocal-best membership:\n"
+        "        chrA:1001-1100" in summary
     )
 
 
