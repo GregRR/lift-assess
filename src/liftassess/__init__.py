@@ -18,6 +18,7 @@ from .chain_index import (
 from .comparative_inventory import (
     FilteredAllChainCandidateMatch,
     FilteredAllChainComparisonResult,
+    FilteredAllChainCorrespondenceError,
     FilteredAllChainInventoryState,
     build_filtered_all_chain_comparison,
 )
@@ -177,6 +178,7 @@ __all__ = [
     "FactualHeadline",
     "FilteredAllChainCandidateMatch",
     "FilteredAllChainComparisonResult",
+    "FilteredAllChainCorrespondenceError",
     "FilteredAllChainInventoryState",
     "GenomicInterval",
     "InputValidityState",

@@ -200,6 +200,13 @@ categorical top-net + full reciprocal-best support.
 
 `ali` and `qDup` remain reported observations initially, not hidden weights or thresholds.
 
+Filtered/all-chain synthesis requires geometry-safe correspondence. The ordinary UCSC `over.chain`
+publication is produced by subsetting all-chain records to net fills and can therefore contain a
+clipped portion of an original chain. If a filtered candidate cannot be paired to identical local
+all-chain geometry, liftAssess must leave the comparative relationship unassessed rather than treat
+the mismatch as scientific disagreement or abort the already-valid primary assessment. Defining a
+future contained/subset-geometry relationship requires a separate explicit rule.
+
 A human-facing result must never stop at a vague statement such as `COMPARATIVE EVIDENCE IS MIXED`.
 It must state *how* the evidence is mixed: which placement is retained by the filtered chain, which
 has top-net support, which has reciprocal-best membership, and which observations conflict or fail

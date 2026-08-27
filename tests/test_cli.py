@@ -1153,6 +1153,88 @@ def test_comparative_cli_run_renders_paired_filtered_all_chain_result(
     )
 
 
+def test_comparative_cli_preserves_primary_result_when_filtered_geometry_is_clipped(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    comparative_dir = tmp_path / "comparative-clipped-filtered"
+    comparative_dir.mkdir()
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(
+            AssemblyIdentifier(name=_SOURCE_DB, provider="UCSC"),
+            "chr1",
+            100,
+            120,
+        ),
+        _comparative_cached_bundle(comparative_dir),
+        target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
+        alignment_provenance=cli._ucsc_pair_lineage_provenance(_SOURCE_DB, _TARGET_DB),
+    )
+
+    filtered_dir = tmp_path / "filtered-clipped"
+    filtered_dir.mkdir()
+    filtered_path = filtered_dir / "chain.gz"
+    filtered_text = "chain 100 chr1 1000 + 105 115 chrA 2000 + 505 515 1\n10\n\n"
+    with gzip.open(filtered_path, mode="wt", encoding="utf-8", newline="") as handle:
+        handle.write(filtered_text)
+    filtered_resource = CachedResource(
+        path=filtered_path,
+        source_url=_CHAIN_URL,
+        retrieved_at="2026-08-16T00:00:00Z",
+        sha256=sha256_identifier_for_file(filtered_path).value,
+        size_bytes=filtered_path.stat().st_size,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(_CHAIN_URL),
+        cache_hit=False,
+    )
+    filtered_chain = CachedUCSCChainResource(
+        source_db=_SOURCE_DB,
+        target_db=_TARGET_DB,
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        chain=filtered_resource,
+    )
+    filtered_index = build_cached_chain_index(
+        tmp_path / "filtered-clipped-index-cache",
+        filtered_resource,
+    ).index
+
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        lambda *args, **kwargs: filtered_chain,
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_cached_chain_index",
+        lambda *args, **kwargs: filtered_index,
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_chain_resource",
+        lambda *args, **kwargs: filtered_chain,
+    )
+    args = cli._build_parser().parse_args(
+        [_SOURCE_DB, _TARGET_DB, "chr1:101-120", "--offline"]
+    )
+    stderr = StringIO()
+
+    unchanged = cli._attach_cached_filtered_all_chain_comparison(
+        report,
+        args=args,
+        cache_root=tmp_path / "cache",
+        stderr=stderr,
+    )
+
+    assert unchanged is report
+    assert unchanged.filtered_all_chain_comparison is None
+    assert (
+        unchanged.result_profile.scope.comparative_relationship
+        is ComparativeRelationshipState.NOT_ASSESSED
+    )
+    assert "could not be paired safely" in stderr.getvalue()
+    assert "primary assessment remains valid" in stderr.getvalue()
+
+
 def test_comparative_cli_skips_filtered_comparison_without_prepared_index(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

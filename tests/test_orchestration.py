@@ -16,6 +16,7 @@ from liftassess import (
     EvidenceKind,
     EvidenceObservation,
     FactualHeadline,
+    FilteredAllChainCorrespondenceError,
     FilteredAllChainInventoryState,
     GenomicInterval,
     MappingSegment,
@@ -242,6 +243,44 @@ def test_filtered_all_chain_comparison_uses_prepared_filtered_index(
         0
     ]
     assert first_support.candidate_id == report.candidates[0].candidate_id
+
+
+def test_filtered_all_chain_comparison_reports_net_clipped_geometry_as_unpairable(
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    source_interval = GenomicInterval(source, "chr1", 100, 120)
+    alignment = ProvenanceSource("alignment", "shared UCSC dependency group")
+    report = assess_ucsc_cached_bundle(
+        source_interval,
+        _comparative_bundle(tmp_path),
+        target_assembly=target,
+        alignment_provenance=alignment,
+    )
+    filtered_bundle = _liftover_bundle(
+        tmp_path,
+        _chain_text(chain_id=1, start=105, length=10, target_start=505),
+    )
+    filtered_chain = CachedUCSCChainResource(
+        source_db=filtered_bundle.source_db,
+        target_db=filtered_bundle.target_db,
+        evidence_tier=filtered_bundle.evidence_tier,
+        chain=filtered_bundle.chain,
+    )
+    filtered_index = build_cached_chain_index(
+        tmp_path / "filtered-clipped-index",
+        filtered_bundle.chain,
+    ).index
+
+    with pytest.raises(
+        FilteredAllChainCorrespondenceError,
+        match="cannot be paired to identical all-chain geometry",
+    ):
+        attach_filtered_all_chain_comparison(
+            report,
+            filtered_chain=filtered_chain,
+            filtered_chain_index=filtered_index,
+        )
 
 
 def test_comparative_profile_survives_reverse_context_rebuild(tmp_path: Path) -> None:

@@ -6,6 +6,7 @@ import pytest
 
 from liftassess import (
     AssemblyIdentifier,
+    FilteredAllChainCorrespondenceError,
     FilteredAllChainInventoryState,
     GenomicInterval,
     MappingOrientation,
@@ -203,7 +204,10 @@ def test_filtered_placement_missing_from_all_chain_is_invariant_failure() -> Non
         target_start=700,
     )
 
-    with pytest.raises(ValueError, match="missing from the all-chain inventory"):
+    with pytest.raises(
+        FilteredAllChainCorrespondenceError,
+        match="cannot be paired to identical all-chain geometry",
+    ):
         build_filtered_all_chain_comparison(
             SOURCE_INTERVAL,
             (all_chain,),
@@ -218,7 +222,10 @@ def test_orientation_mismatch_is_inconsistent_geometry() -> None:
     filtered = _candidate("filtered", provenance=FILTERED_CHAIN)
     filtered = replace(filtered, orientation=MappingOrientation.REVERSE)
 
-    with pytest.raises(ValueError, match="missing from the all-chain inventory"):
+    with pytest.raises(
+        FilteredAllChainCorrespondenceError,
+        match="cannot be paired to identical all-chain geometry",
+    ):
         build_filtered_all_chain_comparison(
             SOURCE_INTERVAL,
             (all_chain,),

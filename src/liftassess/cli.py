@@ -23,6 +23,7 @@ from typing import TextIO
 
 from .chain_index import ChainIndex, ChainIndexCorruptionError, load_cached_chain_index
 from .cli_input import parse_ucsc_locus, ucsc_assembly_identifier
+from .comparative_inventory import FilteredAllChainCorrespondenceError
 from .models import EvidenceAvailabilityTier, ProvenanceSource
 from .orchestration import (
     UCSCAssessmentReport,
@@ -710,6 +711,16 @@ def _attach_cached_filtered_all_chain_comparison(
             f"failed during lookup ({exc}). Rebuild it with prepare-liftassess-index "
             f"{report.source_db} {report.target_db} --evidence-tier LIFTOVER-ONLY "
             "--rebuild; no full filtered-chain scan was started.",
+            quiet=args.quiet,
+            stderr=stderr,
+            indent=4,
+        )
+        return report
+    except FilteredAllChainCorrespondenceError as exc:
+        _status(
+            "Filtered/all-chain comparison not run: filtered-chain geometry could "
+            f"not be paired safely to the all-chain inventory ({exc}). The primary "
+            "assessment remains valid; no comparative relationship was synthesized.",
             quiet=args.quiet,
             stderr=stderr,
             indent=4,

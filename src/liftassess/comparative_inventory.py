@@ -23,6 +23,10 @@ from ._candidate_geometry import (
 from .models import GenomicInterval, NormalizedCandidate, ProvenanceSource
 
 
+class FilteredAllChainCorrespondenceError(ValueError):
+    """Raised when filtered and all-chain placements cannot be paired safely."""
+
+
 class FilteredAllChainInventoryState(str, Enum):
     """Factual relationship between filtered and all-chain candidate inventories."""
 
@@ -170,10 +174,11 @@ def build_filtered_all_chain_comparison(
 ) -> FilteredAllChainComparisonResult:
     """Pair filtered candidates to all-chain candidates by canonical geometry.
 
-    Every filtered placement must exist in the all-chain inventory.  A missing or
-    geometrically inconsistent filtered placement is an invariant failure rather than
-    a third scientific relationship state: the ordinary filtered chain is expected to
-    be a restricted publication derived from the same UCSC alignment lineage.
+    Every filtered placement must have exactly matching canonical geometry in the
+    all-chain inventory before liftAssess will synthesize a comparative relationship.
+    UCSC's ordinary liftOver-chain construction can clip an original chain to net-fill
+    boundaries, so a mismatch is a correspondence limitation, not evidence that the
+    primary assessment is invalid.
     """
 
     if source_interval.length <= 0:
@@ -208,8 +213,9 @@ def build_filtered_all_chain_comparison(
             canonical_mapping_geometry(filtered_candidate)
         )
         if all_chain_candidate is None:
-            raise ValueError(
-                "filtered-chain placement is missing from the all-chain inventory: "
+            raise FilteredAllChainCorrespondenceError(
+                "filtered-chain placement cannot be paired to identical all-chain "
+                "geometry: "
                 f"{filtered_candidate.candidate_id!r}"
             )
         matches.append(
