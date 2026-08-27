@@ -160,5 +160,6 @@ work/
 ### Project Specific ###
 my-notes/
 .liftassess-local/
+.claudeignore
 .working-docs/
 
