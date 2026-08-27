@@ -243,7 +243,7 @@ def test_comparison_rejects_distinct_upstream_lineages() -> None:
         derived_from=(unrelated,),
     )
 
-    with pytest.raises(ValueError, match="same upstream alignment lineage"):
+    with pytest.raises(ValueError, match="same upstream dependency group"):
         build_filtered_all_chain_comparison(
             SOURCE_INTERVAL,
             (),

@@ -177,7 +177,7 @@ Tells you what kind of evidence liftAssess examined for this assembly pair and w
 - `COMPARATIVE` means comparative UCSC resources were available for the current evidence path.
 - `LIFTOVER-ONLY` means only directional chain mapping evidence was available.
 
-These are evidence-availability concepts, **not confidence tiers**. For `COMPARATIVE`, the report also warns that UCSC-derived observations may share upstream alignment lineage and are not independent votes.
+These are evidence-availability concepts, **not confidence tiers**. For `COMPARATIVE`, the report also warns that UCSC-derived observations are conservatively treated as dependent, not independent votes, and exact shared processing-run provenance is not verified.
 
 ### `Reverse mapping`
 

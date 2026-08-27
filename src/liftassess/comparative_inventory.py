@@ -82,7 +82,7 @@ class FilteredAllChainComparisonResult:
             self.filtered_chain_provenance,
             label="filtered-chain",
         )
-        _validate_shared_alignment_lineage(
+        _validate_shared_dependency_group(
             self.all_chain_provenance,
             self.filtered_chain_provenance,
         )
@@ -197,7 +197,7 @@ def build_filtered_all_chain_comparison(
         label="filtered-chain",
     )
 
-    _validate_shared_alignment_lineage(
+    _validate_shared_dependency_group(
         all_chain_provenance,
         filtered_chain_provenance,
     )
@@ -265,7 +265,7 @@ def _validate_candidate_ids(candidate_ids: tuple[str, ...], *, label: str) -> No
         raise ValueError(f"{label} candidate IDs must be unique")
 
 
-def _validate_shared_alignment_lineage(
+def _validate_shared_dependency_group(
     all_chain_provenance: ProvenanceSource,
     filtered_chain_provenance: ProvenanceSource,
 ) -> None:
@@ -275,7 +275,7 @@ def _validate_shared_alignment_lineage(
     ):
         raise ValueError(
             "filtered and all-chain provenance must preserve the same upstream "
-            "alignment lineage"
+            "dependency group"
         )
 
 

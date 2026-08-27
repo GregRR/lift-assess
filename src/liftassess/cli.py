@@ -384,7 +384,7 @@ def _run(
         progress_display.start()
         progress_callback = progress_display.update
 
-    alignment_provenance = _ucsc_pair_lineage_provenance(
+    alignment_provenance = _ucsc_pair_dependency_provenance(
         args.source_db,
         args.target_db,
     )
@@ -592,21 +592,22 @@ def _human_evidence_tier(tier: EvidenceAvailabilityTier) -> str:
     return tier.value.replace("_", "-")
 
 
-def _ucsc_pair_lineage_provenance(source_db: str, target_db: str) -> ProvenanceSource:
-    """Return the conservative shared-dependency node used by the automatic CLI.
+def _ucsc_pair_dependency_provenance(
+    source_db: str, target_db: str
+) -> ProvenanceSource:
+    """Return the conservative pair-level dependency node used by the automatic CLI.
 
-    The CLI cannot infer exact upstream process provenance from downloaded bytes.  It
-    therefore groups consumed resources for one UCSC assembly direction under a single
-    pair-level lineage node so related observations are not presented as independent
-    confirmation.  This deliberately conservative dependency statement does not replace
-    the exact content-addressed provenance recorded for each consumed file.
+    Exact per-file bytes are content-addressed independently.  The CLI cannot infer from
+    those bytes whether separately published UCSC resources came from one exact provider
+    processing run, so this node only groups resources for the same UCSC assembly
+    direction to prevent them from being presented as independent confirmation.
     """
 
     return ProvenanceSource(
         source_id=f"ucsc-pair:{source_db}:{target_db}",
         label=(
-            f"Conservative shared UCSC {source_db}→{target_db} resource lineage "
-            "(liftAssess CLI dependency grouping)"
+            f"Conservative UCSC {source_db}→{target_db} pair-level dependency group "
+            "(liftAssess CLI; exact provider processing-run provenance not inferred)"
         ),
     )
 
@@ -918,7 +919,7 @@ def _attach_cached_reverse_mapping_context(
         stderr=stderr,
         indent=4,
     )
-    reverse_alignment = _ucsc_pair_lineage_provenance(
+    reverse_alignment = _ucsc_pair_dependency_provenance(
         reverse_source_db, reverse_target_db
     )
     try:

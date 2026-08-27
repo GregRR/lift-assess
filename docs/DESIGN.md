@@ -200,6 +200,13 @@ categorical top-net + full reciprocal-best support.
 
 `ali` and `qDup` remain reported observations initially, not hidden weights or thresholds.
 
+When two or more complete placements have equivalent joint depth-1 top-net + full
+reciprocal-best support, a unique ordinary filtered-chain retention does **not** turn that
+placement into `favors one placement`. The categorical evidence does not separate those
+placements, so the relationship is `does not separate placements` unless another evidence
+family uniquely identifies a conflicting placement. This records the boundary explicitly:
+ordinary filtered retention is one categorical relationship, not a hidden chain-score tie-break.
+
 Filtered/all-chain synthesis requires geometry-safe correspondence. The ordinary UCSC `over.chain`
 publication is produced by subsetting all-chain records to net fills and can therefore contain a
 clipped portion of an original chain. If a filtered candidate cannot be paired to identical local
@@ -210,7 +217,14 @@ future contained/subset-geometry relationship requires a separate explicit rule.
 A human-facing result must never stop at a vague statement such as `COMPARATIVE EVIDENCE IS MIXED`.
 It must state *how* the evidence is mixed: which placement is retained by the filtered chain, which
 has top-net support, which has reciprocal-best membership, and which observations conflict or fail
-to separate candidates. Shared UCSC lineage remains explicit; these are not independent votes.
+to separate candidates. Automatic CLI results conservatively group UCSC resources for one source/target database
+direction as dependent evidence so they are not presented as independent votes. That pair-level
+dependency group does **not** verify that separately published files came from one exact UCSC
+processing run; exact consumed files remain independently SHA-256 identified. Retrieval timestamps,
+HTTP `Last-Modified`, and `ETag` values may describe individual representations but are not, by
+themselves, evidence that two different resources came from the same provider processing run.
+liftAssess therefore does not infer cross-resource version coherence from an arbitrary time window.
+A stronger claim requires provider metadata that explicitly identifies a shared run/publication.
 
 ### 4.5 Point-query local context
 
@@ -744,10 +758,12 @@ suppresses nonessential progress. Interactive transfer/cache-verification/assess
 measured from actual bytes and is terminal-only; it must not fabricate biological/algorithmic
 completion percentages or ETAs.
 
-For automatic UCSC runs, consumed UCSC files remain conservatively grouped under their shared
-upstream lineage for dependency purposes while each exact file is identified independently by
-SHA-256. This prevents chain/net/reciprocal-best observations from reading as independent
-confirmation without claiming more provider-process history than the downloaded bytes establish.
+For automatic UCSC runs, consumed UCSC files are conservatively grouped by source/target
+database direction for dependency purposes while each exact file is identified independently by
+SHA-256. The pair-level group is intentionally **not** evidence that separately published files
+came from one exact UCSC processing run. This prevents chain/net/reciprocal-best observations from
+reading as independent confirmation without claiming provider-process history that liftAssess
+cannot verify from the downloaded resources.
 
 **Legacy implementation note:** v0.1.0a1 emitted schema v1 with
 `WELL_SUPPORTED`/`CONTESTED`/`INDETERMINATE`, `decision_reason`, and the legacy default summary.

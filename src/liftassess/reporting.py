@@ -522,16 +522,18 @@ def _comparative_detail_lines(report: UCSCAssessmentReport) -> list[str]:
             )
         ),
         (
-            "  Shared alignment lineage: "
+            "  UCSC pair dependency group: "
             + ", ".join(
                 parent.source_id
                 for parent in comparison.all_chain_provenance.derived_from
             )
         ),
+        "  Exact shared processing-run provenance: not verified",
         (
             "  Dependency note: filtered chain, net, and reciprocal-best observations "
-            "are categorical relationships within UCSC-derived alignment lineage, not "
-            "independent votes."
+            "are conservatively grouped as dependent UCSC-derived evidence, not "
+            "independent votes; the pair group does not prove that the files came from one "
+            "processing run."
         ),
         "  Placement support (all-chain order is reproducibility only, not rank):",
     ]
@@ -568,8 +570,9 @@ def _evidence_summary(profile: ResultProfile) -> str:
         return f"LIFTOVER-ONLY — consumed {roles}; chain mapping evidence only"
     if profile.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
         return (
-            f"COMPARATIVE — consumed {roles}; UCSC-derived observations may share "
-            "upstream alignment lineage and are not independent votes"
+            f"COMPARATIVE — consumed {roles}; UCSC-derived observations are "
+            "conservatively treated as dependent, not independent votes; exact shared "
+            "processing-run provenance is not verified"
         )
     raise ValueError(
         f"unsupported evidence availability tier: {profile.evidence_tier!r}"
@@ -783,6 +786,9 @@ def render_assessment_json(report: UCSCAssessmentReport) -> str:
             "result_dimensions": "orthogonal_not_votes",
             "comparative_relationships": "categorical_not_scores_or_votes",
             "provenance_edges": "dependence_not_independent_confirmation",
+            "ucsc_pair_dependency_group": (
+                "conservative_grouping_not_processing_run_proof"
+            ),
         },
         "ucsc_database_pair": {
             "source_db": report.source_db,
@@ -931,10 +937,11 @@ def _filtered_all_chain_comparison_json(
         "provenance": {
             "all_chain_source_id": comparison.all_chain_provenance.source_id,
             "filtered_chain_source_id": comparison.filtered_chain_provenance.source_id,
-            "shared_alignment_lineage_source_ids": [
+            "shared_ucsc_pair_dependency_source_ids": [
                 parent.source_id
                 for parent in comparison.all_chain_provenance.derived_from
             ],
+            "shared_processing_run_provenance_verified": False,
         },
     }
 

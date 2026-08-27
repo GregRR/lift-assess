@@ -370,7 +370,7 @@ class UCSCAssessmentReport:
         if resource.file_provenance.derived_from != (self.alignment_provenance,):
             raise ValueError(
                 "filtered-chain comparison provenance must preserve the report "
-                "alignment lineage"
+                "dependency provenance"
             )
         expected_relationship = build_comparative_evidence_relationship(comparison)
         if relationship != expected_relationship:

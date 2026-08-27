@@ -131,9 +131,10 @@ Reciprocal-best membership is categorical:
 reciprocal-best material is complete for the relevant scope. An arbitrary partial scan
 is not treated as evidence of absence.
 
-Net and reciprocal-best observations retain provenance linking them to their upstream
-resources and shared alignment lineage. Multiple observations derived from a shared
-upstream alignment are therefore not presented as independent confirmation.
+Net and reciprocal-best observations retain provenance linking them to their exact upstream
+resources. In automatic CLI runs, UCSC resources for one source/target database direction are
+conservatively grouped as dependent evidence so they are not presented as independent
+confirmation. That pair-level grouping does not verify one exact UCSC processing run.
 
 ### Evidence-kind implementation matrix
 
@@ -222,7 +223,7 @@ The default CLI output is a facts-first progressive summary containing:
 
 Uncomplicated one-complete-projection cases stay compact. The current first slice expands automatically for partial source coverage, fragmented or target-discontinuous geometry, and multiple projections.
 
-For `COMPARATIVE` results, the summary states that UCSC-derived comparative observations may share upstream alignment lineage and are not independent votes.
+For `COMPARATIVE` results, the summary states that UCSC-derived comparative observations are conservatively treated as dependent and that exact shared processing-run provenance is not verified.
 
 `--details` emits the complete currently available factual dossier, including:
 

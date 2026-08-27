@@ -244,6 +244,47 @@ def test_equivalent_joint_support_on_competitor_does_not_separate_placements() -
     )
 
 
+def test_multiple_filtered_retained_placements_do_not_favor_one() -> None:
+    retained_full = _candidate(
+        "retained-full",
+        target_sequence="chr5",
+        target_start=500,
+        top_net=True,
+        full_rbest=True,
+    )
+    retained_partial = _candidate(
+        "retained-partial",
+        target_sequence="chr7",
+        target_start=600,
+        full=False,
+    )
+    competitor = _candidate(
+        "competitor",
+        target_sequence="chr25",
+        target_start=700,
+    )
+    comparison = build_filtered_all_chain_comparison(
+        SOURCE_INTERVAL,
+        (retained_full, retained_partial, competitor),
+        (
+            _filtered_for(retained_full, "filtered-full"),
+            _filtered_for(retained_partial, "filtered-partial"),
+        ),
+        all_chain_provenance=ALL_CHAIN,
+        filtered_chain_provenance=FILTERED_CHAIN,
+    )
+
+    result = build_comparative_evidence_relationship(comparison)
+
+    assert (
+        result.relationship
+        is ComparativeEvidenceRelationship.DOES_NOT_SEPARATE_PLACEMENTS
+    )
+    assert result.filtered_retained_full_candidate_ids == ("retained-full",)
+    assert result.joint_top_net_full_rbest_candidate_ids == ("retained-full",)
+    assert result.favored_candidate_id is None
+
+
 def test_unique_joint_support_conflicting_with_filtered_retention_is_mixed() -> None:
     retained = _candidate("retained", target_sequence="chr5", target_start=500)
     competitor = _candidate(

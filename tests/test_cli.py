@@ -1002,7 +1002,9 @@ def test_comparative_cli_attaches_filtered_all_chain_from_prepared_index(
         ),
         _comparative_cached_bundle(comparative_dir),
         target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
-        alignment_provenance=cli._ucsc_pair_lineage_provenance(_SOURCE_DB, _TARGET_DB),
+        alignment_provenance=cli._ucsc_pair_dependency_provenance(
+            _SOURCE_DB, _TARGET_DB
+        ),
     )
     filtered_bundle = _cached_bundle(filtered_dir)
     filtered_chain = CachedUCSCChainResource(
@@ -1168,7 +1170,9 @@ def test_comparative_cli_preserves_primary_result_when_filtered_geometry_is_clip
         ),
         _comparative_cached_bundle(comparative_dir),
         target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
-        alignment_provenance=cli._ucsc_pair_lineage_provenance(_SOURCE_DB, _TARGET_DB),
+        alignment_provenance=cli._ucsc_pair_dependency_provenance(
+            _SOURCE_DB, _TARGET_DB
+        ),
     )
 
     filtered_dir = tmp_path / "filtered-clipped"
@@ -1252,7 +1256,9 @@ def test_comparative_cli_skips_filtered_comparison_without_prepared_index(
         ),
         _comparative_cached_bundle(comparative_dir),
         target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
-        alignment_provenance=cli._ucsc_pair_lineage_provenance(_SOURCE_DB, _TARGET_DB),
+        alignment_provenance=cli._ucsc_pair_dependency_provenance(
+            _SOURCE_DB, _TARGET_DB
+        ),
     )
     filtered_bundle = _cached_bundle(filtered_dir)
     filtered_chain = CachedUCSCChainResource(
@@ -1318,7 +1324,9 @@ def test_comparative_cli_refresh_does_not_mix_unrefreshed_filtered_chain(
         ),
         _comparative_cached_bundle(comparative_dir),
         target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
-        alignment_provenance=cli._ucsc_pair_lineage_provenance(_SOURCE_DB, _TARGET_DB),
+        alignment_provenance=cli._ucsc_pair_dependency_provenance(
+            _SOURCE_DB, _TARGET_DB
+        ),
     )
     called = False
 
@@ -1348,10 +1356,12 @@ def test_comparative_cli_refresh_does_not_mix_unrefreshed_filtered_chain(
     assert "not run during --refresh" in stderr.getvalue()
 
 
-def test_pair_lineage_is_stable_per_direction_and_distinct_across_pairs() -> None:
-    first = cli._ucsc_pair_lineage_provenance("canFam3", "canFam4")
-    repeated = cli._ucsc_pair_lineage_provenance("canFam3", "canFam4")
-    reverse = cli._ucsc_pair_lineage_provenance("canFam4", "canFam3")
+def test_pair_dependency_group_is_stable_per_direction_and_distinct_across_pairs() -> (
+    None
+):
+    first = cli._ucsc_pair_dependency_provenance("canFam3", "canFam4")
+    repeated = cli._ucsc_pair_dependency_provenance("canFam3", "canFam4")
+    reverse = cli._ucsc_pair_dependency_provenance("canFam4", "canFam3")
 
     assert first == repeated
     assert first.source_id == "ucsc-pair:canFam3:canFam4"

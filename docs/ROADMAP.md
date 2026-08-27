@@ -365,7 +365,7 @@ Implemented so far:
 - interactive cache verification reports one measured aggregate SHA-256 row across the required cached bundle, reusing the same progress rendering primitives and withholding 100% until every required artifact passes integrity; `--quiet` suppresses it;
 - interactive UCSC acquisition reports measured per-resource transfer progress, starts resumable resources at their retained validator-bound prefix, labels verified cache hits as cache reuse rather than downloaded bytes, and avoids invented percentages when exact transfer size is unavailable; `--quiet` and non-TTY stderr suppress the display;
 - interactive acknowledgements are the default, with explicit `--acknowledge-ucsc-terms` and `--accept-transfer-plan` flags for non-interactive use;
-- automatic UCSC runs use a conservative pair-level shared lineage node only for provenance dependency grouping, while exact consumed-file identity remains SHA-256-addressed beneath it;
+- automatic UCSC runs use a conservative source/target pair dependency node only to prevent related UCSC observations from being presented as independent confirmation; it does not verify one shared provider processing run, while exact consumed-file identity remains SHA-256-addressed beneath it;
 - the first real CLI smoke run completed 2026-08-16 against the established external `canFam3`→`canFam4` comparative fixture, reporting `COMPARATIVE`, 170 candidates, and `CONTESTED` for display locus `chrUn_JH373233:1845736-1845835`;
 - an independent fixture cross-check derives `CONTESTED` directly from the extracted public evidence without using production verdict logic, identifying 138 material candidates and agreeing with the production assessor;
 - `--details` emits the full human-readable evidence dossier: exact mapped segments, categorical verdict-evidence roles, every observation, resource retrieval/checksum context, consumed-vs-unconsumed status, and the complete provenance dependency graph without implying candidate rank or independent confirmation;
@@ -614,7 +614,9 @@ Do not create hidden weights from chain score, `ali`, `qDup`, net hierarchy, or 
 membership. `ali`/`qDup` remain descriptive until a separately justified deterministic rule exists.
 When evidence is mixed/conflicting, human output must list the material relationship—what the
 filtered chain retained, what net/rbest supports, and what conflicts—instead of stopping at a vague
-label. Shared UCSC alignment lineage remains explicit; these observations are not independent votes.
+label. Automatic CLI results use a conservative UCSC source/target pair dependency group so
+these observations are not presented as independent votes; that grouping does not verify one exact
+provider processing run, and each consumed file remains independently content-addressed.
 
 ### 22. BED/table batch input and cross-record relationships
 

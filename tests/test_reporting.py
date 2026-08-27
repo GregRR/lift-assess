@@ -521,6 +521,7 @@ def test_comparative_summary_names_consumed_resources_and_dependency_boundary() 
     assert "COMPARATIVE" in summary
     assert "CHAIN, NET, RECIPROCAL_BEST_CHAIN" in summary
     assert "not independent votes" in summary
+    assert "exact shared processing-run provenance is not verified" in summary
     assert (
         report.result_profile.headline is FactualHeadline.ONE_COMPLETE_CHAIN_PROJECTION
     )
@@ -769,6 +770,8 @@ def test_comparative_details_and_json_expose_inventory_support_and_provenance() 
     assert "full reciprocal-best=yes" in details
     assert "Filtered-chain comparison resource" in details
     assert "consumed for paired comparison" in details
+    assert "UCSC pair dependency group: alignment" in details
+    assert "Exact shared processing-run provenance: not verified" in details
     assert "Derived from: alignment" in details
 
     profile = payload["result_profile"]["comparative_relationship"]
@@ -781,6 +784,10 @@ def test_comparative_details_and_json_expose_inventory_support_and_provenance() 
         "full_reciprocal_best": True,
         "retained_by_filtered_chain": True,
     }
+
+    assert payload["semantics"]["ucsc_pair_dependency_group"] == (
+        "conservative_grouping_not_processing_run_proof"
+    )
 
     comparison = payload["filtered_all_chain_comparison"]
     assert comparison["assessed"] is True
@@ -797,7 +804,8 @@ def test_comparative_details_and_json_expose_inventory_support_and_provenance() 
     assert comparison["provenance"] == {
         "all_chain_source_id": CHAIN.source_id,
         "filtered_chain_source_id": FILTERED_CHAIN.source_id,
-        "shared_alignment_lineage_source_ids": [ALIGNMENT.source_id],
+        "shared_ucsc_pair_dependency_source_ids": [ALIGNMENT.source_id],
+        "shared_processing_run_provenance_verified": False,
     }
     provenance_ids = {item["source_id"] for item in payload["provenance"]["sources"]}
     assert FILTERED_CHAIN.source_id in provenance_ids
