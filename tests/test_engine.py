@@ -1,5 +1,8 @@
+from collections.abc import Collection
+
 import pytest
 
+import liftassess.engine as engine_module
 from liftassess.chain import ChainBlock, ChainRecord, ChainStrand
 from liftassess.engine import build_ucsc_candidates
 from liftassess.models import (
@@ -15,6 +18,7 @@ from liftassess.models import (
     ReciprocalBestResourceCompleteness,
 )
 from liftassess.net import NetClassification, NetRecord, NetRecordKind
+from liftassess.reciprocal_best import _annotate_candidate_with_reciprocal_best_chains
 
 
 @pytest.fixture
@@ -190,6 +194,64 @@ def test_one_shot_reciprocal_best_stream_annotates_multiple_candidates(
             is ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE
         )
         assert summary.chains_examined == 1
+
+
+def test_reciprocal_best_candidates_receive_only_matching_pair_chains(
+    monkeypatch: pytest.MonkeyPatch,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    provenance: tuple[ProvenanceSource, ProvenanceSource, ProvenanceSource],
+) -> None:
+    chain_provenance, _, rbest_provenance = provenance
+    source = GenomicInterval(source_assembly, "chr1", 105, 115)
+    collection_sizes: list[int] = []
+    original = _annotate_candidate_with_reciprocal_best_chains
+
+    def counting_annotator(
+        candidate: NormalizedCandidate,
+        *,
+        reciprocal_best_chains: Collection[ChainRecord],
+        resource_completeness: ReciprocalBestResourceCompleteness,
+        reciprocal_best_provenance: ProvenanceSource,
+    ) -> NormalizedCandidate:
+        assert isinstance(reciprocal_best_chains, list)
+        collection_sizes.append(len(reciprocal_best_chains))
+        return original(
+            candidate,
+            reciprocal_best_chains=reciprocal_best_chains,
+            resource_completeness=resource_completeness,
+            reciprocal_best_provenance=reciprocal_best_provenance,
+        )
+
+    monkeypatch.setattr(
+        engine_module,
+        "_annotate_candidate_with_reciprocal_best_chains",
+        counting_annotator,
+    )
+
+    candidates = build_ucsc_candidates(
+        source,
+        (
+            _chain(chain_id=1, query_name="chrA"),
+            _chain(chain_id=2, query_name="chrB"),
+        ),
+        target_assembly=target_assembly,
+        chain_provenance=chain_provenance,
+        reciprocal_best_chains=(
+            chain
+            for chain in (
+                _chain(chain_id=101, query_name="chrA"),
+                _chain(chain_id=202, query_name="chrB"),
+            )
+        ),
+        reciprocal_best_provenance=rbest_provenance,
+        reciprocal_best_completeness=(
+            ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE
+        ),
+    )
+
+    assert len(candidates) == 2
+    assert collection_sizes == [1, 1]
 
 
 def test_reverse_split_candidate_keeps_comparative_evidence_at_engine_boundary(

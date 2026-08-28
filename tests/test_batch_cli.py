@@ -616,6 +616,52 @@ def test_bed_batch_cli_json_exposes_point_context_as_separate_scale(
     assert relationships[0]["overlap_intervals"][0]["end"] == 601
 
 
+def test_bed_batch_cli_json_keeps_point_context_record_shape_consistent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context, index = _point_context_chain_context(tmp_path)
+    _install_specific_batch_cache(monkeypatch, context, index)
+    bed_path = tmp_path / "mixed-context.bed"
+    bed_path.write_text(
+        "chr1\t150\t151\tpoint\nchr1\t150\t160\tinterval\n",
+        encoding="utf-8",
+    )
+    args = cli._build_parser().parse_args(
+        [SOURCE_DB, TARGET_DB, "--bed", str(bed_path), "--json"]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    payload = json.loads(stdout.getvalue())
+    records = payload["point_context"]["records"]
+    assert records[1] == {
+        "record_id": "row-2",
+        "state": "NOT_APPLICABLE",
+        "requested_window_bases": 101,
+        "not_run_reason": "SOURCE_INTERVAL_IS_NOT_ONE_BASE",
+    }
+    assert set(records[0]) >= {
+        "record_id",
+        "state",
+        "requested_window_bases",
+        "not_run_reason",
+    }
+    assert set(records[1]) == {
+        "record_id",
+        "state",
+        "requested_window_bases",
+        "not_run_reason",
+    }
+
+
 def test_bed_batch_cli_accepts_explicit_context_window_for_point_rows(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

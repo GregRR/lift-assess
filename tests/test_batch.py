@@ -184,6 +184,53 @@ def test_batch_relationships_can_overlap_one_fragment_without_becoming_exact() -
     )
 
 
+def test_batch_relationships_treat_touching_target_intervals_as_non_overlapping() -> (
+    None
+):
+    result = build_batch_target_relationships(
+        (
+            BatchRecordAssessment(
+                _record("row-1", 0, 10),
+                (_candidate("left", source_start=0, target_segments=((100, 110),)),),
+            ),
+            BatchRecordAssessment(
+                _record("row-2", 20, 30),
+                (_candidate("right", source_start=20, target_segments=((110, 120),)),),
+            ),
+        )
+    )
+
+    assert result.relationships == ()
+
+
+def test_batch_relationships_emit_all_pairs_for_three_record_hotspot() -> None:
+    assessments = (
+        BatchRecordAssessment(
+            _record("row-1", 0, 10),
+            (_candidate("a", source_start=0, target_segments=((100, 110),)),),
+        ),
+        BatchRecordAssessment(
+            _record("row-2", 20, 30),
+            (_candidate("b", source_start=20, target_segments=((102, 112),)),),
+        ),
+        BatchRecordAssessment(
+            _record("row-3", 40, 50),
+            (_candidate("c", source_start=40, target_segments=((104, 114),)),),
+        ),
+    )
+
+    result = build_batch_target_relationships(assessments)
+
+    assert [
+        (relationship.left_record_id, relationship.right_record_id)
+        for relationship in result.relationships
+    ] == [
+        ("row-1", "row-2"),
+        ("row-1", "row-3"),
+        ("row-2", "row-3"),
+    ]
+
+
 def test_batch_relationships_ignore_different_target_sequences() -> None:
     left_candidate = _candidate("left", source_start=0, target_segments=((100, 110),))
     right_candidate = NormalizedCandidate(

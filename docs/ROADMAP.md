@@ -765,6 +765,16 @@ Internal M22 review hardening:
   exact mapped-segment collision/overlap semantics and deterministic input/candidate ordering while
   avoiding quadratic work for large sparse or zero-candidate batches.
 
+External M22 review remediation:
+
+- partitions the one-pass reciprocal-best candidate-relevant subset by exact source-sequence,
+  target-sequence, and orientation key before candidate annotation, so candidates do not rescan
+  reciprocal-best chains that cannot apply to them;
+- keeps point-context per-record schema-v2 fields consistent across `RUN`, `NOT_RUN`, and
+  `NOT_APPLICABLE` states; and
+- adds regression coverage for touching/multi-way target relationships and the one-net/one-rbest-read
+  batch execution contract.
+
 Optional BED12/custom-track export may visualize one candidate whose blocks share a target sequence;
 it must not collapse multiple candidates/target sequences or replace source-coverage reporting.
 

@@ -322,23 +322,30 @@ def _attach_reciprocal_best_evidence(
     relevant_keys = {
         _candidate_pair_key(candidate) for _, candidate in candidate_entries
     }
-    relevant_chains = [
-        chain
-        for chain in reciprocal_best_chains
-        if _chain_pair_key(chain) in relevant_keys
-    ]
+    chains_by_pair_key: dict[tuple[str, str, MappingOrientation], list[ChainRecord]] = {
+        key: [] for key in relevant_keys
+    }
+    for chain in reciprocal_best_chains:
+        pair_key = _chain_pair_key(chain)
+        if pair_key in chains_by_pair_key:
+            chains_by_pair_key[pair_key].append(chain)
 
     # The evidence basis records what the caller asserts was exhaustively consumed by
     # this engine call. Even though only candidate-relevant chains are retained after
     # that pass, COMPLETE_RESOURCE remains truthful when the full resource was scanned;
     # COMPLETE_CANDIDATE_SUBSET remains truthful when that was the supplied scope.
+    # Keep the materialized subset partitioned by the exact pair/orientation predicate
+    # that the candidate-level annotator enforces so batch candidates do not rescan
+    # reciprocal-best chains that could never apply to them.
 
     return [
         (
             chain_id,
             _annotate_candidate_with_reciprocal_best_chains(
                 candidate,
-                reciprocal_best_chains=relevant_chains,
+                reciprocal_best_chains=chains_by_pair_key[
+                    _candidate_pair_key(candidate)
+                ],
                 resource_completeness=reciprocal_best_completeness,
                 reciprocal_best_provenance=reciprocal_best_provenance,
             ),

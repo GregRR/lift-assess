@@ -199,7 +199,9 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
         "point_context": {
             "requested_window_bases": result.point_context_window_bases,
             "records": [
-                _point_context_record_json(item)
+                _point_context_record_json(
+                    item, requested_window_bases=result.point_context_window_bases
+                )
                 for item in result.point_context_records
             ],
             "relationships": [
@@ -304,13 +306,16 @@ def _append_point_context_preview(
 
 def _point_context_record_json(
     item: BatchRecordPointContext,
+    *,
+    requested_window_bases: int,
 ) -> dict[str, object]:
     context = item.context_result
     if context is None:
         return {
             "record_id": item.record.record_id,
             "state": "NOT_APPLICABLE",
-            "reason": "SOURCE_INTERVAL_IS_NOT_ONE_BASE",
+            "requested_window_bases": requested_window_bases,
+            "not_run_reason": "SOURCE_INTERVAL_IS_NOT_ONE_BASE",
         }
     payload: dict[str, object] = {
         "record_id": item.record.record_id,

@@ -1,8 +1,10 @@
 import gzip
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
+import liftassess.resource_files as resource_files_module
 from liftassess.batch import BatchInputRecord, BatchTargetRelationshipKind
 from liftassess.batch_execution import run_indexed_chain_batch
 from liftassess.chain_index import ChainIndex, build_chain_index
@@ -410,6 +412,37 @@ def test_indexed_comparative_batch_attaches_shared_net_and_reciprocal_best(
         ReciprocalBestMembershipStatus.FULL,
         ReciprocalBestMembershipStatus.NONE,
     ]
+
+
+def test_indexed_comparative_batch_opens_each_comparative_stream_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    chain_context, bundle, index = _comparative_context(tmp_path)
+    net_spy = Mock(wraps=resource_files_module._iter_net_file_with_provenance)
+    chain_spy = Mock(wraps=resource_files_module._iter_chain_file_with_provenance)
+    monkeypatch.setattr(
+        resource_files_module, "_iter_net_file_with_provenance", net_spy
+    )
+    monkeypatch.setattr(
+        resource_files_module, "_iter_chain_file_with_provenance", chain_spy
+    )
+
+    run_indexed_chain_batch(
+        (
+            _record("row-1", 0, 10),
+            _record("row-2", 20, 30),
+            _record("row-3", 40, 50),
+        ),
+        chain_context,
+        target_assembly=TARGET,
+        alignment_provenance=ALIGNMENT,
+        chain_index=index,
+        comparative_bundle=bundle,
+    )
+
+    assert net_spy.call_count == 1
+    assert chain_spy.call_count == 1
 
 
 def test_indexed_comparative_batch_requires_complete_bundle(tmp_path: Path) -> None:
