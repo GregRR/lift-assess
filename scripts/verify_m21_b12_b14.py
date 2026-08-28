@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from liftassess.chain_index import ChainIndexError, load_cached_chain_index
+from liftassess.models import EvidenceAvailabilityTier
+from liftassess.resource_cache import resolve_cached_ucsc_chain_resource_metadata
+
 SOURCE_DB = "canFam3"
 TARGET_DB = "canFam4"
 
@@ -150,6 +154,55 @@ def _chain_id(candidate_id: object) -> int:
         raise VerificationError(
             f"candidate ID has non-integer chain suffix: {candidate_id}"
         ) from exc
+
+
+def _verify_prepared_chain_index(
+    cache_root: Path,
+    evidence_tier: EvidenceAvailabilityTier,
+    expected_sha256: str,
+) -> None:
+    resource = resolve_cached_ucsc_chain_resource_metadata(
+        cache_root,
+        SOURCE_DB,
+        TARGET_DB,
+        evidence_tier=evidence_tier,
+    )
+    _check(
+        resource is not None,
+        f"{evidence_tier.value}: recorded chain resource is not cached",
+    )
+    assert resource is not None
+    _check(
+        resource.chain.sha256 == expected_sha256,
+        f"{evidence_tier.value}: cached chain fixture identity changed",
+    )
+    try:
+        index = load_cached_chain_index(
+            cache_root,
+            resource.chain,
+            verify_database=False,
+        )
+    except ChainIndexError as exc:
+        raise VerificationError(
+            f"{evidence_tier.value}: prepared chain index is invalid: {exc}"
+        ) from exc
+    _check(
+        index is not None,
+        f"{evidence_tier.value}: prepared chain index is missing",
+    )
+
+
+def _verify_prepared_indexes(cache_root: Path) -> None:
+    _verify_prepared_chain_index(
+        cache_root,
+        EvidenceAvailabilityTier.COMPARATIVE,
+        ALL_CHAIN_SHA256,
+    )
+    _verify_prepared_chain_index(
+        cache_root,
+        EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        FILTERED_CHAIN_SHA256,
+    )
 
 
 def _run_case(cache_root: Path, case: CaseExpectation) -> dict[str, Any]:
@@ -380,10 +433,13 @@ def main() -> None:
     cache_root = args.cache_root.expanduser().resolve()
     _check(cache_root.is_dir(), f"cache root does not exist: {cache_root}")
 
+    _verify_prepared_indexes(cache_root)
+
     print("M21 B12-B14 real-data verification")
     print(f"cache_root={cache_root}")
     print("network_access=no")
     print("index_builds=no")
+    print("prepared_chain_indexes=verified")
 
     for case in CASES:
         print(f"verifying {case.label}: {case.locus} ...", flush=True)

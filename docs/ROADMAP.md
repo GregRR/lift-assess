@@ -627,9 +627,10 @@ uv run python scripts/verify_m21_b12_b14.py \
   --cache-root ~/Library/Caches/liftassess
 ```
 
-The verifier never downloads resources or builds indexes. It requires the exact recorded comparative
-bundle, the ordinary filtered liftOver chain, and prepared indexes for both chain files. If an index is
-missing, prepare it explicitly before running the verifier:
+The verifier never downloads resources or builds indexes. Before launching any case, it resolves the
+exact recorded COMPARATIVE and LIFTOVER-ONLY chain identities and requires matching prepared indexes
+for both chain files. It fails instead of allowing the production CLI to fall back to a whole-chain scan.
+If an index is missing, prepare it explicitly before running the verifier:
 
 ```bash
 uv run prepare-liftassess-index \
