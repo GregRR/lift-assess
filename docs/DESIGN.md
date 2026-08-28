@@ -355,7 +355,12 @@ Not addressed in earlier drafts of this design and worth getting right before an
   target bounding span. An exact target collision means two distinct input records have candidate
   projections covering the same target bases; a positive but non-identical target-base intersection is
   an overlapping-but-offset projection. Candidate relationships within one input record are not batch
-  relationships.
+  relationships. One-base BED rows also receive the approved automatic point-context window from the
+  same prepared chain index. Context-scale relationships are stored separately from the submitted-row
+  relationships: identical mapped target coverage at that scale is a neighborhood-level target
+  collision, while positive non-identical overlap remains overlapping-but-offset. Ordinary interval
+  rows are never widened automatically, and unavailable indexed source bounds produce explicit
+  per-record context `NOT_RUN` rather than a guessed window.
 - **Typed contextual evidence:** optional difficult-region/context resources are represented as
   resource-specific, provenance-bearing observations. The first active pilot is UCSC segmental-
   duplication context; GIAB stratifications and `excluderanges` categories must be evaluated

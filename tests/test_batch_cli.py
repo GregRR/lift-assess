@@ -66,6 +66,83 @@ chain 80 chr1 1000 + 40 50 chrA 2000 + 105 115 3
     return context, index
 
 
+def _point_context_chain_context(
+    tmp_path: Path,
+) -> tuple[CachedUCSCChainResource, ChainIndex]:
+    path = tmp_path / "hg38ToHg19-point-context.over.chain"
+    path.write_text(
+        """\
+chain 100 chr1 1000 + 100 201 chrA 2000 + 500 601 11
+101
+
+chain 90 chr1 1000 + 300 401 chrA 2000 + 500 601 12
+101
+
+""",
+        encoding="ascii",
+    )
+    identifier = sha256_identifier_for_file(path).value
+    url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/liftOver/"
+        "hg38ToHg19.over.chain.gz"
+    )
+    resource = CachedResource(
+        path=path,
+        source_url=url,
+        retrieved_at="2026-08-28T00:00:00Z",
+        sha256=identifier,
+        size_bytes=path.stat().st_size,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(url),
+        cache_hit=True,
+    )
+    context = CachedUCSCChainResource(
+        source_db=SOURCE_DB,
+        target_db=TARGET_DB,
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        chain=resource,
+    )
+    index = build_chain_index(
+        path,
+        tmp_path / "point-context-index",
+        source_chain_sha256_identifier=identifier,
+        source_chain_size_bytes=path.stat().st_size,
+    ).index
+    return context, index
+
+
+def _point_bed_path(tmp_path: Path) -> Path:
+    path = tmp_path / "points.bed"
+    path.write_text(
+        "chr1\t150\t151\tpoint-a\nchr1\t350\t351\tpoint-b\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _install_specific_batch_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    context: CachedUCSCChainResource,
+    index: ChainIndex,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_chain_resource_metadata",
+        lambda *args, **kwargs: context,
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_chain_resource",
+        lambda *args, **kwargs: context,
+    )
+    monkeypatch.setattr(cli, "load_cached_chain_index", lambda *args, **kwargs: index)
+
+    def forbidden_discovery(*args: object, **kwargs: object) -> None:
+        raise AssertionError("BED batch mode must not contact the provider")
+
+    monkeypatch.setattr(cli, "discover_ucsc_resources", forbidden_discovery)
+
+
 def _bed_path(tmp_path: Path) -> Path:
     path = tmp_path / "batch.bed"
     path.write_text(
@@ -241,7 +318,9 @@ def test_bed_batch_cli_rejects_single_locus_and_bed_together(tmp_path: Path) -> 
         )
 
 
-def test_bed_batch_cli_rejects_refresh_and_point_context(tmp_path: Path) -> None:
+def test_bed_batch_cli_rejects_refresh_and_context_for_interval_only_batch(
+    tmp_path: Path,
+) -> None:
     refresh_args = cli._build_parser().parse_args(
         [SOURCE_DB, TARGET_DB, "--bed", str(_bed_path(tmp_path)), "--refresh"]
     )
@@ -263,7 +342,7 @@ def test_bed_batch_cli_rejects_refresh_and_point_context(tmp_path: Path) -> None
             "101",
         ]
     )
-    with pytest.raises(ValueError, match="not yet available with --bed"):
+    with pytest.raises(ValueError, match="requires at least one 1-bp BED record"):
         cli._run(
             context_args,
             stdin=StringIO(""),
@@ -301,3 +380,103 @@ def test_cli_requires_locus_or_bed() -> None:
             stdout=StringIO(),
             stderr=StringIO(),
         )
+
+
+def test_bed_batch_cli_automatically_reports_neighborhood_level_collision(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context, index = _point_context_chain_context(tmp_path)
+    _install_specific_batch_cache(monkeypatch, context, index)
+    args = cli._build_parser().parse_args(
+        [SOURCE_DB, TARGET_DB, "--bed", str(_point_bed_path(tmp_path))]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    rendered = stdout.getvalue()
+    assert "requested=101 bp; point records=2; run=2; not run=0" in rendered
+    assert "NEIGHBORHOOD_LEVEL_TARGET_COLLISION=1" in rendered
+    assert "source coverage=101/101" in rendered
+
+
+def test_bed_batch_cli_json_exposes_point_context_as_separate_scale(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context, index = _point_context_chain_context(tmp_path)
+    _install_specific_batch_cache(monkeypatch, context, index)
+    args = cli._build_parser().parse_args(
+        [
+            SOURCE_DB,
+            TARGET_DB,
+            "--bed",
+            str(_point_bed_path(tmp_path)),
+            "--json",
+        ]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    payload = json.loads(stdout.getvalue())
+    assert payload["scope"]["point_context"] == "ASSESSED_FOR_ALL_POINT_RECORDS"
+    assert payload["point_context"]["requested_window_bases"] == 101
+    assert [item["state"] for item in payload["point_context"]["records"]] == [
+        "RUN",
+        "RUN",
+    ]
+    relationships = payload["point_context"]["relationships"]
+    assert [item["kind"] for item in relationships] == [
+        "NEIGHBORHOOD_LEVEL_TARGET_COLLISION"
+    ]
+    assert relationships[0]["overlap_intervals"][0]["start"] == 500
+    assert relationships[0]["overlap_intervals"][0]["end"] == 601
+
+
+def test_bed_batch_cli_accepts_explicit_context_window_for_point_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context, index = _point_context_chain_context(tmp_path)
+    _install_specific_batch_cache(monkeypatch, context, index)
+    args = cli._build_parser().parse_args(
+        [
+            SOURCE_DB,
+            TARGET_DB,
+            "--bed",
+            str(_point_bed_path(tmp_path)),
+            "--context-bases",
+            "51",
+            "--json",
+        ]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    payload = json.loads(stdout.getvalue())
+    assert payload["point_context"]["requested_window_bases"] == 51
+    assert [
+        item["tested_source_interval"]["end"] - item["tested_source_interval"]["start"]
+        for item in payload["point_context"]["records"]
+    ] == [51, 51]

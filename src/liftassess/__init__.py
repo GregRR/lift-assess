@@ -4,6 +4,7 @@ from ._version import __version__
 from .batch import (
     BatchInputRecord,
     BatchRecordAssessment,
+    BatchRecordPointContext,
     BatchRelationshipResult,
     BatchTargetRelationship,
     BatchTargetRelationshipKind,
@@ -164,6 +165,7 @@ __all__ = [
     "BatchInputError",
     "BatchInputRecord",
     "BatchRecordAssessment",
+    "BatchRecordPointContext",
     "BatchRelationshipResult",
     "BatchRelationshipState",
     "BatchTargetRelationship",

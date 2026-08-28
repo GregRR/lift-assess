@@ -11,6 +11,7 @@ from liftassess.models import (
     GenomicInterval,
     ProvenanceSource,
 )
+from liftassess.query_context import QueryContextNotRunReason, QueryContextState
 from liftassess.resource_cache import (
     CachedResource,
     CachedUCSCChainResource,
@@ -37,9 +38,13 @@ chain 80 chr1 1000 + 40 50 chrA 2000 + 105 115 3
 """
 
 
-def _chain_context(tmp_path: Path) -> tuple[CachedUCSCChainResource, ChainIndex]:
+def _chain_context(
+    tmp_path: Path,
+    *,
+    chain_text: str | None = None,
+) -> tuple[CachedUCSCChainResource, ChainIndex]:
     path = tmp_path / "hg38ToHg19.over.chain"
-    path.write_text(_chain_text(), encoding="ascii")
+    path.write_text(chain_text or _chain_text(), encoding="ascii")
     identifier = sha256_identifier_for_file(path).value
     url = (
         "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/liftOver/"
@@ -151,3 +156,130 @@ def test_indexed_chain_batch_rejects_empty_record_set(tmp_path: Path) -> None:
             alignment_provenance=ALIGNMENT,
             chain_index=index,
         )
+
+
+def test_indexed_chain_batch_automatically_detects_neighborhood_level_collision(
+    tmp_path: Path,
+) -> None:
+    chain_context, index = _chain_context(
+        tmp_path,
+        chain_text="""\
+chain 100 chr1 1000 + 100 201 chrA 2000 + 500 601 11
+101
+
+chain 90 chr1 1000 + 300 401 chrA 2000 + 500 601 12
+101
+
+""",
+    )
+    records = (
+        _record("row-1", 150, 151),
+        _record("row-2", 350, 351),
+    )
+
+    result = run_indexed_chain_batch(
+        records,
+        chain_context,
+        target_assembly=TARGET,
+        alignment_provenance=ALIGNMENT,
+        chain_index=index,
+    )
+
+    contexts = tuple(item.context_result for item in result.point_context_records)
+    assert all(context is not None for context in contexts)
+    assert [context.check_state for context in contexts if context is not None] == [
+        QueryContextState.RUN,
+        QueryContextState.RUN,
+    ]
+    assert [
+        context.tested_source_interval for context in contexts if context is not None
+    ] == [
+        GenomicInterval(SOURCE, "chr1", 100, 201),
+        GenomicInterval(SOURCE, "chr1", 300, 401),
+    ]
+    assert [
+        relationship.kind for relationship in result.relationships.relationships
+    ] == [BatchTargetRelationshipKind.EXACT_TARGET_COLLISION]
+    assert [
+        relationship.kind
+        for relationship in result.point_context_relationships.relationships
+    ] == [BatchTargetRelationshipKind.EXACT_TARGET_COLLISION]
+
+
+def test_indexed_chain_batch_keeps_offset_point_context_overlap_distinct(
+    tmp_path: Path,
+) -> None:
+    chain_context, index = _chain_context(
+        tmp_path,
+        chain_text="""\
+chain 100 chr1 1000 + 100 201 chrA 2000 + 500 601 11
+101
+
+chain 90 chr1 1000 + 300 401 chrA 2000 + 502 603 12
+101
+
+""",
+    )
+    records = (
+        _record("row-1", 150, 151),
+        _record("row-2", 350, 351),
+    )
+
+    result = run_indexed_chain_batch(
+        records,
+        chain_context,
+        target_assembly=TARGET,
+        alignment_provenance=ALIGNMENT,
+        chain_index=index,
+    )
+
+    assert result.relationships.relationships == ()
+    context_relationship = result.point_context_relationships.relationships[0]
+    assert (
+        context_relationship.kind
+        is BatchTargetRelationshipKind.OVERLAPPING_TARGET_PROJECTIONS
+    )
+    assert context_relationship.overlap_intervals == (
+        GenomicInterval(TARGET, "chrA", 502, 601),
+    )
+
+
+def test_indexed_chain_batch_reports_point_context_not_run_without_indexed_bound(
+    tmp_path: Path,
+) -> None:
+    chain_context, index = _chain_context(tmp_path)
+    missing_sequence_record = BatchInputRecord(
+        record_id="row-1",
+        source_interval=GenomicInterval(SOURCE, "chrMissing", 10, 11),
+        source_line_number=1,
+    )
+
+    result = run_indexed_chain_batch(
+        (missing_sequence_record,),
+        chain_context,
+        target_assembly=TARGET,
+        alignment_provenance=ALIGNMENT,
+        chain_index=index,
+    )
+
+    assert result.record_assessments[0].candidates == ()
+    context = result.point_context_records[0].context_result
+    assert context is not None
+    assert context.check_state is QueryContextState.NOT_RUN
+    assert context.not_run_reason is QueryContextNotRunReason.SOURCE_BOUNDS_UNAVAILABLE
+    assert result.point_context_relationships.relationships == ()
+
+
+def test_indexed_chain_batch_does_not_widen_non_point_rows(tmp_path: Path) -> None:
+    chain_context, index = _chain_context(tmp_path)
+
+    result = run_indexed_chain_batch(
+        (_record("row-1", 0, 10),),
+        chain_context,
+        target_assembly=TARGET,
+        alignment_provenance=ALIGNMENT,
+        chain_index=index,
+    )
+
+    assert result.point_context_records[0].context_result is None
+    assert result.point_context_relationships.relationships == ()

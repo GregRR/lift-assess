@@ -10,6 +10,7 @@ from enum import Enum
 from itertools import combinations
 
 from .models import AssemblyIdentifier, GenomicInterval, NormalizedCandidate
+from .query_context import PointQueryContextResult, QueryContextState
 
 
 class BatchTargetRelationshipKind(str, Enum):
@@ -70,6 +71,49 @@ class BatchRecordAssessment:
                         "batch candidates must map source segments contained within "
                         "their input record"
                     )
+
+
+@dataclass(frozen=True)
+class BatchRecordPointContext:
+    """Point-context result associated with one batch input record.
+
+    ``context_result`` is ``None`` for non-point records because ordinary intervals are
+    never widened automatically.  One-base records always carry an explicit point-
+    context result, including a truthful NOT_RUN result when the indexed chain cannot
+    provide the conservative source-sequence bound needed to define the window.
+    """
+
+    record: BatchInputRecord
+    context_result: PointQueryContextResult | None
+
+    def __post_init__(self) -> None:
+        is_point = self.record.source_interval.length == 1
+        if not is_point:
+            if self.context_result is not None:
+                raise ValueError(
+                    "non-point batch records cannot carry automatic point context"
+                )
+            return
+        if self.context_result is None:
+            raise ValueError(
+                "one-base batch records require an explicit point-context result"
+            )
+        if self.context_result.check_state is not QueryContextState.RUN:
+            return
+
+        tested = self.context_result.tested_source_interval
+        if tested is None:
+            raise ValueError("completed batch point context requires a tested interval")
+        source = self.record.source_interval
+        if (
+            tested.assembly != source.assembly
+            or tested.sequence_name != source.sequence_name
+            or tested.start > source.start
+            or tested.end < source.end
+        ):
+            raise ValueError(
+                "batch point-context interval must contain the original source point"
+            )
 
 
 @dataclass(frozen=True)

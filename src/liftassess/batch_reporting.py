@@ -2,9 +2,14 @@
 
 import json
 
-from .batch import BatchTargetRelationshipKind
+from .batch import (
+    BatchRecordPointContext,
+    BatchTargetRelationship,
+    BatchTargetRelationshipKind,
+)
 from .batch_execution import IndexedChainBatchResult
 from .models import GenomicInterval
+from .query_context import PointQueryContextResult, QueryContextState
 from .reporting import (
     assembly_json_payload,
     candidate_json_payload,
@@ -28,6 +33,9 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
     )
     candidate_count = sum(len(item.candidates) for item in result.record_assessments)
     relationship_counts = _batch_relationship_counts(result)
+    point_count, context_run_count, context_not_run_count = _point_context_counts(
+        result
+    )
     lines = [
         "* BATCH CHAIN PROJECTIONS *",
         "Input records:",
@@ -38,7 +46,7 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
         f"    {record_count - records_with_projection}",
         "Candidate projections:",
         f"    {candidate_count}",
-        "Target relationships:",
+        "Input target relationships:",
         (
             "    none"
             if not result.relationships.relationships
@@ -49,27 +57,40 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
                 if relationship_counts[kind]
             )
         ),
-        "Evidence:",
-        (
-            f"    {result.evidence_tier.value.replace('_', '-')} publication class; "
-            "indexed chain only"
-        ),
-        "Chain resource:",
-        f"    {result.chain_sha256_identifier}",
-        "Scope:",
-        (
-            "    Cross-record target relationships are derived from exact mapped "
-            "target segments. Authoritative assembly-sequence name/alias preflight, "
-            "net/reciprocal-best, reverse, point-context, target-role, named-variant, "
-            "and gene/transcript evidence are not assessed in this batch slice."
-        ),
     ]
+    if point_count:
+        lines.extend(
+            [
+                "Point context:",
+                (
+                    f"    requested={result.point_context_window_bases} bp; "
+                    f"point records={point_count}; run={context_run_count}; "
+                    f"not run={context_not_run_count}"
+                ),
+                "Point-context target relationships:",
+                _render_context_relationship_counts(result),
+            ]
+        )
+    lines.extend(
+        [
+            "Evidence:",
+            (
+                f"    {result.evidence_tier.value.replace('_', '-')} publication class; "
+                "indexed chain only"
+            ),
+            "Chain resource:",
+            f"    {result.chain_sha256_identifier}",
+            "Scope:",
+            _batch_scope_summary(result),
+        ]
+    )
 
     preview = result.record_assessments[:_DEFAULT_BATCH_RECORD_PREVIEW_LIMIT]
     if preview:
         lines.append("Records:")
-        for assessment in preview:
+        for index, assessment in enumerate(preview):
             record = assessment.record
+            context_result = result.point_context_records[index].context_result
             label = f" [{record.label}]" if record.label is not None else ""
             lines.append(f"    {record.record_id}{label}")
             lines.append(
@@ -77,17 +98,20 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
             )
             if not assessment.candidates:
                 lines.append("        Projections: 0")
-                continue
-            lines.append(f"        Projections: {len(assessment.candidates)}")
-            for candidate in assessment.candidates[:_DEFAULT_INLINE_PROJECTION_LIMIT]:
-                lines.append(
-                    f"            {candidate.candidate_id}: target bounding span "
-                    + _format_half_open_interval(candidate.target_interval)
-                    + f"; orientation={candidate.orientation.value}"
-                )
-            omitted = len(assessment.candidates) - _DEFAULT_INLINE_PROJECTION_LIMIT
-            if omitted > 0:
-                lines.append(f"            ... {omitted} more projection(s)")
+            else:
+                lines.append(f"        Projections: {len(assessment.candidates)}")
+                for candidate in assessment.candidates[
+                    :_DEFAULT_INLINE_PROJECTION_LIMIT
+                ]:
+                    lines.append(
+                        f"            {candidate.candidate_id}: target bounding span "
+                        + _format_half_open_interval(candidate.target_interval)
+                        + f"; orientation={candidate.orientation.value}"
+                    )
+                omitted = len(assessment.candidates) - _DEFAULT_INLINE_PROJECTION_LIMIT
+                if omitted > 0:
+                    lines.append(f"            ... {omitted} more projection(s)")
+            _append_point_context_preview(lines, context_result)
 
     omitted_records = record_count - len(preview)
     if omitted_records > 0:
@@ -108,6 +132,9 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
             "candidate_order": "reproducibility_only_not_rank",
             "result_dimensions": "orthogonal_not_votes",
             "batch_relationships": "cross_record_exact_mapped_target_segments",
+            "point_context_relationships": (
+                "same_relationship_geometry_at_explicit_point_context_scale"
+            ),
             "evidence_scope": "indexed_chain_only",
             "provenance_edges": "dependence_not_independent_confirmation",
         },
@@ -151,6 +178,17 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
             }
             for relationship in result.relationships.relationships
         ],
+        "point_context": {
+            "requested_window_bases": result.point_context_window_bases,
+            "records": [
+                _point_context_record_json(item)
+                for item in result.point_context_records
+            ],
+            "relationships": [
+                _context_relationship_json_payload(relationship)
+                for relationship in result.point_context_relationships.relationships
+            ],
+        },
         "resource": _batch_chain_resource_json(result, chain_provenance_source_id),
         "provenance": {
             "alignment_source_id": result.alignment_provenance.source_id,
@@ -172,7 +210,7 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
             "authoritative_source_sequence_preflight": "NOT_ASSESSED",
             "cross_record_target_relationships": "ASSESSED",
             "reverse_mapping": "NOT_ASSESSED",
-            "point_context": "NOT_ASSESSED",
+            "point_context": _point_context_scope(result),
             "target_role": "NOT_ASSESSED",
             "named_variant_identity": "NOT_ASSESSED",
             "gene_transcript_identity": "NOT_ASSESSED",
@@ -189,6 +227,157 @@ def _batch_relationship_counts(
     for relationship in result.relationships.relationships:
         counts[relationship.kind] += 1
     return counts
+
+
+def _point_context_counts(result: IndexedChainBatchResult) -> tuple[int, int, int]:
+    point_count = 0
+    run_count = 0
+    not_run_count = 0
+    for item in result.point_context_records:
+        context = item.context_result
+        if context is None:
+            continue
+        point_count += 1
+        if context.check_state is QueryContextState.RUN:
+            run_count += 1
+        else:
+            not_run_count += 1
+    return point_count, run_count, not_run_count
+
+
+def _render_context_relationship_counts(result: IndexedChainBatchResult) -> str:
+    counts = {kind: 0 for kind in BatchTargetRelationshipKind}
+    for relationship in result.point_context_relationships.relationships:
+        counts[relationship.kind] += 1
+    if not result.point_context_relationships.relationships:
+        return "    none"
+    parts: list[str] = []
+    exact_count = counts[BatchTargetRelationshipKind.EXACT_TARGET_COLLISION]
+    if exact_count:
+        parts.append(f"NEIGHBORHOOD_LEVEL_TARGET_COLLISION={exact_count}")
+    overlap_count = counts[BatchTargetRelationshipKind.OVERLAPPING_TARGET_PROJECTIONS]
+    if overlap_count:
+        parts.append(f"OVERLAPPING_TARGET_PROJECTIONS={overlap_count}")
+    return "    " + ", ".join(parts)
+
+
+def _append_point_context_preview(
+    lines: list[str],
+    context: PointQueryContextResult | None,
+) -> None:
+    if context is None:
+        return
+    if context.check_state is not QueryContextState.RUN:
+        reason = context.not_run_reason
+        reason_text = reason.value if reason is not None else "UNKNOWN"
+        lines.append(f"        Point context: NOT RUN ({reason_text})")
+        return
+    tested = context.tested_source_interval
+    if tested is None:
+        raise ValueError("completed batch point context requires a tested interval")
+    lines.append(
+        "        Point context: "
+        + _format_half_open_interval(tested)
+        + f"; projections={len(context.candidates)}"
+    )
+    for candidate in context.candidates[:_DEFAULT_INLINE_PROJECTION_LIMIT]:
+        covered = sum(segment.source_interval.length for segment in candidate.segments)
+        lines.append(
+            f"            {candidate.candidate_id}: target bounding span "
+            + _format_half_open_interval(candidate.target_interval)
+            + f"; source coverage={covered}/{tested.length}"
+        )
+    omitted = len(context.candidates) - _DEFAULT_INLINE_PROJECTION_LIMIT
+    if omitted > 0:
+        lines.append(f"            ... {omitted} more context projection(s)")
+
+
+def _point_context_record_json(
+    item: BatchRecordPointContext,
+) -> dict[str, object]:
+    context = item.context_result
+    if context is None:
+        return {
+            "record_id": item.record.record_id,
+            "state": "NOT_APPLICABLE",
+            "reason": "SOURCE_INTERVAL_IS_NOT_ONE_BASE",
+        }
+    payload: dict[str, object] = {
+        "record_id": item.record.record_id,
+        "state": context.check_state.value,
+        "requested_window_bases": context.requested_window_bases,
+        "not_run_reason": (
+            context.not_run_reason.value if context.not_run_reason is not None else None
+        ),
+    }
+    if context.check_state is QueryContextState.RUN:
+        tested = context.tested_source_interval
+        if tested is None:
+            raise ValueError("completed batch point context requires a tested interval")
+        payload["tested_source_interval"] = interval_json_payload(tested)
+        payload["candidates"] = [
+            candidate_json_payload(candidate) for candidate in context.candidates
+        ]
+    return payload
+
+
+def _context_relationship_json_payload(
+    relationship: BatchTargetRelationship,
+) -> dict[str, object]:
+    kind = relationship.kind.value
+    if relationship.kind is BatchTargetRelationshipKind.EXACT_TARGET_COLLISION:
+        kind = "NEIGHBORHOOD_LEVEL_TARGET_COLLISION"
+    return {
+        "kind": kind,
+        "left_record_id": relationship.left_record_id,
+        "left_candidate_id": relationship.left_candidate_id,
+        "right_record_id": relationship.right_record_id,
+        "right_candidate_id": relationship.right_candidate_id,
+        "target_assembly": assembly_json_payload(relationship.target_assembly),
+        "target_sequence_name": relationship.target_sequence_name,
+        "overlap_intervals": [
+            interval_json_payload(interval)
+            for interval in relationship.overlap_intervals
+        ],
+    }
+
+
+def _point_context_scope(result: IndexedChainBatchResult) -> str:
+    point_count, run_count, not_run_count = _point_context_counts(result)
+    if point_count == 0:
+        return "NOT_APPLICABLE"
+    if not_run_count == 0:
+        return "ASSESSED_FOR_ALL_POINT_RECORDS"
+    if run_count == 0:
+        return "NOT_RUN_FOR_POINT_RECORDS"
+    return "PARTIALLY_ASSESSED_FOR_POINT_RECORDS"
+
+
+def _batch_scope_summary(result: IndexedChainBatchResult) -> str:
+    point_count, run_count, not_run_count = _point_context_counts(result)
+    if not point_count:
+        context_text = (
+            "Point context is not applicable because the batch has no 1-bp rows."
+        )
+    elif not not_run_count:
+        context_text = (
+            f"Automatic {result.point_context_window_bases}-bp point context is "
+            "assessed from the same prepared chain index for every 1-bp row."
+        )
+    else:
+        context_text = (
+            f"Automatic {result.point_context_window_bases}-bp point context ran for "
+            f"{run_count}/{point_count} point rows; unavailable indexed source bounds "
+            "are reported per record."
+        )
+    return (
+        "    Cross-record target relationships are derived from exact mapped target "
+        "segments. "
+        + context_text
+        + " Authoritative assembly-sequence name/alias preflight, net/reciprocal-best, "
+        "reverse, target-role, named-variant, and gene/transcript evidence are not "
+        "assessed in this batch slice."
+    )
 
 
 def _format_half_open_interval(interval: GenomicInterval) -> str:

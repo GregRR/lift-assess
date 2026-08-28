@@ -728,6 +728,22 @@ Third M22 CLI/reporting slice:
 - adds compact human batch rendering plus schema-v2 `liftassess.ucsc_batch_result` JSON with per-record candidates, exact collision/overlap relationships, resource identity, provenance, and explicit unassessed-domain boundaries including authoritative assembly-sequence preflight; and
 - documents BED coordinates as native 0-based half-open in both human and machine batch output.
 
+Fourth M22 point-context relationship slice:
+
+- applies the established automatic 101-bp point-context policy to one-base BED rows, with
+  `--context-bases` available as the same explicit odd-width override used by single-locus points;
+- derives every batch context window from the conservative source-sequence bound carried by the
+  already-prepared chain index and reports context `NOT_RUN` when that bound is unavailable rather
+  than guessing from chain-file naming or starting another traversal;
+- collects all runnable point-context windows and queries them through the same exact-resource index,
+  with no provider access, index build, or whole-chain fallback;
+- keeps submitted-row target relationships and point-context target relationships as separate result
+  scales, promoting exact context-scale target equality to `NEIGHBORHOOD_LEVEL_TARGET_COLLISION`
+  while preserving overlapping-but-offset context projections as a distinct relationship; and
+- exposes exact tested context intervals, context candidates, relationship geometry, and per-record
+  run/not-run state in the human summary and schema-v2 batch JSON. Ordinary interval rows remain
+  untouched.
+
 Optional BED12/custom-track export may visualize one candidate whose blocks share a target sequence;
 it must not collapse multiple candidates/target sequences or replace source-coverage reporting.
 

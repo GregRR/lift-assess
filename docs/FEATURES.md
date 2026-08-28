@@ -81,10 +81,12 @@ liftAssess can assess BED3-or-later record sets through one prepared exact-resou
 - derives exact target collisions separately from overlapping-but-offset projections across distinct input records;
 - compares exact mapped target segments after adjacent coverage is canonicalized, never target bounding spans;
 - records the selected chain publication class, exact SHA-256 resource identity, and chain provenance;
-- exposes compact human and schema-v2 JSON batch reports; and
+- applies automatic 101-bp point context to one-base BED rows from the same prepared index, with `--context-bases` for a different odd-width point window and no widening of ordinary interval rows;
+- keeps input-row and point-context relationships as separate scales, including explicit neighborhood-level target collisions and overlapping-but-offset context projections;
+- exposes compact human and schema-v2 JSON batch reports with exact tested context intervals and per-record context run/not-run state; and
 - requires a usable prepared chain index, with no provider access, automatic index build, refresh, or whole-chain fallback.
 
-This milestone is chain-only. Authoritative assembly-sequence name/alias preflight, shared net/reciprocal-best evidence, reverse mapping, point-context, and neighborhood-level batch relationships remain later work rather than being approximated per row. A zero indexed candidate count is therefore reported literally and is not upgraded to an authoritative source-sequence-validity conclusion.
+This milestone is chain-only. Authoritative assembly-sequence name/alias preflight, shared net/reciprocal-best evidence, and reverse batch mapping remain later work rather than being approximated per row. A zero indexed candidate count is therefore reported literally and is not upgraded to an authoritative source-sequence-validity conclusion. When the chain index does not contain a conservative source-sequence bound for a one-base row, that row's point context is explicitly `NOT_RUN` rather than inferred from a sequence-name heuristic.
 
 ## Actual reverse-mapping context
 
@@ -505,7 +507,7 @@ the design or model vocabulary:
 - a numeric composite confidence score;
 - machine learning;
 - automatic claims of orthology or biological truth;
-- shared comparative net/reciprocal-best, reverse, and point-context evidence across many batch loci;
+- shared comparative net/reciprocal-best and reverse evidence across many batch loci;
 - implicit reverse-direction acquisition or automatic reverse-index construction during
   ordinary assessment;
 - reproducible case manifests or portable resource packets;

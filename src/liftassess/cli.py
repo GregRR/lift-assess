@@ -190,8 +190,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--context-bases",
         type=_context_window_bases_arg,
         help=(
-            "override the automatic 101-bp local-context window for a 1-bp point "
-            "query with an odd number of bases, e.g. 1001"
+            "override the automatic 101-bp local-context window for 1-bp point "
+            "queries, including one-base BED rows, with an odd number of bases, "
+            "e.g. 1001"
         ),
     )
     return parser
@@ -220,10 +221,6 @@ def _run(
     if args.bed is not None:
         if args.locus is not None:
             raise ValueError("provide either a single locus or --bed, not both")
-        if args.context_bases is not None:
-            raise ValueError(
-                "--context-bases is not yet available with --bed batch assessment"
-            )
         return _run_indexed_bed_batch(
             args,
             source_assembly=source_assembly,
@@ -530,6 +527,13 @@ def _run_indexed_bed_batch(
         quiet=args.quiet,
         stderr=stderr,
     )
+    if args.context_bases is not None and not any(
+        record.source_interval.length == 1 for record in records
+    ):
+        raise ValueError(
+            "--context-bases with --bed requires at least one 1-bp BED record; "
+            "ordinary interval rows are not widened automatically"
+        )
     structural_chain = _resolve_preferred_cached_batch_chain(
         cache_root,
         args.source_db,
@@ -579,8 +583,9 @@ def _run_indexed_bed_batch(
         )
 
     _status(
-        "Assessing BED batch with prepared chain index; provider access and "
-        "whole-chain fallback are disabled.",
+        "Assessing BED batch with prepared chain index; automatic point context "
+        "uses the same index for 1-bp rows, and provider access/whole-chain fallback "
+        "are disabled.",
         quiet=args.quiet,
         stderr=stderr,
     )
@@ -594,6 +599,9 @@ def _run_indexed_bed_batch(
             target_assembly=target_assembly,
             alignment_provenance=alignment_provenance,
             chain_index=chain_index,
+            point_context_window_bases=(
+                args.context_bases or DEFAULT_POINT_CONTEXT_BASES
+            ),
         )
     except ChainIndexCorruptionError as exc:
         raise ValueError(
