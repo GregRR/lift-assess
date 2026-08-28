@@ -600,11 +600,22 @@ Progressive-disclosure human renderer
   outer loop that reparses multi-gigabyte comparative resources once per locus. It should either
   evaluate many intervals during shared resource traversal or use an indexed/preprocessed local
   representation while preserving the same single-locus mapping/evidence semantics and per-locus
-  provenance. The initial M22 execution primitive is deliberately chain-only and index-required: a
-  missing/unusable prepared index is an explicit precondition failure rather than permission to fall
-  back to whole-chain traversal. Comparative net/reciprocal-best batch evidence is added only when it
-  can preserve the same no-repeated-scan constraint rather than being approximated from chain data.
-  The first CLI batch surface is `--bed PATH` (or `--bed -` for stdin) and retains the ordinary single-locus positional syntax. It is cache-only and prepared-index-only: `--refresh` is rejected, no provider acquisition or automatic index build occurs, and an unavailable/corrupt index fails before assessment. Default publication-class selection remains COMPARATIVE-first unless `--evidence-tier` requests an exact class, but the batch report labels the current scientific scope as **chain only** and explicitly marks net/reciprocal-best, reverse, and point-context batch evidence as not assessed. BED coordinates remain 0-based half-open in human and JSON batch output. Until authoritative assembly-sequence metadata/preflight exists, a row with zero indexed candidates is reported only as zero candidates for the submitted sequence label/interval; it must not be rendered as proof that the sequence name is valid or that a valid source interval has no projection.
+  provenance. The initial M22 execution primitive is index-required: a missing/unusable prepared index
+  is an explicit precondition failure rather than permission to fall back to whole-chain traversal.
+  `LIFTOVER-ONLY` batches remain chain-only. For a complete cached COMPARATIVE bundle, submitted-row
+  candidates come from the prepared all-chain index and the ordinary net plus reciprocal-best chain are
+  each consumed exactly once across the complete submitted candidate collection. The all-chain is not
+  rescanned, and comparative evidence is never approximated from chain data. Automatic point-context
+  candidates deliberately remain forward-chain-only; net/reciprocal-best observations are not silently
+  promoted to the neighborhood scale. The CLI batch surface is `--bed PATH` (or `--bed -` for stdin)
+  and retains the ordinary single-locus positional syntax. It is cache-only and prepared-index-only:
+  `--refresh` is rejected, no provider acquisition or automatic index build occurs, and an unavailable/
+  corrupt index fails before assessment. Default publication-class selection prefers a complete cached
+  COMPARATIVE bundle and otherwise the available LIFTOVER-ONLY chain unless `--evidence-tier` requests
+  an exact class. BED coordinates remain 0-based half-open in human and JSON batch output. Until
+  authoritative assembly-sequence metadata/preflight exists, a row with zero indexed candidates is
+  reported only as zero candidates for the submitted sequence label/interval; it must not be rendered
+  as proof that the sequence name is valid or that a valid source interval has no projection.
 - **Portable case packets are constrained by redistribution terms.** A reproducible case manifest
   may record the schema-versioned result, exact resource SHA-256 identities, source URLs,
   retrieval/checksum/terms metadata, and provenance graph. An archive may embed byte-identical

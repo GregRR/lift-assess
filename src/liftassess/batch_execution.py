@@ -1,9 +1,9 @@
-"""Index-only batch execution over one exact cached UCSC chain resource.
+"""Index-required batch execution over exact cached UCSC resources.
 
-This layer deliberately executes only chain-backed candidate generation.  It exists so
-batch orchestration can reuse the prepared region-addressable chain index without
-silently falling back to a whole-resource traversal.  Comparative net/reciprocal-best
-batch evidence remains a later M22 slice rather than being approximated here.
+Candidate generation always uses one prepared region-addressable chain index and never
+falls back to a whole-chain traversal. For a complete COMPARATIVE bundle, submitted-row
+net and reciprocal-best evidence are attached with one shared pass over each resource.
+Automatic point-context candidates intentionally remain forward-chain-only.
 """
 
 from dataclasses import dataclass
@@ -30,20 +30,31 @@ from .query_context import (
     build_centered_point_context_interval,
     point_context_not_run,
 )
-from .resource_cache import CachedResource, CachedUCSCChainResource
-from .resource_files import build_ucsc_chain_candidates_for_intervals_from_cached_chain
+from .resource_cache import (
+    CachedResource,
+    CachedUCSCChainResource,
+    CachedUCSCResourceBundle,
+)
+from .resource_files import (
+    ResourceReadProgressCallback,
+    attach_ucsc_comparative_evidence_to_candidate_sets_from_cached_bundle,
+    build_ucsc_chain_candidates_for_intervals_from_cached_chain,
+)
 from .resource_identity import sha256_hex_from_identifier
 
 
 @dataclass(frozen=True)
 class IndexedChainBatchResult:
-    """Chain-only indexed execution result for one source/target resource pair."""
+    """Indexed batch result for one exact UCSC publication class."""
 
     source_db: str
     target_db: str
     evidence_tier: EvidenceAvailabilityTier
     chain_sha256_identifier: str
     chain_resource: CachedResource
+    net_resource: CachedResource | None
+    reciprocal_best_chain_resource: CachedResource | None
+    comparative_evidence_consumed: bool
     alignment_provenance: ProvenanceSource
     record_assessments: tuple[BatchRecordAssessment, ...]
     relationships: BatchRelationshipResult
@@ -57,6 +68,27 @@ class IndexedChainBatchResult:
         sha256_hex_from_identifier(self.chain_sha256_identifier)
         if self.chain_resource.sha256 != self.chain_sha256_identifier:
             raise ValueError("batch chain resource identity must match result identity")
+        comparative_resources = (
+            self.net_resource,
+            self.reciprocal_best_chain_resource,
+        )
+        if self.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
+            if any(resource is None for resource in comparative_resources):
+                raise ValueError(
+                    "COMPARATIVE batch results require net and reciprocal-best "
+                    "resources"
+                )
+        elif any(resource is not None for resource in comparative_resources):
+            raise ValueError(
+                "LIFTOVER_ONLY batch results cannot carry comparative resources"
+            )
+        if (
+            self.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY
+            and self.comparative_evidence_consumed
+        ):
+            raise ValueError(
+                "LIFTOVER_ONLY batch results cannot consume comparative evidence"
+            )
         record_ids = [item.record.record_id for item in self.record_assessments]
         if len(record_ids) != len(set(record_ids)):
             raise ValueError("batch result record IDs must be unique")
@@ -83,6 +115,8 @@ def run_indexed_chain_batch(
     target_assembly: AssemblyIdentifier,
     alignment_provenance: ProvenanceSource,
     chain_index: ChainIndex | None,
+    comparative_bundle: CachedUCSCResourceBundle | None = None,
+    progress_callback: ResourceReadProgressCallback | None = None,
     point_context_window_bases: int = DEFAULT_POINT_CONTEXT_BASES,
 ) -> IndexedChainBatchResult:
     """Project a batch through one prepared chain index and derive relationships.
@@ -93,15 +127,36 @@ def run_indexed_chain_batch(
     operation at the existing preparation boundary.
 
     The underlying multi-interval adapter preserves ordinary chain candidate semantics
-    and exact chain provenance.  This slice intentionally does not attach net or
-    reciprocal-best observations, even when ``chain_context`` names the COMPARATIVE
-    publication class.
+    and exact chain provenance. When ``comparative_bundle`` is supplied, its ordinary
+    net and reciprocal-best chain are each consumed once across the complete submitted
+    candidate collection. Point-context candidates remain forward-chain-only in this
+    slice and do not inherit those observations.
     """
 
     if not records:
         raise ValueError("indexed batch execution requires at least one input record")
     if chain_index is None:
         raise ValueError("indexed batch execution requires a prepared chain index")
+    if comparative_bundle is not None:
+        if chain_context.evidence_tier is not EvidenceAvailabilityTier.COMPARATIVE:
+            raise ValueError(
+                "comparative batch evidence requires a COMPARATIVE chain context"
+            )
+        if (
+            comparative_bundle.source_db != chain_context.source_db
+            or comparative_bundle.target_db != chain_context.target_db
+            or comparative_bundle.evidence_tier
+            is not EvidenceAvailabilityTier.COMPARATIVE
+            or comparative_bundle.chain.sha256 != chain_context.chain.sha256
+        ):
+            raise ValueError(
+                "comparative batch bundle must match the selected exact chain resource"
+            )
+    elif chain_context.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
+        raise ValueError(
+            "COMPARATIVE batch execution requires the complete cached "
+            "comparative bundle"
+        )
 
     candidate_sets = build_ucsc_chain_candidates_for_intervals_from_cached_chain(
         (record.source_interval for record in records),
@@ -113,6 +168,19 @@ def run_indexed_chain_batch(
     if len(candidate_sets) != len(records):
         raise ValueError(
             "batch candidate result count must match the input record count"
+        )
+    comparative_evidence_consumed = bool(
+        comparative_bundle is not None and any(candidate_sets)
+    )
+    if comparative_evidence_consumed:
+        assert comparative_bundle is not None
+        candidate_sets = (
+            attach_ucsc_comparative_evidence_to_candidate_sets_from_cached_bundle(
+                candidate_sets,
+                comparative_bundle,
+                alignment_provenance=alignment_provenance,
+                progress_callback=progress_callback,
+            )
         )
 
     record_assessments = tuple(
@@ -134,6 +202,15 @@ def run_indexed_chain_batch(
         evidence_tier=chain_context.evidence_tier,
         chain_sha256_identifier=chain_context.chain.sha256,
         chain_resource=chain_context.chain,
+        net_resource=(
+            comparative_bundle.net if comparative_bundle is not None else None
+        ),
+        reciprocal_best_chain_resource=(
+            comparative_bundle.reciprocal_best_chain
+            if comparative_bundle is not None
+            else None
+        ),
+        comparative_evidence_consumed=comparative_evidence_consumed,
         alignment_provenance=alignment_provenance,
         record_assessments=record_assessments,
         relationships=relationships,

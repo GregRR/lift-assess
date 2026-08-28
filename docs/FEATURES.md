@@ -39,7 +39,7 @@ CLI coordinates are UCSC-style **1-based, inclusive**. Comma-grouped browser-sty
 coordinates such as `chr16:12,345-12,400` are accepted. liftAssess converts input at
 the boundary to its canonical **0-based, half-open** internal representation.
 
-Prepared indexes also support BED3-or-later chain-only batch assessment:
+Prepared indexes also support BED3-or-later batch assessment:
 
 ```text
 assess-liftover SOURCE_DB TARGET_DB --bed loci.bed
@@ -83,10 +83,11 @@ liftAssess can assess BED3-or-later record sets through one prepared exact-resou
 - records the selected chain publication class, exact SHA-256 resource identity, and chain provenance;
 - applies automatic 101-bp point context to one-base BED rows from the same prepared index, with `--context-bases` for a different odd-width point window and no widening of ordinary interval rows;
 - keeps input-row and point-context relationships as separate scales, including explicit neighborhood-level target collisions and overlapping-but-offset context projections;
-- exposes compact human and schema-v2 JSON batch reports with exact tested context intervals and per-record context run/not-run state; and
+- exposes compact human and schema-v2 JSON batch reports with exact tested context intervals and per-record context run/not-run state;
+- for a complete cached `COMPARATIVE` bundle, attaches ordinary-net and reciprocal-best-chain observations to every submitted-row candidate with one shared pass over each resource, without rescanning the indexed all-chain; and
 - requires a usable prepared chain index, with no provider access, automatic index build, refresh, or whole-chain fallback.
 
-This milestone is chain-only. Authoritative assembly-sequence name/alias preflight, shared net/reciprocal-best evidence, and reverse batch mapping remain later work rather than being approximated per row. A zero indexed candidate count is therefore reported literally and is not upgraded to an authoritative source-sequence-validity conclusion. When the chain index does not contain a conservative source-sequence bound for a one-base row, that row's point context is explicitly `NOT_RUN` rather than inferred from a sequence-name heuristic.
+`LIFTOVER-ONLY` batches remain chain-only. COMPARATIVE point-context candidates also remain chain-only in this milestone; net/reciprocal-best evidence is attached only to submitted rows rather than silently being inferred at the neighborhood scale. Authoritative assembly-sequence name/alias preflight and reverse batch mapping remain later work. A zero indexed candidate count is therefore reported literally and is not upgraded to an authoritative source-sequence-validity conclusion. When the chain index does not contain a conservative source-sequence bound for a one-base row, that row's point context is explicitly `NOT_RUN` rather than inferred from a sequence-name heuristic.
 
 ## Actual reverse-mapping context
 
@@ -507,7 +508,7 @@ the design or model vocabulary:
 - a numeric composite confidence score;
 - machine learning;
 - automatic claims of orthology or biological truth;
-- shared comparative net/reciprocal-best and reverse evidence across many batch loci;
+- reverse evidence across many batch loci;
 - implicit reverse-direction acquisition or automatic reverse-index construction during
   ordinary assessment;
 - reproducible case manifests or portable resource packets;

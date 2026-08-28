@@ -569,29 +569,75 @@ def _run_indexed_bed_batch(
             f"{args.target_db} --evidence-tier {tier}"
         )
 
-    chain_context = load_cached_ucsc_chain_resource(
-        cache_root,
-        args.source_db,
-        args.target_db,
-        evidence_tier=structural_chain.evidence_tier,
-        trusted_artifact_sha256_identifiers=frozenset({structural_chain.chain.sha256}),
-    )
-    if chain_context is None:
-        raise ValueError(
-            "cached chain metadata changed or failed validation after prepared-index "
-            "selection; batch assessment was not started"
+    cached_bundle: CachedUCSCResourceBundle | None = None
+    if structural_chain.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
+        cached_bundle = resolve_cached_ucsc_resource_bundle_metadata(
+            cache_root,
+            args.source_db,
+            args.target_db,
+            evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
         )
+        if (
+            cached_bundle is None
+            or cached_bundle.chain.sha256 != structural_chain.chain.sha256
+        ):
+            raise ValueError(
+                "COMPARATIVE --bed batch assessment requires the complete cached "
+                "comparative bundle so net/reciprocal-best evidence can be shared "
+                "across submitted rows"
+            )
+        chain_context = CachedUCSCChainResource(
+            source_db=cached_bundle.source_db,
+            target_db=cached_bundle.target_db,
+            evidence_tier=cached_bundle.evidence_tier,
+            chain=cached_bundle.chain,
+        )
+    else:
+        loaded_chain_context = load_cached_ucsc_chain_resource(
+            cache_root,
+            args.source_db,
+            args.target_db,
+            evidence_tier=structural_chain.evidence_tier,
+            trusted_artifact_sha256_identifiers=frozenset(
+                {structural_chain.chain.sha256}
+            ),
+        )
+        if loaded_chain_context is None:
+            raise ValueError(
+                "cached chain metadata changed or failed validation after "
+                "prepared-index selection; batch assessment was not started"
+            )
+        chain_context = loaded_chain_context
 
-    _status(
+    status_message = (
         "Assessing BED batch with prepared chain index; automatic point context "
-        "uses the same index for 1-bp rows, and provider access/whole-chain fallback "
-        "are disabled.",
+        "uses the same index for 1-bp rows; "
+    )
+    if cached_bundle is not None:
+        status_message += (
+            "shared net/reciprocal-best scans are enabled for submitted rows; "
+        )
+    status_message += "provider access/whole-chain fallback are disabled."
+    _status(
+        status_message,
         quiet=args.quiet,
         stderr=stderr,
     )
     alignment_provenance = _ucsc_pair_dependency_provenance(
         args.source_db, args.target_db
     )
+    batch_progress_display: _AssessmentProgressDisplay | None = None
+    batch_progress_callback: ResourceReadProgressCallback | None = None
+    if (
+        cached_bundle is not None
+        and not args.quiet
+        and _is_interactive_terminal(stderr)
+    ):
+        batch_progress_display = _AssessmentProgressDisplay(
+            cached_bundle, stderr=stderr, indexed_chain=True
+        )
+        batch_progress_display.start()
+        batch_progress_callback = batch_progress_display.update
     try:
         result = run_indexed_chain_batch(
             records,
@@ -599,6 +645,12 @@ def _run_indexed_bed_batch(
             target_assembly=target_assembly,
             alignment_provenance=alignment_provenance,
             chain_index=chain_index,
+            comparative_bundle=(
+                cached_bundle
+                if chain_context.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+                else None
+            ),
+            progress_callback=batch_progress_callback,
             point_context_window_bases=(
                 args.context_bases or DEFAULT_POINT_CONTEXT_BASES
             ),
@@ -608,6 +660,10 @@ def _run_indexed_bed_batch(
             "prepared chain index failed during batch lookup; no whole-chain fallback "
             f"was started ({exc})"
         ) from exc
+    if batch_progress_display is not None:
+        batch_progress_display.finish(
+            candidates_exist=any(item.candidates for item in result.record_assessments)
+        )
 
     if args.json_output:
         rendered = render_indexed_chain_batch_json(result)
@@ -633,6 +689,21 @@ def _resolve_preferred_cached_batch_chain(
     else:
         tiers = (requested_evidence_tier,)
     for tier in tiers:
+        if tier is EvidenceAvailabilityTier.COMPARATIVE:
+            bundle = resolve_cached_ucsc_resource_bundle_metadata(
+                cache_root,
+                source_db,
+                target_db,
+                evidence_tier=tier,
+            )
+            if bundle is not None:
+                return CachedUCSCChainResource(
+                    source_db=bundle.source_db,
+                    target_db=bundle.target_db,
+                    evidence_tier=bundle.evidence_tier,
+                    chain=bundle.chain,
+                )
+            continue
         resource = resolve_cached_ucsc_chain_resource_metadata(
             cache_root,
             source_db,

@@ -13,7 +13,7 @@ reciprocal-best chains are retained while the corresponding streams are consumed
 
 from collections.abc import Iterable
 
-from .chain import ChainRecord
+from .chain import ChainRecord, chain_id_from_candidate_id
 from .models import (
     AssemblyIdentifier,
     GenomicInterval,
@@ -174,6 +174,61 @@ def build_ucsc_chain_candidates_for_intervals(
             candidates_by_interval[index].append(candidate)
 
     return tuple(tuple(candidates) for candidates in candidates_by_interval)
+
+
+def attach_ucsc_comparative_evidence_to_candidate_sets(
+    candidate_sets: tuple[tuple[NormalizedCandidate, ...], ...],
+    *,
+    net_records: Iterable[NetRecord],
+    net_provenance: ProvenanceSource,
+    reciprocal_best_chains: Iterable[ChainRecord],
+    reciprocal_best_provenance: ProvenanceSource,
+    reciprocal_best_completeness: ReciprocalBestResourceCompleteness,
+) -> tuple[tuple[NormalizedCandidate, ...], ...]:
+    """Attach comparative evidence to many candidate sets with shared scans.
+
+    ``net_records`` and ``reciprocal_best_chains`` are each consumed exactly once
+    across the complete candidate collection. Candidate-set boundaries and encounter
+    order are preserved. This helper does not generate candidates, rank placements,
+    or synthesize filtered/all-chain relationships.
+    """
+
+    sizes = tuple(len(candidates) for candidates in candidate_sets)
+    entries: list[tuple[int, NormalizedCandidate]] = []
+    for candidates in candidate_sets:
+        for candidate in candidates:
+            chain_id = chain_id_from_candidate_id(candidate.candidate_id)
+            if chain_id is None:
+                raise ValueError(
+                    "comparative evidence requires canonical chain candidate IDs"
+                )
+            entries.append((chain_id, candidate))
+
+    if not entries:
+        return candidate_sets
+
+    entries = _attach_net_evidence(
+        entries,
+        net_records=net_records,
+        net_provenance=net_provenance,
+    )
+    entries = _attach_reciprocal_best_evidence(
+        entries,
+        reciprocal_best_chains=reciprocal_best_chains,
+        reciprocal_best_provenance=reciprocal_best_provenance,
+        reciprocal_best_completeness=reciprocal_best_completeness,
+    )
+
+    rebuilt: list[tuple[NormalizedCandidate, ...]] = []
+    offset = 0
+    for size in sizes:
+        rebuilt.append(
+            tuple(candidate for _, candidate in entries[offset : offset + size])
+        )
+        offset += size
+    if offset != len(entries):
+        raise ValueError("comparative candidate reconstruction lost batch entries")
+    return tuple(rebuilt)
 
 
 def _validate_optional_inputs(

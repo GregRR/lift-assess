@@ -744,6 +744,20 @@ Fourth M22 point-context relationship slice:
   run/not-run state in the human summary and schema-v2 batch JSON. Ordinary interval rows remain
   untouched.
 
+Fifth M22 shared-comparative-evidence slice:
+
+- requires a complete cached COMPARATIVE bundle before selecting the all-chain publication class for
+  batch execution; otherwise default selection falls through to an available LIFTOVER-ONLY chain;
+- keeps submitted-row candidate generation on the prepared all-chain index and never rescans that
+  multi-gigabyte resource;
+- consumes the ordinary net exactly once and the reciprocal-best chain exactly once across the entire
+  submitted-row candidate collection, preserving the existing candidate-level net and reciprocal-best
+  evidence semantics and exact file provenance;
+- keeps automatic point-context candidates chain-only rather than implying that shared comparative
+  evidence was assessed at the neighborhood scale; and
+- exposes the comparative scope and exact consumed net/reciprocal-best resource identities in compact
+  human output and schema-v2 batch JSON.
+
 Optional BED12/custom-track export may visualize one candidate whose blocks share a target sequence;
 it must not collapse multiple candidates/target sequences or replace source-coverage reporting.
 

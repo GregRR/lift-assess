@@ -19,7 +19,11 @@ from typing import TypeAlias
 
 from .chain import ChainRecord, iter_chain_records
 from .chain_index import ChainIndex
-from .engine import build_ucsc_candidates, build_ucsc_chain_candidates_for_intervals
+from .engine import (
+    attach_ucsc_comparative_evidence_to_candidate_sets,
+    build_ucsc_candidates,
+    build_ucsc_chain_candidates_for_intervals,
+)
 from .models import (
     AssemblyIdentifier,
     EvidenceAvailabilityTier,
@@ -429,6 +433,82 @@ def build_ucsc_chain_candidates_for_intervals_from_cached_chain(
         chains,
         target_assembly=target_assembly,
         chain_provenance=chain_provenance,
+    )
+
+
+def attach_ucsc_comparative_evidence_to_candidate_sets_from_cached_bundle(
+    candidate_sets: tuple[tuple[NormalizedCandidate, ...], ...],
+    bundle: CachedUCSCResourceBundle,
+    *,
+    alignment_provenance: ProvenanceSource,
+    progress_callback: ResourceReadProgressCallback | None = None,
+) -> tuple[tuple[NormalizedCandidate, ...], ...]:
+    """Attach net and reciprocal-best evidence with one pass per resource.
+
+    Candidate generation is assumed to have already used ``bundle.chain`` (typically
+    through its prepared index). This helper therefore does not reread the all-chain.
+    It verifies and consumes the ordinary net and reciprocal-best chain exactly once
+    across all supplied candidate sets.
+    """
+
+    if bundle.evidence_tier is not EvidenceAvailabilityTier.COMPARATIVE:
+        raise ValueError("comparative batch evidence requires a COMPARATIVE bundle")
+    assert bundle.net is not None
+    assert bundle.reciprocal_best_chain is not None
+
+    chain_provenance = _cached_bundle_resource_provenance(
+        bundle,
+        UCSCBundleResourceRole.CHAIN,
+        bundle.chain,
+        alignment_provenance=alignment_provenance,
+    )
+    for candidates in candidate_sets:
+        for candidate in candidates:
+            if candidate.mapping_provenance != chain_provenance:
+                raise ValueError(
+                    "batch candidates must preserve the selected COMPARATIVE "
+                    "chain provenance"
+                )
+
+    net_provenance = _cached_bundle_resource_provenance(
+        bundle,
+        UCSCBundleResourceRole.NET,
+        bundle.net,
+        alignment_provenance=alignment_provenance,
+    )
+    reciprocal_best_provenance = _cached_bundle_resource_provenance(
+        bundle,
+        UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN,
+        bundle.reciprocal_best_chain,
+        alignment_provenance=alignment_provenance,
+    )
+    net_records = _iter_net_file_with_provenance(
+        bundle.net.path,
+        net_provenance,
+        progress_callback=_resource_progress_callback(
+            progress_callback, UCSCBundleResourceRole.NET, bundle.net
+        ),
+        progress_interval_bytes=_progress_interval_bytes(bundle.net),
+    )
+    reciprocal_best_chains = _iter_chain_file_with_provenance(
+        bundle.reciprocal_best_chain.path,
+        reciprocal_best_provenance,
+        progress_callback=_resource_progress_callback(
+            progress_callback,
+            UCSCBundleResourceRole.RECIPROCAL_BEST_CHAIN,
+            bundle.reciprocal_best_chain,
+        ),
+        progress_interval_bytes=_progress_interval_bytes(bundle.reciprocal_best_chain),
+    )
+    return attach_ucsc_comparative_evidence_to_candidate_sets(
+        candidate_sets,
+        net_records=net_records,
+        net_provenance=net_provenance,
+        reciprocal_best_chains=reciprocal_best_chains,
+        reciprocal_best_provenance=reciprocal_best_provenance,
+        reciprocal_best_completeness=(
+            ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE
+        ),
     )
 
 

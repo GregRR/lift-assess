@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 from io import StringIO
 from pathlib import Path
@@ -12,6 +13,7 @@ from liftassess.models import EvidenceAvailabilityTier
 from liftassess.resource_cache import (
     CachedResource,
     CachedUCSCChainResource,
+    CachedUCSCResourceBundle,
     ucsc_resource_terms,
 )
 from liftassess.resource_identity import sha256_identifier_for_file
@@ -64,6 +66,74 @@ chain 80 chr1 1000 + 40 50 chrA 2000 + 105 115 3
         source_chain_size_bytes=path.stat().st_size,
     ).index
     return context, index
+
+
+def _write_gzip(path: Path, text: str) -> None:
+    with gzip.open(path, mode="wt", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+
+
+def _cached_resource(path: Path, url: str) -> CachedResource:
+    return CachedResource(
+        path=path,
+        source_url=url,
+        retrieved_at="2026-08-28T00:00:00Z",
+        sha256=sha256_identifier_for_file(path).value,
+        size_bytes=path.stat().st_size,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(url),
+        cache_hit=True,
+    )
+
+
+def _comparative_bundle_context(
+    tmp_path: Path,
+) -> tuple[CachedUCSCResourceBundle, ChainIndex]:
+    chain_path = tmp_path / "hg38.hg19.all.chain.gz"
+    net_path = tmp_path / "hg38.hg19.net.gz"
+    syn_path = tmp_path / "hg38.hg19.syn.net.gz"
+    rbest_chain_path = tmp_path / "hg38.hg19.rbest.chain.gz"
+    rbest_net_path = tmp_path / "hg38.hg19.rbest.net.gz"
+    _write_gzip(
+        chain_path,
+        "chain 100 chr1 1000 + 0 10 chrA 2000 + 100 110 1\n10\n\n",
+    )
+    _write_gzip(
+        net_path,
+        "net chr1 1000\n"
+        " fill 0 10 chrA + 100 10 id 1 score 100 ali 10 qDup 0 type syn\n",
+    )
+    syn_path.write_bytes(b"not consumed")
+    _write_gzip(
+        rbest_chain_path,
+        "chain 1 chr1 1000 + 0 10 chrA 2000 + 100 110 101\n10\n\n",
+    )
+    rbest_net_path.write_bytes(b"not consumed")
+    forward = "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsHg19/"
+    reciprocal = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/vsHg38/reciprocalBest/"
+    )
+    bundle = CachedUCSCResourceBundle(
+        source_db=SOURCE_DB,
+        target_db=TARGET_DB,
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        chain=_cached_resource(chain_path, f"{forward}hg38.hg19.all.chain.gz"),
+        net=_cached_resource(net_path, f"{forward}hg38.hg19.net.gz"),
+        syntenic_net=_cached_resource(syn_path, f"{forward}hg38.hg19.syn.net.gz"),
+        reciprocal_best_chain=_cached_resource(
+            rbest_chain_path, f"{reciprocal}hg38.hg19.rbest.chain.gz"
+        ),
+        reciprocal_best_net=_cached_resource(
+            rbest_net_path, f"{reciprocal}hg38.hg19.rbest.net.gz"
+        ),
+    )
+    index = build_chain_index(
+        chain_path,
+        tmp_path / "comparative-index",
+        source_chain_sha256_identifier=bundle.chain.sha256,
+        source_chain_size_bytes=bundle.chain.size_bytes,
+    ).index
+    return bundle, index
 
 
 def _point_context_chain_context(
@@ -225,6 +295,101 @@ def test_bed_batch_cli_emits_indexed_chain_only_json_without_provider_access(
         f"ucsc-pair:{SOURCE_DB}:{TARGET_DB}"
     )
     assert "whole-chain fallback are disabled" in stderr.getvalue()
+
+
+def test_bed_batch_cli_uses_shared_comparative_evidence_when_bundle_is_complete(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle, index = _comparative_bundle_context(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_resource_bundle_metadata",
+        lambda *args, **kwargs: bundle,
+    )
+
+    def forbidden_bundle_rehash(*args: object, **kwargs: object) -> None:
+        raise AssertionError(
+            "COMPARATIVE batch mode must verify net/rbest during shared parsing, "
+            "not pre-hash them through the ordinary bundle loader"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_resource_bundle_for_indexed_assessment",
+        forbidden_bundle_rehash,
+    )
+    monkeypatch.setattr(cli, "load_cached_chain_index", lambda *args, **kwargs: index)
+    bed = tmp_path / "comparative.bed"
+    bed.write_text("chr1\t0\t10\tfirst\n", encoding="utf-8")
+    args = cli._build_parser().parse_args(
+        [SOURCE_DB, TARGET_DB, "--bed", str(bed), "--json"]
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
+
+    assert exit_code == 0
+    payload = json.loads(stdout.getvalue())
+    assert payload["semantics"]["evidence_scope"] == (
+        "indexed_chain_plus_shared_comparative"
+    )
+    assert payload["evidence"]["assessment_scope"] == "CHAIN_NET_RECIPROCAL_BEST"
+    assert payload["evidence"]["comparative_net_reciprocal_best"] == (
+        "ASSESSED_FOR_SUBMITTED_RECORDS"
+    )
+    assert [item["role"] for item in payload["comparative_resources"]] == [
+        "NET",
+        "RECIPROCAL_BEST_CHAIN",
+    ]
+    candidate_evidence = payload["records"][0]["candidates"][0]["evidence"]
+    kinds = {item["kind"] for item in candidate_evidence}
+    assert "NET_CLASSIFICATION" in kinds
+    assert "RECIPROCAL_BEST_MEMBERSHIP" in kinds
+    assert "shared net/reciprocal-best scans are enabled" in stderr.getvalue()
+
+
+def test_bed_batch_cli_does_not_claim_unused_comparative_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle, index = _comparative_bundle_context(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_resource_bundle_metadata",
+        lambda *args, **kwargs: bundle,
+    )
+    monkeypatch.setattr(cli, "load_cached_chain_index", lambda *args, **kwargs: index)
+    bed = tmp_path / "comparative-no-candidate.bed"
+    bed.write_text("chr1\t60\t70\tnone\n", encoding="utf-8")
+    args = cli._build_parser().parse_args(
+        [SOURCE_DB, TARGET_DB, "--bed", str(bed), "--json"]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    payload = json.loads(stdout.getvalue())
+    assert payload["semantics"]["evidence_scope"] == "indexed_chain_only"
+    assert payload["evidence"]["assessment_scope"] == "CHAIN_ONLY"
+    assert payload["evidence"]["comparative_net_reciprocal_best"] == (
+        "NOT_USED_NO_SUBMITTED_CANDIDATES"
+    )
+    assert all(
+        item["consumed_by_engine"] is False for item in payload["comparative_resources"]
+    )
+    provenance_ids = {item["source_id"] for item in payload["provenance"]["sources"]}
+    assert bundle.net is not None
+    assert bundle.reciprocal_best_chain is not None
+    assert f"file:{bundle.net.sha256}" not in provenance_ids
+    assert f"file:{bundle.reciprocal_best_chain.sha256}" not in provenance_ids
 
 
 def test_bed_batch_cli_summary_preserves_bed_coordinate_convention(

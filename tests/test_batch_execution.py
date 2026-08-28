@@ -1,3 +1,4 @@
+import gzip
 from pathlib import Path
 
 import pytest
@@ -8,13 +9,17 @@ from liftassess.chain_index import ChainIndex, build_chain_index
 from liftassess.models import (
     AssemblyIdentifier,
     EvidenceAvailabilityTier,
+    EvidenceKind,
     GenomicInterval,
     ProvenanceSource,
+    ReciprocalBestMembershipStatus,
+    ReciprocalBestMembershipSummary,
 )
 from liftassess.query_context import QueryContextNotRunReason, QueryContextState
 from liftassess.resource_cache import (
     CachedResource,
     CachedUCSCChainResource,
+    CachedUCSCResourceBundle,
     ucsc_resource_terms,
 )
 from liftassess.resource_identity import sha256_identifier_for_file
@@ -283,3 +288,190 @@ def test_indexed_chain_batch_does_not_widen_non_point_rows(tmp_path: Path) -> No
 
     assert result.point_context_records[0].context_result is None
     assert result.point_context_relationships.relationships == ()
+
+
+def _write_gzip(path: Path, text: str) -> None:
+    with gzip.open(path, mode="wt", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+
+
+def _cached_resource(path: Path, url: str) -> CachedResource:
+    return CachedResource(
+        path=path,
+        source_url=url,
+        retrieved_at="2026-08-28T00:00:00Z",
+        sha256=sha256_identifier_for_file(path).value,
+        size_bytes=path.stat().st_size,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(url),
+        cache_hit=True,
+    )
+
+
+def _comparative_context(
+    tmp_path: Path,
+) -> tuple[CachedUCSCChainResource, CachedUCSCResourceBundle, ChainIndex]:
+    chain_path = tmp_path / "hg38.hg19.all.chain.gz"
+    net_path = tmp_path / "hg38.hg19.net.gz"
+    syn_net_path = tmp_path / "hg38.hg19.syn.net.gz"
+    rbest_chain_path = tmp_path / "hg38.hg19.rbest.chain.gz"
+    rbest_net_path = tmp_path / "hg38.hg19.rbest.net.gz"
+    _write_gzip(chain_path, _chain_text())
+    _write_gzip(
+        net_path,
+        "net chr1 1000\n"
+        " fill 0 10 chrA + 100 10 id 1 score 100 ali 10 qDup 0 type syn\n"
+        " fill 20 10 chrA + 100 10 id 2 score 90 ali 10 qDup 0 type syn\n"
+        " fill 40 10 chrA + 105 10 id 3 score 80 ali 10 qDup 0 type syn\n",
+    )
+    syn_net_path.write_bytes(b"not consumed")
+    _write_gzip(
+        rbest_chain_path,
+        "chain 1 chr1 1000 + 0 10 chrA 2000 + 100 110 101\n10\n\n"
+        "chain 1 chr1 1000 + 20 30 chrA 2000 + 100 110 102\n10\n\n",
+    )
+    rbest_net_path.write_bytes(b"not consumed")
+    forward = "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsHg19/"
+    reciprocal = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/vsHg38/reciprocalBest/"
+    )
+    bundle = CachedUCSCResourceBundle(
+        source_db="hg38",
+        target_db="hg19",
+        evidence_tier=EvidenceAvailabilityTier.COMPARATIVE,
+        chain=_cached_resource(chain_path, f"{forward}hg38.hg19.all.chain.gz"),
+        net=_cached_resource(net_path, f"{forward}hg38.hg19.net.gz"),
+        syntenic_net=_cached_resource(syn_net_path, f"{forward}hg38.hg19.syn.net.gz"),
+        reciprocal_best_chain=_cached_resource(
+            rbest_chain_path, f"{reciprocal}hg38.hg19.rbest.chain.gz"
+        ),
+        reciprocal_best_net=_cached_resource(
+            rbest_net_path, f"{reciprocal}hg38.hg19.rbest.net.gz"
+        ),
+    )
+    context = CachedUCSCChainResource(
+        source_db=bundle.source_db,
+        target_db=bundle.target_db,
+        evidence_tier=bundle.evidence_tier,
+        chain=bundle.chain,
+    )
+    index = build_chain_index(
+        chain_path,
+        tmp_path / "comparative-index",
+        source_chain_sha256_identifier=bundle.chain.sha256,
+        source_chain_size_bytes=bundle.chain.size_bytes,
+    ).index
+    return context, bundle, index
+
+
+def test_indexed_comparative_batch_attaches_shared_net_and_reciprocal_best(
+    tmp_path: Path,
+) -> None:
+    chain_context, bundle, index = _comparative_context(tmp_path)
+    result = run_indexed_chain_batch(
+        (
+            _record("row-1", 0, 10),
+            _record("row-2", 20, 30),
+            _record("row-3", 40, 50),
+        ),
+        chain_context,
+        target_assembly=TARGET,
+        alignment_provenance=ALIGNMENT,
+        chain_index=index,
+        comparative_bundle=bundle,
+    )
+
+    assert result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+    assert result.net_resource == bundle.net
+    assert result.reciprocal_best_chain_resource == bundle.reciprocal_best_chain
+    candidates = [item.candidates[0] for item in result.record_assessments]
+    for candidate in candidates:
+        assert any(
+            observation.kind is EvidenceKind.NET_CLASSIFICATION
+            for observation in candidate.evidence
+        )
+        membership = next(
+            observation.value
+            for observation in candidate.evidence
+            if observation.kind is EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP
+        )
+        assert isinstance(membership, ReciprocalBestMembershipSummary)
+    statuses = [
+        next(
+            observation.value.status
+            for observation in candidate.evidence
+            if observation.kind is EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP
+            and isinstance(observation.value, ReciprocalBestMembershipSummary)
+        )
+        for candidate in candidates
+    ]
+    assert statuses == [
+        ReciprocalBestMembershipStatus.FULL,
+        ReciprocalBestMembershipStatus.FULL,
+        ReciprocalBestMembershipStatus.NONE,
+    ]
+
+
+def test_indexed_comparative_batch_requires_complete_bundle(tmp_path: Path) -> None:
+    chain_context, _bundle, index = _comparative_context(tmp_path)
+
+    with pytest.raises(ValueError, match="complete cached comparative bundle"):
+        run_indexed_chain_batch(
+            (_record("row-1", 0, 10),),
+            chain_context,
+            target_assembly=TARGET,
+            alignment_provenance=ALIGNMENT,
+            chain_index=index,
+        )
+
+
+def test_indexed_comparative_batch_skips_unused_comparative_files(
+    tmp_path: Path,
+) -> None:
+    chain_context, bundle, index = _comparative_context(tmp_path)
+    result = run_indexed_chain_batch(
+        (_record("row-1", 60, 70),),
+        chain_context,
+        target_assembly=TARGET,
+        alignment_provenance=ALIGNMENT,
+        chain_index=index,
+        comparative_bundle=bundle,
+    )
+
+    assert result.record_assessments[0].candidates == ()
+    assert result.comparative_evidence_consumed is False
+    assert result.net_resource == bundle.net
+    assert result.reciprocal_best_chain_resource == bundle.reciprocal_best_chain
+
+
+def test_indexed_comparative_batch_keeps_point_context_chain_only(
+    tmp_path: Path,
+) -> None:
+    chain_context, bundle, index = _comparative_context(tmp_path)
+    result = run_indexed_chain_batch(
+        (_record("row-1", 5, 6),),
+        chain_context,
+        target_assembly=TARGET,
+        alignment_provenance=ALIGNMENT,
+        chain_index=index,
+        comparative_bundle=bundle,
+    )
+
+    submitted = result.record_assessments[0].candidates[0]
+    assert any(
+        observation.kind is EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP
+        for observation in submitted.evidence
+    )
+    context = result.point_context_records[0].context_result
+    assert context is not None
+    assert context.check_state is QueryContextState.RUN
+    assert context.candidates
+    comparative_kinds = {
+        EvidenceKind.NET_CLASSIFICATION,
+        EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP,
+    }
+    assert all(
+        observation.kind not in comparative_kinds
+        for candidate in context.candidates
+        for observation in candidate.evidence
+    )

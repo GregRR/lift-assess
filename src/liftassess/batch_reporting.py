@@ -1,4 +1,4 @@
-"""Human and machine reporting for indexed chain-only batch assessment."""
+"""Human and machine reporting for indexed batch assessment."""
 
 import json
 
@@ -8,7 +8,13 @@ from .batch import (
     BatchTargetRelationshipKind,
 )
 from .batch_execution import IndexedChainBatchResult
-from .models import GenomicInterval
+from .models import (
+    EvidenceAvailabilityTier,
+    EvidenceKind,
+    GenomicInterval,
+    NormalizedCandidate,
+    ReciprocalBestMembershipSummary,
+)
 from .query_context import PointQueryContextResult, QueryContextState
 from .reporting import (
     assembly_json_payload,
@@ -25,7 +31,7 @@ _DEFAULT_INLINE_PROJECTION_LIMIT = 4
 
 
 def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
-    """Render a compact factual summary for indexed chain-only batch assessment."""
+    """Render a compact factual summary for indexed batch assessment."""
 
     record_count = len(result.record_assessments)
     records_with_projection = sum(
@@ -74,10 +80,7 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
     lines.extend(
         [
             "Evidence:",
-            (
-                f"    {result.evidence_tier.value.replace('_', '-')} publication class; "
-                "indexed chain only"
-            ),
+            _batch_evidence_summary(result),
             "Chain resource:",
             f"    {result.chain_sha256_identifier}",
             "Scope:",
@@ -107,6 +110,7 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
                         f"            {candidate.candidate_id}: target bounding span "
                         + _format_half_open_interval(candidate.target_interval)
                         + f"; orientation={candidate.orientation.value}"
+                        + _candidate_comparative_suffix(candidate)
                     )
                 omitted = len(assessment.candidates) - _DEFAULT_INLINE_PROJECTION_LIMIT
                 if omitted > 0:
@@ -120,7 +124,7 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
 
 
 def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
-    """Render schema-v2 machine-readable indexed chain-only batch output."""
+    """Render schema-v2 machine-readable indexed batch output."""
 
     chain_provenance_source_id = f"file:{result.chain_sha256_identifier}"
     payload: dict[str, object] = {
@@ -135,7 +139,11 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
             "point_context_relationships": (
                 "same_relationship_geometry_at_explicit_point_context_scale"
             ),
-            "evidence_scope": "indexed_chain_only",
+            "evidence_scope": (
+                "indexed_chain_plus_shared_comparative"
+                if result.comparative_evidence_consumed
+                else "indexed_chain_only"
+            ),
             "provenance_edges": "dependence_not_independent_confirmation",
         },
         "ucsc_database_pair": {
@@ -144,8 +152,18 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
         },
         "evidence": {
             "resource_publication_class": result.evidence_tier.value,
-            "assessment_scope": "CHAIN_ONLY",
-            "comparative_net_reciprocal_best": "NOT_ASSESSED",
+            "assessment_scope": (
+                "CHAIN_NET_RECIPROCAL_BEST"
+                if result.comparative_evidence_consumed
+                else "CHAIN_ONLY"
+            ),
+            "comparative_net_reciprocal_best": (
+                "ASSESSED_FOR_SUBMITTED_RECORDS"
+                if result.comparative_evidence_consumed
+                else "NOT_USED_NO_SUBMITTED_CANDIDATES"
+                if result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+                else "NOT_ASSESSED"
+            ),
         },
         "records": [
             {
@@ -190,27 +208,17 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
             ],
         },
         "resource": _batch_chain_resource_json(result, chain_provenance_source_id),
+        "comparative_resources": _batch_comparative_resources_json(result),
         "provenance": {
             "alignment_source_id": result.alignment_provenance.source_id,
-            "sources": [
-                provenance_source_json_payload(result.alignment_provenance),
-                {
-                    "source_id": chain_provenance_source_id,
-                    "label": (
-                        f"UCSC {result.source_db}→{result.target_db} chain resource"
-                    ),
-                    "identifiers": [
-                        {"kind": "SHA256", "value": result.chain_sha256_identifier}
-                    ],
-                    "derived_from_source_ids": [result.alignment_provenance.source_id],
-                },
-            ],
+            "sources": _batch_provenance_sources(result, chain_provenance_source_id),
         },
         "scope": {
             "authoritative_source_sequence_preflight": "NOT_ASSESSED",
             "cross_record_target_relationships": "ASSESSED",
             "reverse_mapping": "NOT_ASSESSED",
             "point_context": _point_context_scope(result),
+            "point_context_comparative_evidence": "NOT_ASSESSED",
             "target_role": "NOT_ASSESSED",
             "named_variant_identity": "NOT_ASSESSED",
             "gene_transcript_identity": "NOT_ASSESSED",
@@ -374,10 +382,124 @@ def _batch_scope_summary(result: IndexedChainBatchResult) -> str:
         "    Cross-record target relationships are derived from exact mapped target "
         "segments. "
         + context_text
-        + " Authoritative assembly-sequence name/alias preflight, net/reciprocal-best, "
-        "reverse, target-role, named-variant, and gene/transcript evidence are not "
-        "assessed in this batch slice."
+        + (
+            " Submitted-row net and reciprocal-best evidence are assessed once across "
+            "the batch; point-context candidates remain chain-only."
+            if result.comparative_evidence_consumed
+            else (
+                " Net/reciprocal-best resources were available but not consumed "
+                "because no submitted candidate was generated; point-context remains "
+                "chain-only."
+            )
+            if result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+            else (
+                " Net/reciprocal-best evidence is not assessed for "
+                "LIFTOVER-ONLY batches."
+            )
+        )
+        + " Authoritative assembly-sequence name/alias preflight, reverse, "
+        "target-role, named-variant, and gene/transcript evidence are not assessed "
+        "in this batch slice."
     )
+
+
+def _batch_evidence_summary(result: IndexedChainBatchResult) -> str:
+    tier = result.evidence_tier.value.replace("_", "-")
+    if result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
+        if result.comparative_evidence_consumed:
+            return (
+                f"    {tier} publication class; indexed all-chain plus one shared net "
+                "scan and one shared reciprocal-best-chain scan for submitted rows"
+            )
+        return (
+            f"    {tier} publication class; indexed all-chain; net/reciprocal-best "
+            "not used because no submitted candidate was generated"
+        )
+    return f"    {tier} publication class; indexed chain only"
+
+
+def _candidate_comparative_suffix(candidate: NormalizedCandidate) -> str:
+    classifications = [
+        str(observation.value)
+        for observation in candidate.evidence
+        if observation.kind is EvidenceKind.NET_CLASSIFICATION
+    ]
+    reciprocal = [
+        observation.value
+        for observation in candidate.evidence
+        if observation.kind is EvidenceKind.RECIPROCAL_BEST_MEMBERSHIP
+        and isinstance(observation.value, ReciprocalBestMembershipSummary)
+    ]
+    if not classifications and not reciprocal:
+        return ""
+    parts: list[str] = []
+    if classifications:
+        parts.append("net=" + ",".join(classifications))
+    if reciprocal:
+        parts.append("reciprocal-best=" + reciprocal[-1].status.value)
+    return "; " + "; ".join(parts)
+
+
+def _batch_comparative_resources_json(
+    result: IndexedChainBatchResult,
+) -> list[dict[str, object]]:
+    if result.evidence_tier is not EvidenceAvailabilityTier.COMPARATIVE:
+        return []
+    resources = (
+        ("NET", result.net_resource),
+        ("RECIPROCAL_BEST_CHAIN", result.reciprocal_best_chain_resource),
+    )
+    payload: list[dict[str, object]] = []
+    for role, resource in resources:
+        if resource is None:
+            raise ValueError("COMPARATIVE batch result is missing a consumed resource")
+        payload.append(
+            {
+                "role": role,
+                "consumed_by_engine": result.comparative_evidence_consumed,
+                "source_url": resource.source_url,
+                "cache_path": str(resource.path),
+                "retrieved_at": resource.retrieved_at,
+                "size_bytes": resource.size_bytes,
+                "sha256": resource.sha256,
+            }
+        )
+    return payload
+
+
+def _batch_provenance_sources(
+    result: IndexedChainBatchResult,
+    chain_provenance_source_id: str,
+) -> list[dict[str, object]]:
+    sources: list[dict[str, object]] = [
+        provenance_source_json_payload(result.alignment_provenance),
+        {
+            "source_id": chain_provenance_source_id,
+            "label": f"UCSC {result.source_db}→{result.target_db} chain resource",
+            "identifiers": [
+                {"kind": "SHA256", "value": result.chain_sha256_identifier}
+            ],
+            "derived_from_source_ids": [result.alignment_provenance.source_id],
+        },
+    ]
+    if result.comparative_evidence_consumed:
+        for label, resource in (
+            ("net resource", result.net_resource),
+            ("reciprocal-best chain resource", result.reciprocal_best_chain_resource),
+        ):
+            if resource is None:
+                raise ValueError(
+                    "COMPARATIVE batch result is missing comparative provenance"
+                )
+            sources.append(
+                {
+                    "source_id": f"file:{resource.sha256}",
+                    "label": f"UCSC {result.source_db}→{result.target_db} {label}",
+                    "identifiers": [{"kind": "SHA256", "value": resource.sha256}],
+                    "derived_from_source_ids": [result.alignment_provenance.source_id],
+                }
+            )
+    return sources
 
 
 def _format_half_open_interval(interval: GenomicInterval) -> str:
