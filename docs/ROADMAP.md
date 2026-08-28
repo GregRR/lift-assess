@@ -720,6 +720,14 @@ Second M22 execution slice:
 - intentionally does not approximate COMPARATIVE net/reciprocal-best evidence from chain-only facts;
   shared comparative batch evidence remains a later M22 slice.
 
+Third M22 CLI/reporting slice:
+
+- adds `assess-liftover SOURCE_DB TARGET_DB --bed PATH` while retaining the existing single-locus positional syntax and supporting `--bed -` for stdin;
+- keeps batch execution cache-only and prepared-index-only, rejects `--refresh`, and reports the exact `prepare-liftassess-index` command instead of starting acquisition, index construction, or full traversal implicitly;
+- uses COMPARATIVE-first chain publication-class selection by default, with existing `--evidence-tier` for an exact class, while labeling the current assessment scope explicitly as chain-only;
+- adds compact human batch rendering plus schema-v2 `liftassess.ucsc_batch_result` JSON with per-record candidates, exact collision/overlap relationships, resource identity, provenance, and explicit unassessed-domain boundaries including authoritative assembly-sequence preflight; and
+- documents BED coordinates as native 0-based half-open in both human and machine batch output.
+
 Optional BED12/custom-track export may visualize one candidate whose blocks share a target sequence;
 it must not collapse multiple candidates/target sequences or replace source-coverage reporting.
 

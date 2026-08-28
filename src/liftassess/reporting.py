@@ -1141,6 +1141,30 @@ def _candidate_reverse_mapping_json(
     }
 
 
+def assembly_json_payload(assembly: AssemblyIdentifier) -> dict[str, object]:
+    """Return the canonical schema-v2 assembly payload for package reporters."""
+
+    return _assembly_json(assembly)
+
+
+def interval_json_payload(interval: GenomicInterval) -> dict[str, object]:
+    """Return the canonical schema-v2 interval payload for package reporters."""
+
+    return _interval_json(interval)
+
+
+def candidate_json_payload(candidate: NormalizedCandidate) -> dict[str, object]:
+    """Return the canonical schema-v2 candidate payload for package reporters."""
+
+    return _candidate_json(candidate)
+
+
+def provenance_source_json_payload(source: ProvenanceSource) -> dict[str, object]:
+    """Return the canonical schema-v2 provenance payload for package reporters."""
+
+    return _provenance_source_json(source)
+
+
 def _assembly_json(assembly: AssemblyIdentifier) -> dict[str, object]:
     # Kept as a helper so assembly serialization is identical inside/outside intervals.
     return {

@@ -16,7 +16,7 @@ from .batch import (
 )
 from .chain_index import ChainIndex
 from .models import AssemblyIdentifier, EvidenceAvailabilityTier, ProvenanceSource
-from .resource_cache import CachedUCSCChainResource
+from .resource_cache import CachedResource, CachedUCSCChainResource
 from .resource_files import build_ucsc_chain_candidates_for_intervals_from_cached_chain
 from .resource_identity import sha256_hex_from_identifier
 
@@ -29,6 +29,8 @@ class IndexedChainBatchResult:
     target_db: str
     evidence_tier: EvidenceAvailabilityTier
     chain_sha256_identifier: str
+    chain_resource: CachedResource
+    alignment_provenance: ProvenanceSource
     record_assessments: tuple[BatchRecordAssessment, ...]
     relationships: BatchRelationshipResult
 
@@ -36,6 +38,8 @@ class IndexedChainBatchResult:
         if not self.source_db or not self.target_db:
             raise ValueError("batch UCSC database identifiers must not be empty")
         sha256_hex_from_identifier(self.chain_sha256_identifier)
+        if self.chain_resource.sha256 != self.chain_sha256_identifier:
+            raise ValueError("batch chain resource identity must match result identity")
         record_ids = [item.record.record_id for item in self.record_assessments]
         if len(record_ids) != len(set(record_ids)):
             raise ValueError("batch result record IDs must be unique")
@@ -89,6 +93,8 @@ def run_indexed_chain_batch(
         target_db=chain_context.target_db,
         evidence_tier=chain_context.evidence_tier,
         chain_sha256_identifier=chain_context.chain.sha256,
+        chain_resource=chain_context.chain,
+        alignment_provenance=alignment_provenance,
         record_assessments=record_assessments,
         relationships=relationships,
     )

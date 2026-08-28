@@ -69,8 +69,7 @@ Internally, liftAssess converts the locus immediately to **0-based, half-open**
 coordinates. You normally do not need to think about the internal convention unless
 you inspect JSON or use the Python API.
 
-The current CLI assesses one locus at a time. It does not yet accept a BED file or a
-batch of loci.
+The CLI retains this single-locus form and also accepts BED3-or-later batch input through `--bed`. BED rows retain their native 0-based, half-open coordinates and are assessed only through a prepared exact-resource chain index; batch mode does not silently start a whole-chain fallback.
 
 ## 3. Install liftAssess
 
@@ -227,7 +226,7 @@ Routine one-complete-projection results stay compact. The current first result-p
 
 For large intervals and multiple projections, source coverage leads the story. The report gives actual measured coverage; it does not apply a built-in 90% or other quality threshold.
 
-Actual reverse-mapping context is reported when the matching prepared reverse index is available. For 1-bp point queries, liftAssess also requests automatic 101-bp local chain context when the prepared forward chain index is available. Later roadmap capabilities will add additional progressive-disclosure triggers such as paired filtered/all-chain comparison, batch relationships, target-role metadata, and typed contextual evidence. Those later checks are not silently implied by the current output.
+Actual reverse-mapping context is reported when the matching prepared reverse index is available. For 1-bp point queries, liftAssess also requests automatic 101-bp local chain context when the prepared forward chain index is available. BED batch mode now reports cross-record exact target collisions and overlapping-but-offset projections from indexed chain candidates. Later roadmap capabilities will add neighborhood-level batch relationships, shared comparative batch evidence, target-role metadata, and typed contextual evidence. Those later checks are not silently implied by the current output.
 
 ## 7. Ask for the full human-readable dossier
 
@@ -374,7 +373,7 @@ flags.
 | `--refresh` | Contacts UCSC and reacquires current resources instead of cache-first reuse | Explicit freshness checks |
 | `--acknowledge-ucsc-terms` | Supplies the explicit terms acknowledgement without a prompt | Non-interactive workflows after terms review |
 | `--accept-transfer-plan` | Supplies the separate transfer-plan acknowledgement without a prompt | Non-interactive workflows after reviewing the planned transfer |
-| `--details` | Prints the full human-readable evidence/resource/provenance dossier | Scientific inspection and debugging |
+| `--details` | Prints the full single-locus human-readable evidence/resource/provenance dossier; not yet available with `--bed` | Scientific inspection and debugging |
 | `--json` | Prints schema-v2 machine-readable output | Scripts, archives, downstream analysis |
 | `--quiet` | Suppresses nonessential terminal progress/status | Logs, scripts, or less terminal output |
 
@@ -450,6 +449,25 @@ matches the forward assessment.
 
 A valid existing index is reused. `--rebuild` explicitly discards and regenerates only the derived
 index; the original verified UCSC resource remains untouched.
+
+### Assess a BED batch with the prepared index
+
+```bash
+assess-liftover SOURCE_DB TARGET_DB --bed loci.bed
+```
+
+The current batch surface accepts BED3-or-later, ignores blank/comment/`track`/`browser` lines, preserves the optional fourth-column name as a label, and rejects zero-width or reversed intervals before assessment. BED coordinates remain **0-based, half-open** in batch output. Use `--bed -` to read BED from stdin.
+
+Batch mode is deliberately cache-only and index-only. It does not contact UCSC, honor `--refresh`, build an index automatically, or fall back to a full chain traversal if the prepared index is missing or unusable. Prepare the exact selected chain class first:
+
+```bash
+prepare-liftassess-index SOURCE_DB TARGET_DB --evidence-tier COMPARATIVE
+prepare-liftassess-index SOURCE_DB TARGET_DB --evidence-tier LIFTOVER-ONLY
+```
+
+Without an explicit `--evidence-tier`, batch mode uses the same COMPARATIVE-first publication-class preference as the ordinary CLI, but this milestone assesses the selected **chain only**. Authoritative assembly-sequence name/alias preflight is not yet available, and net/reciprocal-best evidence, reverse mapping, and point-context checks are not re-run per BED row. A zero-candidate row therefore means that the selected chain index produced no candidate for the submitted label/interval; it is not an authoritative claim that the submitted sequence name is a valid assembly sequence. Exact target collisions and positive but non-identical target overlaps are reported as separate cross-record relationships derived from exact mapped target segments, never from target bounding spans.
+
+`--json` emits schema-v2 `liftassess.ucsc_batch_result` output suitable for downstream automation. `--details` is not yet implemented for batch mode and fails explicitly rather than implying that the full batch dossier exists.
 
 ### Require offline reproducibility
 
@@ -547,7 +565,7 @@ The current tool also does **not**:
 - produce a numeric confidence score;
 - provide flanking-gene synteny evidence yet;
 - define candidate-rank evidence yet; or
-- optimize multi-locus batch assessment yet.
+- attach shared net/reciprocal-best, reverse, or point-context evidence across BED batches yet.
 
 See [`FEATURES.md`](FEATURES.md) for the complete implemented/non-implemented catalog.
 

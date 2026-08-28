@@ -21,10 +21,16 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
 
+from .batch_execution import run_indexed_chain_batch
+from .batch_input import parse_bed_batch
+from .batch_reporting import (
+    render_indexed_chain_batch_json,
+    render_indexed_chain_batch_summary,
+)
 from .chain_index import ChainIndex, ChainIndexCorruptionError, load_cached_chain_index
 from .cli_input import parse_ucsc_locus, ucsc_assembly_identifier
 from .comparative_inventory import FilteredAllChainCorrespondenceError
-from .models import EvidenceAvailabilityTier, ProvenanceSource
+from .models import AssemblyIdentifier, EvidenceAvailabilityTier, ProvenanceSource
 from .orchestration import (
     UCSCAssessmentReport,
     assess_ucsc_cached_bundle,
@@ -102,9 +108,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "locus",
+        nargs="?",
         help=(
             "source locus in UCSC-style 1-based inclusive coordinates, "
-            "e.g. chr1:100-200"
+            "e.g. chr1:100-200; omit when using --bed"
+        ),
+    )
+    parser.add_argument(
+        "--bed",
+        metavar="PATH",
+        help=(
+            "assess BED3-or-later batch input with native 0-based half-open "
+            "coordinates; use '-' to read BED from stdin"
         ),
     )
     parser.add_argument(
@@ -199,11 +214,32 @@ def _run(
 ) -> int:
     source_assembly = ucsc_assembly_identifier(args.source_db)
     target_assembly = ucsc_assembly_identifier(args.target_db)
+    cache_root = args.cache_dir or default_user_cache_root()
+    requested_evidence_tier = _requested_evidence_tier(args)
+
+    if args.bed is not None:
+        if args.locus is not None:
+            raise ValueError("provide either a single locus or --bed, not both")
+        if args.context_bases is not None:
+            raise ValueError(
+                "--context-bases is not yet available with --bed batch assessment"
+            )
+        return _run_indexed_bed_batch(
+            args,
+            source_assembly=source_assembly,
+            target_assembly=target_assembly,
+            cache_root=cache_root,
+            requested_evidence_tier=requested_evidence_tier,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    if args.locus is None:
+        raise ValueError("a source locus is required unless --bed is provided")
     source_interval = parse_ucsc_locus(args.locus, assembly=source_assembly)
     if args.context_bases is not None and source_interval.length != 1:
         raise ValueError("--context-bases currently requires a 1-bp point query")
-    cache_root = args.cache_dir or default_user_cache_root()
-    requested_evidence_tier = _requested_evidence_tier(args)
 
     cached_bundle = None
     chain_index = None
@@ -456,6 +492,148 @@ def _run(
         rendered = render_assessment_summary(report)
     print(rendered, file=stdout)
     return 0
+
+
+def _run_indexed_bed_batch(
+    args: argparse.Namespace,
+    *,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    cache_root: Path,
+    requested_evidence_tier: EvidenceAvailabilityTier | None,
+    stdin: TextIO,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    """Run cache-only, index-only BED batch assessment."""
+
+    if args.details:
+        raise ValueError(
+            "--details is not yet available with --bed batch assessment; "
+            "use default summary or --json"
+        )
+    if args.refresh:
+        raise ValueError(
+            "--refresh is not available with --bed batch assessment; batch mode is "
+            "cache-only and requires a prepared exact-resource chain index"
+        )
+
+    if args.bed == "-":
+        records = parse_bed_batch(stdin, assembly=source_assembly)
+    else:
+        bed_path = Path(args.bed)
+        with bed_path.open("r", encoding="utf-8", newline="") as handle:
+            records = parse_bed_batch(handle, assembly=source_assembly)
+
+    _status(
+        f"Loaded {len(records)} BED record(s).",
+        quiet=args.quiet,
+        stderr=stderr,
+    )
+    structural_chain = _resolve_preferred_cached_batch_chain(
+        cache_root,
+        args.source_db,
+        args.target_db,
+        requested_evidence_tier=requested_evidence_tier,
+    )
+    if structural_chain is None:
+        requested = (
+            "preferred COMPARATIVE/LIFTOVER-ONLY"
+            if requested_evidence_tier is None
+            else requested_evidence_tier.value.replace("_", "-")
+        )
+        raise ValueError(
+            "--bed batch assessment requires a cached "
+            f"{requested} chain for {args.source_db}→{args.target_db}; "
+            "batch mode does not download resources implicitly"
+        )
+
+    try:
+        chain_index = load_cached_chain_index(cache_root, structural_chain.chain)
+    except ChainIndexCorruptionError as exc:
+        tier = structural_chain.evidence_tier.value.replace("_", "-")
+        raise ValueError(
+            "--bed batch assessment requires a usable prepared chain index for "
+            f"{tier}; rerun prepare-liftassess-index {args.source_db} "
+            f"{args.target_db} --evidence-tier {tier} --rebuild ({exc})"
+        ) from exc
+    if chain_index is None:
+        tier = structural_chain.evidence_tier.value.replace("_", "-")
+        raise ValueError(
+            "--bed batch assessment requires a prepared chain index for "
+            f"{tier}; run prepare-liftassess-index {args.source_db} "
+            f"{args.target_db} --evidence-tier {tier}"
+        )
+
+    chain_context = load_cached_ucsc_chain_resource(
+        cache_root,
+        args.source_db,
+        args.target_db,
+        evidence_tier=structural_chain.evidence_tier,
+        trusted_artifact_sha256_identifiers=frozenset({structural_chain.chain.sha256}),
+    )
+    if chain_context is None:
+        raise ValueError(
+            "cached chain metadata changed or failed validation after prepared-index "
+            "selection; batch assessment was not started"
+        )
+
+    _status(
+        "Assessing BED batch with prepared chain index; provider access and "
+        "whole-chain fallback are disabled.",
+        quiet=args.quiet,
+        stderr=stderr,
+    )
+    alignment_provenance = _ucsc_pair_dependency_provenance(
+        args.source_db, args.target_db
+    )
+    try:
+        result = run_indexed_chain_batch(
+            records,
+            chain_context,
+            target_assembly=target_assembly,
+            alignment_provenance=alignment_provenance,
+            chain_index=chain_index,
+        )
+    except ChainIndexCorruptionError as exc:
+        raise ValueError(
+            "prepared chain index failed during batch lookup; no whole-chain fallback "
+            f"was started ({exc})"
+        ) from exc
+
+    if args.json_output:
+        rendered = render_indexed_chain_batch_json(result)
+    else:
+        rendered = render_indexed_chain_batch_summary(result)
+    print(rendered, file=stdout)
+    return 0
+
+
+def _resolve_preferred_cached_batch_chain(
+    cache_root: Path,
+    source_db: str,
+    target_db: str,
+    *,
+    requested_evidence_tier: EvidenceAvailabilityTier | None,
+) -> CachedUCSCChainResource | None:
+    tiers: tuple[EvidenceAvailabilityTier, ...]
+    if requested_evidence_tier is None:
+        tiers = (
+            EvidenceAvailabilityTier.COMPARATIVE,
+            EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        )
+    else:
+        tiers = (requested_evidence_tier,)
+    for tier in tiers:
+        resource = resolve_cached_ucsc_chain_resource_metadata(
+            cache_root,
+            source_db,
+            target_db,
+            evidence_tier=tier,
+        )
+        if resource is not None:
+            return resource
+    return None
 
 
 def _context_window_bases_arg(value: str) -> int:

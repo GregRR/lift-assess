@@ -98,6 +98,8 @@ def test_indexed_chain_batch_projects_all_rows_and_derives_relationships(
     )
 
     assert result.chain_sha256_identifier == chain_context.chain.sha256
+    assert result.chain_resource == chain_context.chain
+    assert result.alignment_provenance == ALIGNMENT
     assert result.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY
     assert [len(item.candidates) for item in result.record_assessments] == [1, 1, 1, 0]
     kinds = [relationship.kind for relationship in result.relationships.relationships]

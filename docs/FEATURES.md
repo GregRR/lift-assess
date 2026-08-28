@@ -29,7 +29,7 @@ result-profile derivation, and report rendering. The companion `prepare-liftasse
 command explicitly builds a reusable local chain index from an already verified cache bundle;
 it never contacts UCSC.
 
-The common form is:
+The common single-locus form is:
 
 ```text
 assess-liftover SOURCE_DB TARGET_DB CHR:START-END
@@ -38,6 +38,14 @@ assess-liftover SOURCE_DB TARGET_DB CHR:START-END
 CLI coordinates are UCSC-style **1-based, inclusive**. Comma-grouped browser-style
 coordinates such as `chr16:12,345-12,400` are accepted. liftAssess converts input at
 the boundary to its canonical **0-based, half-open** internal representation.
+
+Prepared indexes also support BED3-or-later chain-only batch assessment:
+
+```text
+assess-liftover SOURCE_DB TARGET_DB --bed loci.bed
+```
+
+BED coordinates remain native 0-based, half-open. Batch execution is cache-only and index-only; it never falls back to a whole-chain scan.
 
 ## Candidate generation and mapping structure
 
@@ -62,6 +70,21 @@ The built-in UCSC engine implements:
 
 Candidate encounter order is preserved for reproducibility, but it is **not** a
 candidate rank.
+
+## Indexed BED batch assessment
+
+liftAssess can assess BED3-or-later record sets through one prepared exact-resource chain index. The current batch layer:
+
+- rejects zero-width/empty BED intervals at input validation;
+- preserves deterministic row IDs and optional BED names;
+- preserves rows with zero candidate projections;
+- derives exact target collisions separately from overlapping-but-offset projections across distinct input records;
+- compares exact mapped target segments after adjacent coverage is canonicalized, never target bounding spans;
+- records the selected chain publication class, exact SHA-256 resource identity, and chain provenance;
+- exposes compact human and schema-v2 JSON batch reports; and
+- requires a usable prepared chain index, with no provider access, automatic index build, refresh, or whole-chain fallback.
+
+This milestone is chain-only. Authoritative assembly-sequence name/alias preflight, shared net/reciprocal-best evidence, reverse mapping, point-context, and neighborhood-level batch relationships remain later work rather than being approximated per row. A zero indexed candidate count is therefore reported literally and is not upgraded to an authoritative source-sequence-validity conclusion.
 
 ## Actual reverse-mapping context
 
@@ -225,7 +248,7 @@ Uncomplicated one-complete-projection cases stay compact. The current first slic
 
 For `COMPARATIVE` results, the summary states that UCSC-derived comparative observations are conservatively treated as dependent and that exact shared processing-run provenance is not verified.
 
-`--details` emits the complete currently available factual dossier, including:
+For single-locus assessment, `--details` emits the complete currently available factual dossier, including:
 
 - every result-profile field and explicit scope boundary;
 - candidate IDs and UCSC chain IDs where applicable;
@@ -238,7 +261,7 @@ For `COMPARATIVE` results, the summary states that UCSC-derived comparative obse
 
 ## Machine-readable JSON reporting
 
-`--json` renders schema version 2 from the same completed report and derived `ResultProfile` used by the human-readable reports. It is not a second result-derivation path.
+`--json` renders schema version 2. Single-locus JSON comes from the same completed report and derived `ResultProfile` used by the human-readable reports; BED batch JSON uses the separate `liftassess.ucsc_batch_result` report type from the indexed batch result. Neither is a second candidate-generation path.
 
 Schema v2 includes:
 
@@ -257,7 +280,7 @@ Schema v2 intentionally does **not** preserve the legacy aggregate `verdict`, ve
 
 All JSON genomic intervals use canonical **0-based, half-open** coordinates. The human-facing tier name `LIFTOVER-ONLY` is serialized as the enum token `LIFTOVER_ONLY` in JSON and is exposed as `EvidenceAvailabilityTier.LIFTOVER_ONLY` in Python. Status and progress remain on stderr, so stdout can be redirected directly to a JSON file.
 
-`--json` and `--details` are mutually exclusive.
+`--json` and `--details` are mutually exclusive. `--details` is not yet implemented for `--bed` batch mode.
 
 ## UCSC resource discovery
 
@@ -482,7 +505,7 @@ the design or model vocabulary:
 - a numeric composite confidence score;
 - machine learning;
 - automatic claims of orthology or biological truth;
-- scalable batch assessment that reuses resource work across many loci;
+- shared comparative net/reciprocal-best, reverse, and point-context evidence across many batch loci;
 - implicit reverse-direction acquisition or automatic reverse-index construction during
   ordinary assessment;
 - reproducible case manifests or portable resource packets;
