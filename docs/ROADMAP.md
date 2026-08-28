@@ -756,7 +756,14 @@ Fifth M22 shared-comparative-evidence slice:
 - keeps automatic point-context candidates chain-only rather than implying that shared comparative
   evidence was assessed at the neighborhood scale; and
 - exposes the comparative scope and exact consumed net/reciprocal-best resource identities in compact
-  human output and schema-v2 batch JSON.
+  human output and schema-v2 batch JSON, while explicitly marking filtered-vs-all-chain comparison and
+  categorical comparative relationship interpretation as not assessed.
+
+Internal M22 review hardening:
+
+- replaces the all-record-pair relationship cross product with a target-local candidate sweep, preserving
+  exact mapped-segment collision/overlap semantics and deterministic input/candidate ordering while
+  avoiding quadratic work for large sparse or zero-candidate batches.
 
 Optional BED12/custom-track export may visualize one candidate whose blocks share a target sequence;
 it must not collapse multiple candidates/target sequences or replace source-coverage reporting.

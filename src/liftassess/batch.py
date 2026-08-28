@@ -7,7 +7,6 @@ never use a candidate's target bounding span as if it were continuous alignment.
 
 from dataclasses import dataclass
 from enum import Enum
-from itertools import combinations
 
 from .models import AssemblyIdentifier, GenomicInterval, NormalizedCandidate
 from .query_context import PointQueryContextResult, QueryContextState
@@ -159,58 +158,111 @@ class BatchRelationshipResult:
     relationships: tuple[BatchTargetRelationship, ...]
 
 
+@dataclass(frozen=True)
+class _BatchCandidateCoverage:
+    record_index: int
+    candidate_index: int
+    assessment: BatchRecordAssessment
+    candidate: NormalizedCandidate
+    coverage: tuple[GenomicInterval, ...]
+
+    @property
+    def start(self) -> int:
+        return self.coverage[0].start
+
+    @property
+    def end(self) -> int:
+        return self.coverage[-1].end
+
+
 def build_batch_target_relationships(
     assessments: tuple[BatchRecordAssessment, ...],
 ) -> BatchRelationshipResult:
     """Compare exact candidate target coverage across distinct input records.
 
     An exact collision requires the same covered target bases after adjacent target
-    segments are canonicalized.  A non-identical positive intersection is reported
-    separately as an overlapping target projection.  Bounding spans are never used
-    for either relationship.
+    segments are canonicalized. A non-identical positive intersection is reported
+    separately as an overlapping target projection. Bounding spans are never used
+    to establish either relationship. Candidate comparisons are restricted to target
+    coverage whose coordinate ranges can overlap, avoiding a quadratic all-record
+    cross product for large batches whose projections are spatially disjoint.
     """
 
     _validate_batch_record_ids(assessments)
-    relationships: list[BatchTargetRelationship] = []
+    entries_by_target: dict[
+        tuple[AssemblyIdentifier, str], list[_BatchCandidateCoverage]
+    ] = {}
+    for record_index, assessment in enumerate(assessments):
+        for candidate_index, candidate in enumerate(assessment.candidates):
+            coverage = _canonical_target_coverage(candidate)
+            target_key = (
+                candidate.target_interval.assembly,
+                candidate.target_interval.sequence_name,
+            )
+            entries_by_target.setdefault(target_key, []).append(
+                _BatchCandidateCoverage(
+                    record_index=record_index,
+                    candidate_index=candidate_index,
+                    assessment=assessment,
+                    candidate=candidate,
+                    coverage=coverage,
+                )
+            )
 
-    for left, right in combinations(assessments, 2):
-        for left_candidate in left.candidates:
-            left_coverage = _canonical_target_coverage(left_candidate)
-            for right_candidate in right.candidates:
-                if (
-                    left_candidate.target_interval.assembly
-                    != right_candidate.target_interval.assembly
-                    or left_candidate.target_interval.sequence_name
-                    != right_candidate.target_interval.sequence_name
-                ):
+    relationships_by_order: dict[
+        tuple[int, int, int, int], BatchTargetRelationship
+    ] = {}
+    for entries in entries_by_target.values():
+        entries.sort(
+            key=lambda entry: (
+                entry.start,
+                entry.end,
+                entry.record_index,
+                entry.candidate_index,
+            )
+        )
+        active: list[_BatchCandidateCoverage] = []
+        for current in entries:
+            active = [entry for entry in active if entry.end > current.start]
+            for other in active:
+                if other.record_index == current.record_index:
                     continue
-
-                right_coverage = _canonical_target_coverage(right_candidate)
-                overlaps = _target_intersections(left_coverage, right_coverage)
+                overlaps = _target_intersections(other.coverage, current.coverage)
                 if not overlaps:
                     continue
 
+                if other.record_index < current.record_index:
+                    left, right = other, current
+                else:
+                    left, right = current, other
+                order_key = (
+                    left.record_index,
+                    right.record_index,
+                    left.candidate_index,
+                    right.candidate_index,
+                )
                 kind = (
                     BatchTargetRelationshipKind.EXACT_TARGET_COLLISION
-                    if left_coverage == right_coverage
+                    if left.coverage == right.coverage
                     else BatchTargetRelationshipKind.OVERLAPPING_TARGET_PROJECTIONS
                 )
-                relationships.append(
-                    BatchTargetRelationship(
-                        kind=kind,
-                        left_record_id=left.record.record_id,
-                        left_candidate_id=left_candidate.candidate_id,
-                        right_record_id=right.record.record_id,
-                        right_candidate_id=right_candidate.candidate_id,
-                        target_assembly=left_candidate.target_interval.assembly,
-                        target_sequence_name=(
-                            left_candidate.target_interval.sequence_name
-                        ),
-                        overlap_intervals=overlaps,
-                    )
+                relationships_by_order[order_key] = BatchTargetRelationship(
+                    kind=kind,
+                    left_record_id=left.assessment.record.record_id,
+                    left_candidate_id=left.candidate.candidate_id,
+                    right_record_id=right.assessment.record.record_id,
+                    right_candidate_id=right.candidate.candidate_id,
+                    target_assembly=left.candidate.target_interval.assembly,
+                    target_sequence_name=left.candidate.target_interval.sequence_name,
+                    overlap_intervals=overlaps,
                 )
+            active.append(current)
 
-    return BatchRelationshipResult(relationships=tuple(relationships))
+    return BatchRelationshipResult(
+        relationships=tuple(
+            relationships_by_order[key] for key in sorted(relationships_by_order)
+        )
+    )
 
 
 def _validate_batch_record_ids(

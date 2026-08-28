@@ -1,3 +1,6 @@
+import pytest
+
+import liftassess.batch as batch_module
 from liftassess.batch import (
     BatchInputRecord,
     BatchRecordAssessment,
@@ -230,3 +233,71 @@ def test_batch_record_assessment_rejects_candidate_from_outside_record() -> None
         assert "contained within" in str(exc)
     else:
         raise AssertionError("expected out-of-record candidate to be rejected")
+
+
+def test_batch_relationships_canonicalize_each_candidate_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assessments = tuple(
+        BatchRecordAssessment(
+            record=_record(f"row-{index + 1}", index * 10, index * 10 + 10),
+            candidates=(
+                _candidate(
+                    f"candidate-{index + 1}",
+                    source_start=index * 10,
+                    target_segments=((100 + index * 20, 110 + index * 20),),
+                ),
+            ),
+        )
+        for index in range(4)
+    )
+    original = batch_module._canonical_target_coverage
+    calls = 0
+
+    def counting(candidate: NormalizedCandidate) -> tuple[GenomicInterval, ...]:
+        nonlocal calls
+        calls += 1
+        return original(candidate)
+
+    monkeypatch.setattr(batch_module, "_canonical_target_coverage", counting)
+
+    result = build_batch_target_relationships(assessments)
+
+    assert result.relationships == ()
+    assert calls == 4
+
+
+def test_batch_relationship_order_remains_input_deterministic_after_target_sweep() -> (
+    None
+):
+    assessments = (
+        BatchRecordAssessment(
+            record=_record("row-1", 0, 10),
+            candidates=(
+                _candidate("first", source_start=0, target_segments=((300, 310),)),
+            ),
+        ),
+        BatchRecordAssessment(
+            record=_record("row-2", 20, 30),
+            candidates=(
+                _candidate("second", source_start=20, target_segments=((100, 110),)),
+            ),
+        ),
+        BatchRecordAssessment(
+            record=_record("row-3", 40, 50),
+            candidates=(
+                _candidate(
+                    "third",
+                    source_start=40,
+                    target_segments=((105, 110), (300, 305)),
+                ),
+            ),
+        ),
+    )
+
+    result = build_batch_target_relationships(assessments)
+
+    assert [
+        (relationship.left_record_id, relationship.right_record_id)
+        for relationship in result.relationships
+    ] == [("row-1", "row-3"), ("row-2", "row-3")]

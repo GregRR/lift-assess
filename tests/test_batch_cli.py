@@ -339,6 +339,10 @@ def test_bed_batch_cli_uses_shared_comparative_evidence_when_bundle_is_complete(
     assert payload["evidence"]["comparative_net_reciprocal_best"] == (
         "ASSESSED_FOR_SUBMITTED_RECORDS"
     )
+    assert payload["scope"]["filtered_all_chain_comparison"] == "NOT_ASSESSED"
+    assert payload["scope"]["comparative_relationship_interpretation"] == (
+        "NOT_ASSESSED"
+    )
     assert [item["role"] for item in payload["comparative_resources"]] == [
         "NET",
         "RECIPROCAL_BEST_CHAIN",

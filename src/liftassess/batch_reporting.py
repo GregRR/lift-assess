@@ -219,6 +219,8 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
             "reverse_mapping": "NOT_ASSESSED",
             "point_context": _point_context_scope(result),
             "point_context_comparative_evidence": "NOT_ASSESSED",
+            "filtered_all_chain_comparison": "NOT_ASSESSED",
+            "comparative_relationship_interpretation": "NOT_ASSESSED",
             "target_role": "NOT_ASSESSED",
             "named_variant_identity": "NOT_ASSESSED",
             "gene_transcript_identity": "NOT_ASSESSED",
@@ -396,6 +398,12 @@ def _batch_scope_summary(result: IndexedChainBatchResult) -> str:
                 " Net/reciprocal-best evidence is not assessed for "
                 "LIFTOVER-ONLY batches."
             )
+        )
+        + (
+            " Filtered-vs-all-chain comparison and categorical comparative "
+            "relationship interpretation are not assessed in this batch slice."
+            if result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+            else ""
         )
         + " Authoritative assembly-sequence name/alias preflight, reverse, "
         "target-role, named-variant, and gene/transcript evidence are not assessed "

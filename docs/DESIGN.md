@@ -605,7 +605,9 @@ Progressive-disclosure human renderer
   `LIFTOVER-ONLY` batches remain chain-only. For a complete cached COMPARATIVE bundle, submitted-row
   candidates come from the prepared all-chain index and the ordinary net plus reciprocal-best chain are
   each consumed exactly once across the complete submitted candidate collection. The all-chain is not
-  rescanned, and comparative evidence is never approximated from chain data. Automatic point-context
+  rescanned, and comparative evidence is never approximated from chain data. The batch scope does not
+  run the paired filtered-vs-all-chain inventory comparison or categorical comparative relationship
+  classifier; those dimensions remain explicitly not assessed. Automatic point-context
   candidates deliberately remain forward-chain-only; net/reciprocal-best observations are not silently
   promoted to the neighborhood scale. The CLI batch surface is `--bed PATH` (or `--bed -` for stdin)
   and retains the ordinary single-locus positional syntax. It is cache-only and prepared-index-only:

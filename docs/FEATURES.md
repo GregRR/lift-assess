@@ -79,7 +79,7 @@ liftAssess can assess BED3-or-later record sets through one prepared exact-resou
 - preserves deterministic row IDs and optional BED names;
 - preserves rows with zero candidate projections;
 - derives exact target collisions separately from overlapping-but-offset projections across distinct input records;
-- compares exact mapped target segments after adjacent coverage is canonicalized, never target bounding spans;
+- compares exact mapped target segments after adjacent coverage is canonicalized, never target bounding spans, using a target-local candidate sweep rather than an all-record-pair cross product;
 - records the selected chain publication class, exact SHA-256 resource identity, and chain provenance;
 - applies automatic 101-bp point context to one-base BED rows from the same prepared index, with `--context-bases` for a different odd-width point window and no widening of ordinary interval rows;
 - keeps input-row and point-context relationships as separate scales, including explicit neighborhood-level target collisions and overlapping-but-offset context projections;
@@ -87,7 +87,7 @@ liftAssess can assess BED3-or-later record sets through one prepared exact-resou
 - for a complete cached `COMPARATIVE` bundle, attaches ordinary-net and reciprocal-best-chain observations to every submitted-row candidate with one shared pass over each resource, without rescanning the indexed all-chain; and
 - requires a usable prepared chain index, with no provider access, automatic index build, refresh, or whole-chain fallback.
 
-`LIFTOVER-ONLY` batches remain chain-only. COMPARATIVE point-context candidates also remain chain-only in this milestone; net/reciprocal-best evidence is attached only to submitted rows rather than silently being inferred at the neighborhood scale. Authoritative assembly-sequence name/alias preflight and reverse batch mapping remain later work. A zero indexed candidate count is therefore reported literally and is not upgraded to an authoritative source-sequence-validity conclusion. When the chain index does not contain a conservative source-sequence bound for a one-base row, that row's point context is explicitly `NOT_RUN` rather than inferred from a sequence-name heuristic.
+`LIFTOVER-ONLY` batches remain chain-only. The current COMPARATIVE batch scope does not run the paired filtered-vs-all-chain inventory comparison or categorical comparative relationship classifier used by single-locus results; those dimensions are explicitly reported as not assessed. COMPARATIVE point-context candidates also remain chain-only in this milestone; net/reciprocal-best evidence is attached only to submitted rows rather than silently being inferred at the neighborhood scale. Authoritative assembly-sequence name/alias preflight and reverse batch mapping remain later work. A zero indexed candidate count is therefore reported literally and is not upgraded to an authoritative source-sequence-validity conclusion. When the chain index does not contain a conservative source-sequence bound for a one-base row, that row's point context is explicitly `NOT_RUN` rather than inferred from a sequence-name heuristic.
 
 ## Actual reverse-mapping context
 
