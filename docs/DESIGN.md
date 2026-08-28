@@ -350,7 +350,12 @@ Not addressed in earlier drafts of this design and worth getting right before an
   valid.
 - **Batch relationships:** exact collisions and overlapping target projections are relationships among
   records and belong in a separate batch result layer. BED/simple interval-table input becomes
-  first-class with batch support.
+  first-class with batch support. Cross-record target relationships are computed from the exact mapped
+  target segments after adjacent target coverage is canonicalized, never from a candidate's
+  target bounding span. An exact target collision means two distinct input records have candidate
+  projections covering the same target bases; a positive but non-identical target-base intersection is
+  an overlapping-but-offset projection. Candidate relationships within one input record are not batch
+  relationships.
 - **Typed contextual evidence:** optional difficult-region/context resources are represented as
   resource-specific, provenance-bearing observations. The first active pilot is UCSC segmental-
   duplication context; GIAB stratifications and `excluderanges` categories must be evaluated
@@ -590,7 +595,10 @@ Progressive-disclosure human renderer
   outer loop that reparses multi-gigabyte comparative resources once per locus. It should either
   evaluate many intervals during shared resource traversal or use an indexed/preprocessed local
   representation while preserving the same single-locus mapping/evidence semantics and per-locus
-  provenance.
+  provenance. The initial M22 execution primitive is deliberately chain-only and index-required: a
+  missing/unusable prepared index is an explicit precondition failure rather than permission to fall
+  back to whole-chain traversal. Comparative net/reciprocal-best batch evidence is added only when it
+  can preserve the same no-repeated-scan constraint rather than being approximated from chain data.
 - **Portable case packets are constrained by redistribution terms.** A reproducible case manifest
   may record the schema-versioned result, exact resource SHA-256 identities, source URLs,
   retrieval/checksum/terms metadata, and provenance graph. An archive may embed byte-identical

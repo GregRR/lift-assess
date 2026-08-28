@@ -696,6 +696,30 @@ resource access.
 - preserve per-record exact resources/provenance and deterministic results;
 - do not implement batch as a naive outer loop that reparses multi-gigabyte resources per row.
 
+Initial M22 foundation slice:
+
+- introduces immutable batch input/record-assessment and cross-record relationship models without
+  changing candidate-level evidence semantics;
+- parses BED3-or-later input as native 0-based, half-open intervals, rejects zero-width/empty rows at
+  intake, preserves an optional BED name as a non-unique label, and assigns deterministic row IDs;
+- classifies exact target collisions separately from overlapping-but-offset projections using exact
+  mapped target segments rather than target bounding spans; and
+- leaves CLI batch execution, shared indexed traversal, batch rendering/JSON, neighborhood-level
+  relationships, and the simple interval-table surface for subsequent M22 slices.
+
+Second M22 execution slice:
+
+- adds an index-required chain-only batch execution primitive over one exact cached UCSC chain
+  publication class;
+- projects the complete input record set through the existing multi-interval candidate adapter and
+  derives cross-record relationships from those exact candidates;
+- records the exact chain SHA-256 and publication class at the batch-result boundary, while each
+  candidate retains the normal content-addressed chain provenance;
+- treats missing indexed access as an explicit precondition failure and never falls back to a
+  whole-chain traversal for batch execution; and
+- intentionally does not approximate COMPARATIVE net/reciprocal-best evidence from chain-only facts;
+  shared comparative batch evidence remains a later M22 slice.
+
 Optional BED12/custom-track export may visualize one candidate whose blocks share a target sequence;
 it must not collapse multiple candidates/target sequences or replace source-coverage reporting.
 
