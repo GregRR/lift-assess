@@ -1,6 +1,16 @@
 """liftAssess public core model."""
 
 from ._version import __version__
+from .assembly_metadata import (
+    AssemblySequenceAlias,
+    AssemblySequenceCatalog,
+    AssemblySequenceMetadata,
+    SourceIntervalPreflightResult,
+    SourceIntervalPreflightState,
+    build_ucsc_assembly_sequence_catalog,
+    parse_ucsc_chrom_info,
+    preflight_source_interval,
+)
 from .batch import (
     BatchInputRecord,
     BatchRecordAssessment,
@@ -162,6 +172,9 @@ __all__ = [
     "DEFAULT_CHAIN_INDEX_BLOCK_SIZE",
     "DEFAULT_POINT_CONTEXT_BASES",
     "AssemblyIdentifier",
+    "AssemblySequenceAlias",
+    "AssemblySequenceCatalog",
+    "AssemblySequenceMetadata",
     "BatchInputError",
     "BatchInputRecord",
     "BatchRecordAssessment",
@@ -232,6 +245,8 @@ __all__ = [
     "ReverseRelationshipState",
     "ReverseSegmentResult",
     "SourceCoverageState",
+    "SourceIntervalPreflightResult",
+    "SourceIntervalPreflightState",
     "TargetRoleState",
     "UCSCAssessmentReport",
     "UCSCAssessmentResource",
@@ -267,6 +282,7 @@ __all__ = [
     "build_result_profile",
     "build_reverse_mapping_results_from_cached_bundle",
     "build_reverse_mapping_results_from_cached_chain",
+    "build_ucsc_assembly_sequence_catalog",
     "build_ucsc_candidates",
     "build_ucsc_candidates_from_cached_bundle",
     "build_ucsc_candidates_from_files",
@@ -282,8 +298,10 @@ __all__ = [
     "load_chain_index",
     "parse_bed_batch",
     "parse_interval_table_batch",
+    "parse_ucsc_chrom_info",
     "plan_ucsc_bundle_acquisition",
     "point_context_not_run",
+    "preflight_source_interval",
     "provenance_source_for_file",
     "reverse_mapping_not_run",
     "reverse_mapping_unavailable",

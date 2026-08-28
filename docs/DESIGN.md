@@ -588,14 +588,23 @@ Progressive-disclosure human renderer
   validator/size/range metadata are available; otherwise it uses the fresh streaming path.
 - **Call these "evidence-availability tiers," not "confidence tiers."** How much evidence exists
   and what factual/interpretive conclusions it supports are separate questions (see invariant 3, §3).
-- **Target-sequence role/context must come from a defined metadata source.** Prefer authoritative
-  per-sequence assembly metadata when available. For assemblies represented by NCBI, the genome
-  sequence report exposes sequence role, assembly unit, chromosome name, GenBank/RefSeq accessions,
-  and UCSC-style sequence name, providing an explicit bridge from assembly metadata to UCSC names.
-  Provider-specific naming patterns may be used only as an explicitly labeled fallback when such
-  metadata is unavailable. Sequence role/context is descriptive evidence and must not silently
-  become an error/quality rule or a claim that ambiguity was biologically caused by duplication or
-  an alternate sequence.
+- **Assembly-sequence validity/bounds/aliases must follow the submitted assembly namespace.** For
+  UCSC database identifiers accepted by the CLI, the database's own `chromInfo` table is the
+  authoritative first source for canonical Browser sequence names and lengths, and `chromAlias`
+  supplies exact external-name correspondences retained as assembly-aware alias suggestions. This
+  avoids deriving validity from chain membership or from a generic assembly download that may not
+  contain the same patch-sequence set as the live Browser database. Metadata artifacts retain exact
+  provider provenance; an alias is never invented from a naming pattern and is not silently
+  substituted for submitted input.
+- **Target-sequence role/context must come from a defined, version-matched metadata source.** The NCBI
+  genome sequence report exposes assembly accession, assembly unit, chromosome name, sequence
+  length, GenBank/RefSeq accessions, UCSC-style sequence name, and provider role. It is a candidate
+  source for richer target context only after the UCSC database is joined to an exact assembly
+  accession/version and the provider role vocabulary has explicit liftAssess semantics. Until then,
+  target role remains not assessed rather than being inferred from names such as `_alt`, `_random`,
+  or `chrUn`. Sequence role/context is descriptive evidence and must not silently become an
+  error/quality rule or a claim that ambiguity was biologically caused by duplication or an
+  alternate sequence.
 - **Batch assessment must reuse resource work across loci.** A batch interface must not be a naive
   outer loop that reparses multi-gigabyte comparative resources once per locus. It should either
   evaluate many intervals during shared resource traversal or use an indexed/preprocessed local
