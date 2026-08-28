@@ -920,9 +920,14 @@ The post-alpha redesign therefore proceeds in this order:
 5. **Comparative expansion/asymmetry.** Pair ordinary filtered liftOver with all-chain inventory and
    expose categorical comparative relationships. Mixed/conflicting output must explain the actual
    evidence relationship rather than stop at an opaque label.
-6. **Batch relationships.** Add BED/simple interval-table input, shared-traversal assessment, and a
-   separate batch layer for exact collision/overlap relationships.
-7. **Held-out language/usability gate.** Exercise the implemented redesign on unseen real cases and
+6. **Batch relationships — implemented.** BED/simple interval-table input, indexed/shared-resource
+   assessment, exact collision/overlap relationships, automatic point-context relationships, and shared
+   submitted-row COMPARATIVE evidence are implemented. Batch scope boundaries remain explicit where
+   single-locus capabilities are not run.
+7. **Complete the remaining parallel metadata/context work from step 2.** Authoritative assembly-sequence
+   metadata/preflight and the initial typed difficult-region/context pilot remain prerequisites to the
+   held-out gate; their deferral did not make them part of the completed batch milestone.
+8. **Held-out language/usability gate.** Exercise the implemented redesign on unseen real cases and
    outside users/domain reviewers before describing it as validated/release-ready.
 
 Reverse, neighborhood, filtered/all-chain expansion, and batch must not ship by multiplying the
@@ -942,8 +947,8 @@ implementation/evidence questions or deliberately deferred domains:
   profile boundary and deliberate alpha compatibility break are already decided.
 - Extend the accepted initial comparative classifier only with explicit deterministic semantics and
   tests. Do not introduce hidden weighting of `ali`, `qDup`, chain score, or related observations.
-- Finalize BED/simple-table CLI syntax, batch file schema, browser-link UX, and optional BED12/export
-  command surface within the constraints in §§4, 6, and 9.
+- Browser-link UX and optional BED12/export remain optional navigation/visualization work within the
+  constraints in §§4, 6, and 9; the required BED/simple-table batch CLI and schema surface is implemented.
 - Pilot UCSC segmental-duplication context against the motivating real cases. Evaluate GIAB
   stratifications and relevant `excluderanges` categories separately before promoting them into
   implemented evidence families.
@@ -964,4 +969,3 @@ implementation/evidence questions or deliberately deferred domains:
 - Plugin registries, automatic many-engine support, default fresh alignments, machine-learning
   confidence models, composite numeric scores, large bundled species databases, and hosted service
   infrastructure remain deliberately deferred until real requirements justify them.
-

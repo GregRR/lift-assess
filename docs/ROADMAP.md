@@ -4,28 +4,21 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 [`DESIGN.md`](DESIGN.md) remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, result-model semantics, current scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
 
-## Current status — 2026-08-19
+## Current status — 2026-08-28
 
 liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
 
-The post-alpha 50-case real-world validation / UX program and subsequent design review are now complete enough to set the next implementation direction. The approved redesign removes the legacy aggregate verdict taxonomy from the target model, adopts a facts-first orthogonal result profile with progressive disclosure, deliberately permits a new pre-release schema version, and starts scalable/indexed resource-access work immediately after the first renderer/profile slice. The released alpha code remains the historical baseline until those milestones are implemented.
+The post-alpha redesign is now implemented through Milestone 22. The development code uses the facts-first orthogonal result profile and schema-v2 reporting model, scalable exact-resource chain indexing, actual reverse-mapping context, automatic 101-bp point context, paired filtered/all-chain comparative relationships, and indexed batch assessment with both BED and simple interval-table intake. The required M22 batch scope is complete.
 
-The project now has an integrated UCSC evidence pipeline plus a completed real comparative mechanical fixture. The current code can:
+The routine automated suite contains **506 tests**. The current native gate passes pytest, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`. M22 also has real-data regression coverage against the established B12-B14 COMPARATIVE cases and B15-B18 batch-collision cases. The M22 external review reproduced its checkpoint gate, found no scientific-correctness defect in the reviewed batch core, and its demonstrated reciprocal-best batch-scaling concern was remediated before milestone closure.
 
-- parse UCSC chain and net resources as streams;
-- project source intervals into normalized candidate mappings, including reverse-strand and split mappings;
-- extract mapping coverage, chain-gap, chain-score, net, and reciprocal-best evidence;
-- preserve provenance relationships so observations derived from the same caller-declared upstream alignment are not presented as independent confirmation;
-- discover, inspect, acquire, cache, resume, and integrity-check UCSC comparative and liftOver-only resources;
-- bridge a complete cached resource bundle directly into the file-backed candidate/evidence engine;
-- reproduce a measured `canFam3`→`canFam4` comparative fixture through that production cached-bundle path while keeping all multi-gigabyte provider resources outside the repository;
-- run a reviewed deterministic assessor over normalized coverage and reciprocal-best evidence without a numeric score;
-- compose a complete cached UCSC bundle through candidate/evidence generation and the assessor into an auditable assessment report;
-- and run the `assess-liftover` CLI cache-first or fully offline with measured cache-verification, transfer, and assessment-read progress.
+One earlier parallel workstream remains open before the held-out Milestone 23 gate: the authoritative assembly-sequence metadata/preflight capability and the initial typed difficult-region/context pilot originally scheduled alongside Milestone 18 indexing. Those items are not part of M22 and do not reopen it, but Milestone 23 explicitly expects representative typed contextual observations and should not begin until that prerequisite work is implemented and reviewed.
 
-The routine automated suite contains **316 tests**. The real comparative fixture is intentionally an external-cache integration verification rather than a routine pytest case because its five UCSC resources total 2,686,242,854 compressed bytes.
+The next development sequence is therefore:
 
-The deterministic assessor and assessment/report orchestration milestones are complete and reviewed. The common-case CLI, cache-first/offline execution, human-readable and JSON detailed reporting, measured cache-verification progress, measured transfer progress, and measured assessment-read progress are implemented. Milestone 15 and the pre-alpha semantic/output-hardening slice are complete and reviewed. Post-hardening real comparative CLI and independent-verifier runs completed successfully on 2026-08-17. A real-provider transfer-progress smoke check remains desirable but non-gating. Milestone 16 is complete. The first public alpha, `v0.1.0a1`, was tagged and published to PyPI on 2026-08-17.
+1. close the remaining Milestone-18 parallel metadata/preflight and typed-context work;
+2. run Milestone 23's held-out real-case and outside-user/domain language/usability gate; and
+3. if that gate passes, prepare the `v0.2.0a1` release candidate in Milestone 24.
 
 ## Implementation history
 
@@ -683,7 +676,7 @@ Two low-priority review observations are recorded rather than expanded into M21 
   paired inventory in `filtered_all_chain_comparison`, so consumers join them by `candidate_id`; revisit
   that ergonomics only in a deliberate future schema revision rather than changing schema v2 here.
 
-### 22. BED/table batch input and cross-record relationships
+### 22. BED/table batch input and cross-record relationships — complete
 
 Add first-class BED/simple interval-table batch assessment only on top of shared traversal/indexed
 resource access.
@@ -789,6 +782,32 @@ Sixth M22 interval-table input slice:
 
 Optional BED12/custom-track export may visualize one candidate whose blocks share a target sequence;
 it must not collapse multiple candidates/target sequences or replace source-coverage reporting.
+
+M22 closure checks completed on 2026-08-28:
+
+- native gate: **506 tests passed**, Ruff lint/formatting clean, strict mypy clean, and
+  `git diff --check` clean;
+- real B12-B14 COMPARATIVE batch regression preserved the established submitted-row net and
+  reciprocal-best evidence while keeping point context chain-only;
+- real B15-B18 interval-table input normalized to the same physical intervals, point-level collision
+  relationships, and 101-bp neighborhood relationships previously validated through BED input; and
+- the targeted external M22 review found no scientific-correctness defect in the batch relationship,
+  point-context, shared-COMPARATIVE, or provenance/consumption paths. Its demonstrated reciprocal-best
+  batch-scaling finding and low-level schema/test-hardening findings were remediated and regression-tested
+  before closure.
+
+### Remaining Milestone-18 parallel prerequisite before Milestone 23
+
+Before starting the held-out gate, finish the still-open work that Milestone 18 intentionally allowed to
+proceed in parallel with indexing:
+
+- authoritative assembly-sequence metadata for source-name validation, bounds, aliases, and target role,
+  with invalid input rejected before scientific assessment; and
+- the initial typed difficult-region/context pilot, beginning with UCSC segmental-duplication context only
+  after source semantics, assembly coverage, provenance, and applicable terms are verified.
+
+This prerequisite does **not** reopen M22. It completes an earlier parallel workstream that Milestone 23
+already assumes when it asks outside users to exercise typed contextual observations.
 
 ### 23. Held-out result-language and outside-user gate
 
