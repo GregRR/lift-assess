@@ -39,13 +39,14 @@ CLI coordinates are UCSC-style **1-based, inclusive**. Comma-grouped browser-sty
 coordinates such as `chr16:12,345-12,400` are accepted. liftAssess converts input at
 the boundary to its canonical **0-based, half-open** internal representation.
 
-Prepared indexes also support BED3-or-later batch assessment:
+Prepared indexes also support BED3-or-later and simple interval-table batch assessment:
 
 ```text
 assess-liftover SOURCE_DB TARGET_DB --bed loci.bed
+assess-liftover SOURCE_DB TARGET_DB --interval-table loci.tsv
 ```
 
-BED coordinates remain native 0-based, half-open. Batch execution is cache-only and index-only; it never falls back to a whole-chain scan.
+BED coordinates remain native 0-based, half-open. Interval tables require a tab-delimited `sequence`, `start`, `end` header with optional `label` and use 1-based, inclusive coordinates like the single-locus CLI. Both normalize to the same canonical batch model. Batch execution is cache-only and index-only; it never falls back to a whole-chain scan.
 
 ## Candidate generation and mapping structure
 
@@ -71,17 +72,17 @@ The built-in UCSC engine implements:
 Candidate encounter order is preserved for reproducibility, but it is **not** a
 candidate rank.
 
-## Indexed BED batch assessment
+## Indexed batch assessment
 
-liftAssess can assess BED3-or-later record sets through one prepared exact-resource chain index. The current batch layer:
+liftAssess can assess BED3-or-later or simple interval-table record sets through one prepared exact-resource chain index. The current batch layer:
 
-- rejects zero-width/empty BED intervals at input validation;
-- preserves deterministic row IDs and optional BED names;
+- rejects zero-width/empty BED intervals at input validation and validates 1-based inclusive table coordinates before normalization;
+- preserves deterministic row IDs plus optional BED names or interval-table labels;
 - preserves rows with zero candidate projections;
 - derives exact target collisions separately from overlapping-but-offset projections across distinct input records;
 - compares exact mapped target segments after adjacent coverage is canonicalized, never target bounding spans, using a target-local candidate sweep rather than an all-record-pair cross product;
 - records the selected chain publication class, exact SHA-256 resource identity, and chain provenance;
-- applies automatic 101-bp point context to one-base BED rows from the same prepared index, with `--context-bases` for a different odd-width point window and no widening of ordinary interval rows;
+- applies automatic 101-bp point context to one-base rows from either batch input form using the same prepared index, with `--context-bases` for a different odd-width point window and no widening of ordinary interval rows;
 - keeps input-row and point-context relationships as separate scales, including explicit neighborhood-level target collisions and overlapping-but-offset context projections;
 - exposes compact human and schema-v2 JSON batch reports with exact tested context intervals and per-record context run/not-run state;
 - for a complete cached `COMPARATIVE` bundle, attaches ordinary-net and reciprocal-best-chain observations to every submitted-row candidate with one shared pass over each resource, without rescanning the indexed all-chain; and
@@ -264,7 +265,7 @@ For single-locus assessment, `--details` emits the complete currently available 
 
 ## Machine-readable JSON reporting
 
-`--json` renders schema version 2. Single-locus JSON comes from the same completed report and derived `ResultProfile` used by the human-readable reports; BED batch JSON uses the separate `liftassess.ucsc_batch_result` report type from the indexed batch result. Neither is a second candidate-generation path.
+`--json` renders schema version 2. Single-locus JSON comes from the same completed report and derived `ResultProfile` used by the human-readable reports; batch JSON uses the separate `liftassess.ucsc_batch_result` report type from the indexed batch result. Neither is a second candidate-generation path.
 
 Schema v2 includes:
 
@@ -283,7 +284,7 @@ Schema v2 intentionally does **not** preserve the legacy aggregate `verdict`, ve
 
 All JSON genomic intervals use canonical **0-based, half-open** coordinates. The human-facing tier name `LIFTOVER-ONLY` is serialized as the enum token `LIFTOVER_ONLY` in JSON and is exposed as `EvidenceAvailabilityTier.LIFTOVER_ONLY` in Python. Status and progress remain on stderr, so stdout can be redirected directly to a JSON file.
 
-`--json` and `--details` are mutually exclusive. `--details` is not yet implemented for `--bed` batch mode.
+`--json` and `--details` are mutually exclusive. `--details` is not yet implemented for batch mode.
 
 ## UCSC resource discovery
 

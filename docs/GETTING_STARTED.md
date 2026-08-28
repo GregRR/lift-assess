@@ -69,7 +69,7 @@ Internally, liftAssess converts the locus immediately to **0-based, half-open**
 coordinates. You normally do not need to think about the internal convention unless
 you inspect JSON or use the Python API.
 
-The CLI retains this single-locus form and also accepts BED3-or-later batch input through `--bed`. BED rows retain their native 0-based, half-open coordinates and are assessed only through a prepared exact-resource chain index; batch mode does not silently start a whole-chain fallback.
+The CLI retains this single-locus form and also accepts batch input through `--bed` or `--interval-table`. BED rows retain their native 0-based, half-open coordinates. The simple interval-table form requires a `sequence`, `start`, `end` header (plus optional `label`) and uses the same 1-based, inclusive coordinates as the single-locus CLI. Both forms normalize into the same indexed batch engine; batch mode does not silently start a whole-chain fallback.
 
 ## 3. Install liftAssess
 
@@ -226,7 +226,7 @@ Routine one-complete-projection results stay compact. The current first result-p
 
 For large intervals and multiple projections, source coverage leads the story. The report gives actual measured coverage; it does not apply a built-in 90% or other quality threshold.
 
-Actual reverse-mapping context is reported when the matching prepared reverse index is available. For 1-bp point queries, liftAssess also requests automatic 101-bp local chain context when the prepared forward chain index is available. BED batch mode reports cross-record exact target collisions and overlapping-but-offset projections from indexed chain candidates, and one-base BED rows receive the same automatic point context from that index. Context-scale exact collisions are reported separately as neighborhood-level target collisions. COMPARATIVE batches now attach shared net/reciprocal-best evidence to submitted rows; reverse batch evidence, target-role metadata, and typed contextual evidence remain later roadmap capabilities. Those later checks are not silently implied by the current output.
+Actual reverse-mapping context is reported when the matching prepared reverse index is available. For 1-bp point queries, liftAssess also requests automatic 101-bp local chain context when the prepared forward chain index is available. Batch mode reports cross-record exact target collisions and overlapping-but-offset projections from indexed chain candidates, and one-base rows from either supported batch format receive the same automatic point context from that index. Context-scale exact collisions are reported separately as neighborhood-level target collisions. COMPARATIVE batches now attach shared net/reciprocal-best evidence to submitted rows; reverse batch evidence, target-role metadata, and typed contextual evidence remain later roadmap capabilities. Those later checks are not silently implied by the current output.
 
 ## 7. Ask for the full human-readable dossier
 
@@ -373,7 +373,9 @@ flags.
 | `--refresh` | Contacts UCSC and reacquires current resources instead of cache-first reuse | Explicit freshness checks |
 | `--acknowledge-ucsc-terms` | Supplies the explicit terms acknowledgement without a prompt | Non-interactive workflows after terms review |
 | `--accept-transfer-plan` | Supplies the separate transfer-plan acknowledgement without a prompt | Non-interactive workflows after reviewing the planned transfer |
-| `--details` | Prints the full single-locus human-readable evidence/resource/provenance dossier; not yet available with `--bed` | Scientific inspection and debugging |
+| `--bed PATH` | Reads BED3-or-later batch input using native 0-based, half-open coordinates; `-` reads stdin | Indexed BED batch assessment |
+| `--interval-table PATH` | Reads a tab-delimited `sequence/start/end[/label]` batch table using 1-based, inclusive coordinates; `-` reads stdin | Spreadsheet-style indexed batch assessment |
+| `--details` | Prints the full single-locus human-readable evidence/resource/provenance dossier; not yet available with batch input | Scientific inspection and debugging |
 | `--json` | Prints schema-v2 machine-readable output | Scripts, archives, downstream analysis |
 | `--quiet` | Suppresses nonessential terminal progress/status | Logs, scripts, or less terminal output |
 
@@ -450,13 +452,29 @@ matches the forward assessment.
 A valid existing index is reused. `--rebuild` explicitly discards and regenerates only the derived
 index; the original verified UCSC resource remains untouched.
 
-### Assess a BED batch with the prepared index
+### Assess a batch with the prepared index
+
+BED3-or-later input keeps native **0-based, half-open** coordinates:
 
 ```bash
 assess-liftover SOURCE_DB TARGET_DB --bed loci.bed
 ```
 
-The current batch surface accepts BED3-or-later, ignores blank/comment/`track`/`browser` lines, preserves the optional fourth-column name as a label, and rejects zero-width or reversed intervals before assessment. BED coordinates remain **0-based, half-open** in batch output. Use `--bed -` to read BED from stdin.
+The BED parser ignores blank/comment/`track`/`browser` lines, preserves the optional fourth-column name as a label, and rejects zero-width or reversed intervals before assessment. Use `--bed -` to read BED from stdin.
+
+For spreadsheet-style input, use a simple tab-delimited interval table with a required header:
+
+```text
+sequence	start	end	label
+chr1	101	200	region-a
+chr2	500	500	point-b
+```
+
+```bash
+assess-liftover SOURCE_DB TARGET_DB --interval-table loci.tsv
+```
+
+The table's `start` and `end` are **1-based and inclusive**, matching the single-locus CLI; `start == end` is therefore a valid one-base point. The optional `label` column must be declared in the header. Table rows are normalized immediately to canonical 0-based, half-open intervals, which is the coordinate form shown in batch JSON and the current batch human report. Blank lines and `#` comments are ignored. Use `--interval-table -` to read the table from stdin.
 
 Batch mode is deliberately cache-only and index-only. It does not contact UCSC, honor `--refresh`, build an index automatically, or fall back to a full chain traversal if the prepared index is missing or unusable. Prepare the exact selected chain class first:
 
@@ -465,7 +483,7 @@ prepare-liftassess-index SOURCE_DB TARGET_DB --evidence-tier COMPARATIVE
 prepare-liftassess-index SOURCE_DB TARGET_DB --evidence-tier LIFTOVER-ONLY
 ```
 
-Without an explicit `--evidence-tier`, batch mode prefers a complete cached COMPARATIVE bundle with a prepared all-chain index and otherwise uses the available `LIFTOVER-ONLY` chain class. `LIFTOVER-ONLY` batches assess the chain only. COMPARATIVE batches generate submitted-row candidates from the prepared all-chain index, then scan the ordinary net once and reciprocal-best chain once across the complete submitted candidate collection; the indexed all-chain is not rescanned. This preserves the single-locus net/reciprocal-best evidence semantics without a per-row whole-resource loop. The current batch COMPARATIVE scope does not run the paired filtered-vs-all-chain inventory comparison or categorical comparative relationship classifier used by single-locus results; both are reported as not assessed. Authoritative assembly-sequence name/alias preflight is not yet available, and reverse mapping is not re-run per BED row. A zero-candidate row therefore means that the selected chain index produced no candidate for the submitted label/interval; it is not an authoritative claim that the submitted sequence name is a valid assembly sequence. Exact target collisions and positive but non-identical target overlaps are reported as separate cross-record relationships derived from exact mapped target segments, never from target bounding spans. Relationship discovery uses a target-local candidate sweep rather than enumerating every pair of input rows. One-base BED rows also receive an automatic centered 101-bp point-context query through the same prepared chain index. Use `--context-bases N` to request another odd-width point window. Ordinary interval rows are not widened. Submitted-row relationships and context-scale relationships stay separate; exact equality at the context scale is reported as `NEIGHBORHOOD_LEVEL_TARGET_COLLISION`, while offset overlaps remain `OVERLAPPING_TARGET_PROJECTIONS`. Point-context candidates remain forward-chain-only even in COMPARATIVE batches; net/reciprocal-best observations are not silently promoted to the neighborhood scale. If the index cannot provide the conservative source bound needed to define a point window, that row's context is `NOT_RUN` rather than guessed.
+Without an explicit `--evidence-tier`, batch mode prefers a complete cached COMPARATIVE bundle with a prepared all-chain index and otherwise uses the available `LIFTOVER-ONLY` chain class. `LIFTOVER-ONLY` batches assess the chain only. COMPARATIVE batches generate submitted-row candidates from the prepared all-chain index, then scan the ordinary net once and reciprocal-best chain once across the complete submitted candidate collection; the indexed all-chain is not rescanned. This preserves the single-locus net/reciprocal-best evidence semantics without a per-row whole-resource loop. The current batch COMPARATIVE scope does not run the paired filtered-vs-all-chain inventory comparison or categorical comparative relationship classifier used by single-locus results; both are reported as not assessed. Authoritative assembly-sequence name/alias preflight is not yet available, and reverse mapping is not re-run per batch row. A zero-candidate row therefore means that the selected chain index produced no candidate for the submitted label/interval; it is not an authoritative claim that the submitted sequence name is a valid assembly sequence. Exact target collisions and positive but non-identical target overlaps are reported as separate cross-record relationships derived from exact mapped target segments, never from target bounding spans. Relationship discovery uses a target-local candidate sweep rather than enumerating every pair of input rows. One-base batch rows also receive an automatic centered 101-bp point-context query through the same prepared chain index. Use `--context-bases N` to request another odd-width point window. Ordinary interval rows are not widened. Submitted-row relationships and context-scale relationships stay separate; exact equality at the context scale is reported as `NEIGHBORHOOD_LEVEL_TARGET_COLLISION`, while offset overlaps remain `OVERLAPPING_TARGET_PROJECTIONS`. Point-context candidates remain forward-chain-only even in COMPARATIVE batches; net/reciprocal-best observations are not silently promoted to the neighborhood scale. If the index cannot provide the conservative source bound needed to define a point window, that row's context is `NOT_RUN` rather than guessed.
 
 `--json` emits schema-v2 `liftassess.ucsc_batch_result` output suitable for downstream automation. `--details` is not yet implemented for batch mode and fails explicitly rather than implying that the full batch dossier exists.
 
@@ -565,7 +583,7 @@ The current tool also does **not**:
 - produce a numeric confidence score;
 - provide flanking-gene synteny evidence yet;
 - define candidate-rank evidence yet; or
-- attach reverse evidence across BED batches yet.
+- attach reverse evidence across batches yet.
 
 See [`FEATURES.md`](FEATURES.md) for the complete implemented/non-implemented catalog.
 

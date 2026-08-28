@@ -355,7 +355,7 @@ Not addressed in earlier drafts of this design and worth getting right before an
   target bounding span. An exact target collision means two distinct input records have candidate
   projections covering the same target bases; a positive but non-identical target-base intersection is
   an overlapping-but-offset projection. Candidate relationships within one input record are not batch
-  relationships. One-base BED rows also receive the approved automatic point-context window from the
+  relationships. One-base batch rows also receive the approved automatic point-context window from the
   same prepared chain index. Context-scale relationships are stored separately from the submitted-row
   relationships: identical mapped target coverage at that scale is a neighborhood-level target
   collision, while positive non-identical overlap remains overlapping-but-offset. Ordinary interval
@@ -609,12 +609,16 @@ Progressive-disclosure human renderer
   run the paired filtered-vs-all-chain inventory comparison or categorical comparative relationship
   classifier; those dimensions remain explicitly not assessed. Automatic point-context
   candidates deliberately remain forward-chain-only; net/reciprocal-best observations are not silently
-  promoted to the neighborhood scale. The CLI batch surface is `--bed PATH` (or `--bed -` for stdin)
-  and retains the ordinary single-locus positional syntax. It is cache-only and prepared-index-only:
+  promoted to the neighborhood scale. The CLI batch surfaces are `--bed PATH` and
+  `--interval-table PATH` (each also accepts `-` for stdin) and retain the ordinary single-locus
+  positional syntax. BED uses native 0-based, half-open coordinates. The interval-table surface
+  requires a tab-delimited `sequence`, `start`, `end` header with optional `label` and uses the same
+  1-based, inclusive coordinate convention as the single-locus CLI; rows normalize immediately to the
+  canonical 0-based, half-open batch model. Batch execution is cache-only and prepared-index-only:
   `--refresh` is rejected, no provider acquisition or automatic index build occurs, and an unavailable/
   corrupt index fails before assessment. Default publication-class selection prefers a complete cached
   COMPARATIVE bundle and otherwise the available LIFTOVER-ONLY chain unless `--evidence-tier` requests
-  an exact class. BED coordinates remain 0-based half-open in human and JSON batch output. Until
+  an exact class. Human and JSON batch output use canonical 0-based, half-open intervals. Until
   authoritative assembly-sequence metadata/preflight exists, a row with zero indexed candidates is
   reported only as zero candidates for the submitted sequence label/interval; it must not be rendered
   as proof that the sequence name is valid or that a valid source interval has no projection.

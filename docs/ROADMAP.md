@@ -775,6 +775,18 @@ External M22 review remediation:
 - adds regression coverage for touching/multi-way target relationships and the one-net/one-rbest-read
   batch execution contract.
 
+Sixth M22 interval-table input slice:
+
+- adds `--interval-table PATH` (and `--interval-table -` for stdin) as the second first-class batch
+  intake surface without creating a second execution/evidence path;
+- requires an explicit tab-delimited `sequence`, `start`, `end` header with optional `label`, uses the
+  same 1-based inclusive coordinates as the single-locus CLI, and normalizes immediately to canonical
+  0-based half-open intervals;
+- treats `start == end` as a one-base point, rejects zero/non-positive/reversed table coordinates before
+  assessment, and preserves deterministic row IDs/physical source-line numbers; and
+- completes the required BED/simple interval-table M22 intake scope while leaving optional BED12/custom-
+  track export outside milestone closure.
+
 Optional BED12/custom-track export may visualize one candidate whose blocks share a target sequence;
 it must not collapse multiple candidates/target sequences or replace source-coverage reporting.
 

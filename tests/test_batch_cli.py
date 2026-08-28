@@ -225,6 +225,19 @@ def _bed_path(tmp_path: Path) -> Path:
     return path
 
 
+def _interval_table_path(tmp_path: Path) -> Path:
+    path = tmp_path / "batch.tsv"
+    path.write_text(
+        "sequence\tstart\tend\tlabel\n"
+        "chr1\t1\t10\tfirst\n"
+        "chr1\t21\t30\tsecond\n"
+        "chr1\t41\t50\tthird\n"
+        "chr1\t61\t70\tunmapped\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def _install_batch_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -247,6 +260,47 @@ def _install_batch_cache(
 
     monkeypatch.setattr(cli, "discover_ucsc_resources", forbidden_discovery)
     return context
+
+
+def test_interval_table_batch_cli_normalizes_one_based_inclusive_input(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_batch_cache(monkeypatch, tmp_path)
+    args = cli._build_parser().parse_args(
+        [
+            SOURCE_DB,
+            TARGET_DB,
+            "--interval-table",
+            str(_interval_table_path(tmp_path)),
+            "--json",
+        ]
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
+
+    assert exit_code == 0
+    payload = json.loads(stdout.getvalue())
+    assert [
+        (
+            record["source_interval"]["start"],
+            record["source_interval"]["end"],
+            record["label"],
+        )
+        for record in payload["records"]
+    ] == [
+        (0, 10, "first"),
+        (20, 30, "second"),
+        (40, 50, "third"),
+        (60, 70, "unmapped"),
+    ]
+    assert payload["records"][0]["source_interval"]["coordinate_system"] == (
+        "0-based-half-open"
+    )
+    assert "Input coordinates are 1-based inclusive" in stderr.getvalue()
+    assert "Assessing interval-table batch" in stderr.getvalue()
 
 
 def test_bed_batch_cli_emits_indexed_chain_only_json_without_provider_access(
@@ -478,7 +532,9 @@ def test_bed_batch_cli_rejects_single_locus_and_bed_together(tmp_path: Path) -> 
         ]
     )
 
-    with pytest.raises(ValueError, match="either a single locus or --bed"):
+    with pytest.raises(
+        ValueError, match="either a single locus or one batch input option"
+    ):
         cli._run(
             args,
             stdin=StringIO(""),
@@ -539,10 +595,34 @@ def test_bed_batch_cli_accepts_stdin(
     assert "row-1 [stdin-row]" in stdout.getvalue()
 
 
-def test_cli_requires_locus_or_bed() -> None:
+def test_interval_table_batch_cli_accepts_stdin(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_batch_cache(monkeypatch, tmp_path)
+    args = cli._build_parser().parse_args(
+        [SOURCE_DB, TARGET_DB, "--interval-table", "-"]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO("sequence\tstart\tend\tlabel\nchr1\t1\t10\tstdin-row\n"),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    assert "row-1 [stdin-row]" in stdout.getvalue()
+    assert "chr1:0-10 (0-based half-open)" in stdout.getvalue()
+
+
+def test_cli_requires_locus_or_batch_input() -> None:
     args = cli._build_parser().parse_args([SOURCE_DB, TARGET_DB])
 
-    with pytest.raises(ValueError, match="source locus is required unless --bed"):
+    with pytest.raises(
+        ValueError, match="source locus is required unless --bed or --interval-table"
+    ):
         cli._run(
             args,
             stdin=StringIO(""),
@@ -574,6 +654,43 @@ def test_bed_batch_cli_automatically_reports_neighborhood_level_collision(
     assert "requested=101 bp; point records=2; run=2; not run=0" in rendered
     assert "NEIGHBORHOOD_LEVEL_TARGET_COLLISION=1" in rendered
     assert "source coverage=101/101" in rendered
+
+
+def test_interval_table_points_receive_automatic_point_context(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context, index = _point_context_chain_context(tmp_path)
+    _install_specific_batch_cache(monkeypatch, context, index)
+    args = cli._build_parser().parse_args(
+        [SOURCE_DB, TARGET_DB, "--interval-table", "-", "--json"]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(
+            "sequence\tstart\tend\tlabel\n"
+            "chr1\t151\t151\tpoint-a\n"
+            "chr1\t351\t351\tpoint-b\n"
+        ),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    payload = json.loads(stdout.getvalue())
+    assert [
+        (record["source_interval"]["start"], record["source_interval"]["end"])
+        for record in payload["records"]
+    ] == [(150, 151), (350, 351)]
+    assert [item["state"] for item in payload["point_context"]["records"]] == [
+        "RUN",
+        "RUN",
+    ]
+    assert [item["kind"] for item in payload["point_context"]["relationships"]] == [
+        "NEIGHBORHOOD_LEVEL_TARGET_COLLISION"
+    ]
 
 
 def test_bed_batch_cli_json_exposes_point_context_as_separate_scale(
@@ -695,3 +812,19 @@ def test_bed_batch_cli_accepts_explicit_context_window_for_point_rows(
         item["tested_source_interval"]["end"] - item["tested_source_interval"]["start"]
         for item in payload["point_context"]["records"]
     ] == [51, 51]
+
+
+def test_batch_cli_parser_rejects_bed_and_interval_table_together(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(SystemExit):
+        cli._build_parser().parse_args(
+            [
+                SOURCE_DB,
+                TARGET_DB,
+                "--bed",
+                str(_bed_path(tmp_path)),
+                "--interval-table",
+                str(_interval_table_path(tmp_path)),
+            ]
+        )

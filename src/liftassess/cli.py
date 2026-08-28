@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TextIO
 
 from .batch_execution import run_indexed_chain_batch
-from .batch_input import parse_bed_batch
+from .batch_input import parse_bed_batch, parse_interval_table_batch
 from .batch_reporting import (
     render_indexed_chain_batch_json,
     render_indexed_chain_batch_summary,
@@ -111,15 +111,25 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="?",
         help=(
             "source locus in UCSC-style 1-based inclusive coordinates, "
-            "e.g. chr1:100-200; omit when using --bed"
+            "e.g. chr1:100-200; omit when using batch input"
         ),
     )
-    parser.add_argument(
+    batch_input = parser.add_mutually_exclusive_group()
+    batch_input.add_argument(
         "--bed",
         metavar="PATH",
         help=(
             "assess BED3-or-later batch input with native 0-based half-open "
             "coordinates; use '-' to read BED from stdin"
+        ),
+    )
+    batch_input.add_argument(
+        "--interval-table",
+        metavar="PATH",
+        help=(
+            "assess a tab-delimited batch table with header 'sequence start end' "
+            "and optional 'label', using 1-based inclusive coordinates; use '-' "
+            "to read from stdin"
         ),
     )
     parser.add_argument(
@@ -191,7 +201,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_context_window_bases_arg,
         help=(
             "override the automatic 101-bp local-context window for 1-bp point "
-            "queries, including one-base BED rows, with an odd number of bases, "
+            "queries, including one-base batch rows, with an odd number of bases, "
             "e.g. 1001"
         ),
     )
@@ -218,10 +228,12 @@ def _run(
     cache_root = args.cache_dir or default_user_cache_root()
     requested_evidence_tier = _requested_evidence_tier(args)
 
-    if args.bed is not None:
+    if args.bed is not None or args.interval_table is not None:
         if args.locus is not None:
-            raise ValueError("provide either a single locus or --bed, not both")
-        return _run_indexed_bed_batch(
+            raise ValueError(
+                "provide either a single locus or one batch input option, not both"
+            )
+        return _run_indexed_batch(
             args,
             source_assembly=source_assembly,
             target_assembly=target_assembly,
@@ -233,7 +245,9 @@ def _run(
         )
 
     if args.locus is None:
-        raise ValueError("a source locus is required unless --bed is provided")
+        raise ValueError(
+            "a source locus is required unless --bed or --interval-table is provided"
+        )
     source_interval = parse_ucsc_locus(args.locus, assembly=source_assembly)
     if args.context_bases is not None and source_interval.length != 1:
         raise ValueError("--context-bases currently requires a 1-bp point query")
@@ -491,7 +505,7 @@ def _run(
     return 0
 
 
-def _run_indexed_bed_batch(
+def _run_indexed_batch(
     args: argparse.Namespace,
     *,
     source_assembly: AssemblyIdentifier,
@@ -502,28 +516,53 @@ def _run_indexed_bed_batch(
     stdout: TextIO,
     stderr: TextIO,
 ) -> int:
-    """Run cache-only, index-only BED batch assessment."""
+    """Run cache-only, index-only batch assessment."""
+
+    if args.bed is not None:
+        input_option = "--bed"
+        input_name = "BED"
+        input_path = args.bed
+    else:
+        assert args.interval_table is not None
+        input_option = "--interval-table"
+        input_name = "interval-table"
+        input_path = args.interval_table
 
     if args.details:
         raise ValueError(
-            "--details is not yet available with --bed batch assessment; "
+            f"--details is not yet available with {input_option} batch assessment; "
             "use default summary or --json"
         )
     if args.refresh:
         raise ValueError(
-            "--refresh is not available with --bed batch assessment; batch mode is "
-            "cache-only and requires a prepared exact-resource chain index"
+            f"--refresh is not available with {input_option} batch assessment; "
+            "batch mode is cache-only and requires a prepared exact-resource chain "
+            "index"
         )
 
-    if args.bed == "-":
-        records = parse_bed_batch(stdin, assembly=source_assembly)
+    if input_path == "-":
+        records = (
+            parse_bed_batch(stdin, assembly=source_assembly)
+            if args.bed is not None
+            else parse_interval_table_batch(stdin, assembly=source_assembly)
+        )
     else:
-        bed_path = Path(args.bed)
-        with bed_path.open("r", encoding="utf-8", newline="") as handle:
-            records = parse_bed_batch(handle, assembly=source_assembly)
+        batch_path = Path(input_path)
+        with batch_path.open("r", encoding="utf-8", newline="") as handle:
+            records = (
+                parse_bed_batch(handle, assembly=source_assembly)
+                if args.bed is not None
+                else parse_interval_table_batch(handle, assembly=source_assembly)
+            )
 
+    loaded_message = f"Loaded {len(records)} {input_name} record(s)."
+    if args.interval_table is not None:
+        loaded_message += (
+            " Input coordinates are 1-based inclusive; assessment output is "
+            "normalized to 0-based half-open intervals."
+        )
     _status(
-        f"Loaded {len(records)} BED record(s).",
+        loaded_message,
         quiet=args.quiet,
         stderr=stderr,
     )
@@ -531,8 +570,9 @@ def _run_indexed_bed_batch(
         record.source_interval.length == 1 for record in records
     ):
         raise ValueError(
-            "--context-bases with --bed requires at least one 1-bp BED record; "
-            "ordinary interval rows are not widened automatically"
+            f"--context-bases with {input_option} requires at least one 1-bp "
+            f"{input_name} record; ordinary interval rows are not widened "
+            "automatically"
         )
     structural_chain = _resolve_preferred_cached_batch_chain(
         cache_root,
@@ -547,7 +587,7 @@ def _run_indexed_bed_batch(
             else requested_evidence_tier.value.replace("_", "-")
         )
         raise ValueError(
-            "--bed batch assessment requires a cached "
+            f"{input_option} batch assessment requires a cached "
             f"{requested} chain for {args.source_db}→{args.target_db}; "
             "batch mode does not download resources implicitly"
         )
@@ -557,14 +597,14 @@ def _run_indexed_bed_batch(
     except ChainIndexCorruptionError as exc:
         tier = structural_chain.evidence_tier.value.replace("_", "-")
         raise ValueError(
-            "--bed batch assessment requires a usable prepared chain index for "
-            f"{tier}; rerun prepare-liftassess-index {args.source_db} "
+            f"{input_option} batch assessment requires a usable prepared chain index "
+            f"for {tier}; rerun prepare-liftassess-index {args.source_db} "
             f"{args.target_db} --evidence-tier {tier} --rebuild ({exc})"
         ) from exc
     if chain_index is None:
         tier = structural_chain.evidence_tier.value.replace("_", "-")
         raise ValueError(
-            "--bed batch assessment requires a prepared chain index for "
+            f"{input_option} batch assessment requires a prepared chain index for "
             f"{tier}; run prepare-liftassess-index {args.source_db} "
             f"{args.target_db} --evidence-tier {tier}"
         )
@@ -582,9 +622,9 @@ def _run_indexed_bed_batch(
             or cached_bundle.chain.sha256 != structural_chain.chain.sha256
         ):
             raise ValueError(
-                "COMPARATIVE --bed batch assessment requires the complete cached "
-                "comparative bundle so net/reciprocal-best evidence can be shared "
-                "across submitted rows"
+                f"COMPARATIVE {input_option} batch assessment requires the complete "
+                "cached comparative bundle so net/reciprocal-best evidence can be "
+                "shared across submitted rows"
             )
         chain_context = CachedUCSCChainResource(
             source_db=cached_bundle.source_db,
@@ -610,8 +650,8 @@ def _run_indexed_bed_batch(
         chain_context = loaded_chain_context
 
     status_message = (
-        "Assessing BED batch with prepared chain index; automatic point context "
-        "uses the same index for 1-bp rows; "
+        f"Assessing {input_name} batch with prepared chain index; automatic point "
+        "context uses the same index for 1-bp rows; "
     )
     if cached_bundle is not None:
         status_message += (

@@ -11,7 +11,7 @@ from .batch import (
     build_batch_target_relationships,
 )
 from .batch_execution import IndexedChainBatchResult, run_indexed_chain_batch
-from .batch_input import BatchInputError, parse_bed_batch
+from .batch_input import BatchInputError, parse_bed_batch, parse_interval_table_batch
 from .chain_index import (
     DEFAULT_CHAIN_INDEX_BIN_WIDTH,
     DEFAULT_CHAIN_INDEX_BLOCK_SIZE,
@@ -281,6 +281,7 @@ __all__ = [
     "load_cached_ucsc_resource_bundle",
     "load_chain_index",
     "parse_bed_batch",
+    "parse_interval_table_batch",
     "plan_ucsc_bundle_acquisition",
     "point_context_not_run",
     "provenance_source_for_file",
