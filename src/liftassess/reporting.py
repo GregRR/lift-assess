@@ -32,6 +32,8 @@ from .result_profile import (
     ComparativePlacementProfile,
     ComparativeRelationshipProfile,
     ComparativeRelationshipState,
+    ExternalContextProfile,
+    ExternalContextState,
     FactualHeadline,
     QueryContextFinding,
     QueryContextProfile,
@@ -44,6 +46,12 @@ from .reverse_mapping import (
     CandidateReverseMappingResult,
     ReverseCheckState,
     ReverseRelationshipState,
+)
+from .segmental_duplication import (
+    CandidateSegmentalDuplicationOverlap,
+    UCSCSegmentalDuplicationContextResult,
+    UCSCSegmentalDuplicationOverlap,
+    UCSCSegmentalDuplicationRecord,
 )
 
 _BIOLOGICAL_CORRECTNESS_CAVEAT = "This does not establish biological correctness."
@@ -85,6 +93,7 @@ def render_assessment_summary(report: UCSCAssessmentReport) -> str:
     lines.extend(_query_context_summary_lines(profile.query_context))
     lines.extend(_comparative_summary_lines(report, profile.comparative_relationship))
     lines.extend(_target_role_summary_lines(profile))
+    lines.extend(_external_context_summary_lines(profile.external_context))
 
     lines.append(f"Evidence: {_evidence_summary(profile)}")
     lines.append(f"Interpretation: {profile.interpretation}")
@@ -195,6 +204,50 @@ def _target_role_summary_lines(profile: ResultProfile) -> list[str]:
             "use --details or --json."
         )
     return rendered
+
+
+def _external_context_summary_lines(profile: ExternalContextProfile) -> list[str]:
+    if profile.state is ExternalContextState.NOT_ASSESSED:
+        return []
+    result = profile.ucsc_segmental_duplication
+    if result is None:
+        raise ValueError("assessed external context requires its typed result")
+    if profile.state is ExternalContextState.UNAVAILABLE:
+        return [
+            (
+                "UCSC segmental-duplication context: unavailable; no duplication "
+                "overlap was inferred from sequence naming or mapping geometry."
+            )
+        ]
+
+    source_count = len(result.source_overlaps)
+    target_observation_count = len(result.target_overlaps)
+    target_row_count = len({item.record for item in result.target_overlaps})
+    if source_count == 0 and target_observation_count == 0:
+        if profile.state is ExternalContextState.PARTIALLY_ASSESSED:
+            return [
+                (
+                    "UCSC segmental-duplication context: partially assessed; no "
+                    "overlap was observed on the available assembly side."
+                )
+            ]
+        return []
+
+    parts: list[str] = []
+    if source_count:
+        parts.append(
+            f"source query overlaps {source_count} putative duplication row(s)"
+        )
+    if target_observation_count:
+        candidate_count = len({item.candidate_id for item in result.target_overlaps})
+        parts.append(
+            f"{candidate_count} target projection(s) overlap "
+            f"{target_row_count} distinct putative duplication row(s)"
+        )
+    suffix = "; ".join(parts)
+    if profile.state is ExternalContextState.PARTIALLY_ASSESSED:
+        suffix += "; one assembly-side track was unavailable"
+    return [f"UCSC segmental-duplication context: {suffix}."]
 
 
 def _query_context_summary_lines(profile: QueryContextProfile) -> list[str]:
@@ -734,6 +787,10 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
                 )
             )
 
+    if profile.scope.external_context is not ExternalContextState.NOT_ASSESSED:
+        lines.extend(("", "Typed external context: UCSC segmental duplications"))
+        lines.extend(_segmental_duplication_detail_lines(report))
+
     lines.extend(
         (
             "",
@@ -901,6 +958,7 @@ def render_assessment_json(report: UCSCAssessmentReport) -> str:
         "source_interval": _interval_json(report.source_interval),
         "source_preflight": _source_preflight_json(report),
         "target_role_metadata": _target_role_metadata_json(report),
+        "typed_external_context": _external_context_json(report),
         "result_profile": _result_profile_json(report.result_profile),
         "candidates": [_candidate_json(candidate) for candidate in report.candidates],
         "query_context": _query_context_json(report),
@@ -1055,6 +1113,200 @@ def _target_role_metadata_json(report: UCSCAssessmentReport) -> dict[str, object
     }
 
 
+def _segmental_duplication_detail_lines(report: UCSCAssessmentReport) -> list[str]:
+    result = report.segmental_duplication_context_result
+    if result is None:
+        return ["  State: NOT_ASSESSED"]
+
+    lines = [
+        f"  Overall state: {report.result_profile.scope.external_context.value}",
+        f"  Source query state: {result.source_state.value}",
+        f"  Target projection state: {result.target_state.value}",
+    ]
+    if report.source_segmental_duplication_resource is not None:
+        resource = report.source_segmental_duplication_resource
+        lines.extend(
+            (
+                "  Source track resource:",
+                f"    Source URL: {resource.source_url}",
+                f"    Cache path: {resource.path}",
+                f"    SHA-256: {resource.sha256}",
+            )
+        )
+    if report.target_segmental_duplication_resource is not None:
+        resource = report.target_segmental_duplication_resource
+        lines.extend(
+            (
+                "  Target track resource:",
+                f"    Source URL: {resource.source_url}",
+                f"    Cache path: {resource.path}",
+                f"    SHA-256: {resource.sha256}",
+            )
+        )
+
+    lines.append(f"  Source overlap rows: {len(result.source_overlaps)}")
+    for source_overlap in result.source_overlaps:
+        lines.extend(_source_segmental_duplication_detail(source_overlap))
+    lines.append(
+        f"  Target candidate/row overlap observations: {len(result.target_overlaps)}"
+    )
+    for target_overlap in result.target_overlaps:
+        lines.extend(_target_segmental_duplication_detail(target_overlap))
+    lines.append(
+        "  Interpretation boundary: overlap is descriptive context only; it does not "
+        "penalize a projection or establish biological correctness."
+    )
+    return lines
+
+
+def _source_segmental_duplication_detail(
+    item: UCSCSegmentalDuplicationOverlap,
+) -> list[str]:
+    return [
+        f"    Overlap: {format_display_interval(item.overlap_interval)}",
+        f"      Track interval: {format_display_interval(item.record.interval)}",
+        (
+            "      Paired interval: "
+            f"{format_display_interval(item.record.paired_interval)}"
+        ),
+        f"      Pair strand: {item.record.strand}",
+        f"      Provider UID: {item.record.uid}",
+        f"      Aligned bases: {item.record.aligned_bases}",
+        f"      Fraction matching bases: {item.record.fraction_matching_bases}",
+    ]
+
+
+def _target_segmental_duplication_detail(
+    item: CandidateSegmentalDuplicationOverlap,
+) -> list[str]:
+    return [
+        f"    Candidate: {item.candidate_id}",
+        "      Exact mapped overlap: "
+        + ", ".join(
+            format_display_interval(interval) for interval in item.overlap_intervals
+        ),
+        f"      Track interval: {format_display_interval(item.record.interval)}",
+        (
+            "      Paired interval: "
+            f"{format_display_interval(item.record.paired_interval)}"
+        ),
+        f"      Pair strand: {item.record.strand}",
+        f"      Provider UID: {item.record.uid}",
+        f"      Aligned bases: {item.record.aligned_bases}",
+        f"      Fraction matching bases: {item.record.fraction_matching_bases}",
+    ]
+
+
+def _external_context_json(report: UCSCAssessmentReport) -> dict[str, object]:
+    result = report.segmental_duplication_context_result
+    resources: list[dict[str, object]] = []
+    if report.source_segmental_duplication_resource is not None:
+        resources.append(
+            _segmental_duplication_resource_json(
+                "SOURCE", report.source_segmental_duplication_resource
+            )
+        )
+    if report.target_segmental_duplication_resource is not None:
+        resources.append(
+            _segmental_duplication_resource_json(
+                "TARGET", report.target_segmental_duplication_resource
+            )
+        )
+    if result is None:
+        return {
+            "state": ExternalContextState.NOT_ASSESSED.value,
+            "ucsc_segmental_duplications": None,
+            "resources": resources,
+        }
+    return {
+        "state": report.result_profile.scope.external_context.value,
+        "ucsc_segmental_duplications": _segmental_duplication_context_json(result),
+        "resources": resources,
+    }
+
+
+def _external_context_profile_json(
+    profile: ExternalContextProfile,
+) -> dict[str, object]:
+    return {
+        "state": profile.state.value,
+        "ucsc_segmental_duplications": (
+            _segmental_duplication_context_json(profile.ucsc_segmental_duplication)
+            if profile.ucsc_segmental_duplication is not None
+            else None
+        ),
+    }
+
+
+def _segmental_duplication_context_json(
+    result: UCSCSegmentalDuplicationContextResult,
+) -> dict[str, object]:
+    return {
+        "source_query_state": result.source_state.value,
+        "target_projection_state": result.target_state.value,
+        "source_provenance_source_id": (
+            result.source_provenance.source_id if result.source_provenance else None
+        ),
+        "target_provenance_source_id": (
+            result.target_provenance.source_id if result.target_provenance else None
+        ),
+        "source_overlaps": [
+            _source_segmental_duplication_json(item) for item in result.source_overlaps
+        ],
+        "target_overlaps": [
+            _target_segmental_duplication_json(item) for item in result.target_overlaps
+        ],
+    }
+
+
+def _source_segmental_duplication_json(
+    item: UCSCSegmentalDuplicationOverlap,
+) -> dict[str, object]:
+    return {
+        "overlap_interval": _interval_json(item.overlap_interval),
+        "record": _segmental_duplication_record_json(item.record),
+    }
+
+
+def _target_segmental_duplication_json(
+    item: CandidateSegmentalDuplicationOverlap,
+) -> dict[str, object]:
+    return {
+        "candidate_id": item.candidate_id,
+        "overlap_intervals": [
+            _interval_json(interval) for interval in item.overlap_intervals
+        ],
+        "record": _segmental_duplication_record_json(item.record),
+    }
+
+
+def _segmental_duplication_record_json(
+    record: UCSCSegmentalDuplicationRecord,
+) -> dict[str, object]:
+    return {
+        "interval": _interval_json(record.interval),
+        "paired_interval": _interval_json(record.paired_interval),
+        "strand": record.strand,
+        "uid": record.uid,
+        "aligned_bases": record.aligned_bases,
+        "fraction_matching_bases": record.fraction_matching_bases,
+    }
+
+
+def _segmental_duplication_resource_json(
+    side: str, resource: CachedResource
+) -> dict[str, object]:
+    return {
+        "side": side,
+        "source_url": resource.source_url,
+        "cache_path": str(resource.path),
+        "retrieved_at": resource.retrieved_at,
+        "size_bytes": resource.size_bytes,
+        "sha256": resource.sha256,
+        "cache_hit_at_acquisition": resource.cache_hit,
+    }
+
+
 def _result_profile_json(profile: ResultProfile) -> dict[str, object]:
     return {
         "input_validity": profile.input_validity.value,
@@ -1092,6 +1344,7 @@ def _result_profile_json(profile: ResultProfile) -> dict[str, object]:
                 for item in profile.target_sequence_roles
             ],
         },
+        "external_context": _external_context_profile_json(profile.external_context),
         "scope": {
             "target_role": profile.scope.target_role.value,
             "actual_reverse_mapping": profile.scope.reverse_result.value,
@@ -1885,6 +2138,12 @@ def _report_provenance_sources(
         roots.extend(report.source_preflight.provenance_sources)
     if report.target_role_provenance is not None:
         roots.append(report.target_role_provenance)
+    if report.segmental_duplication_context_result is not None:
+        context = report.segmental_duplication_context_result
+        if context.source_provenance is not None:
+            roots.append(context.source_provenance)
+        if context.target_provenance is not None:
+            roots.append(context.target_provenance)
     for assessment_resource in report.resources:
         if assessment_resource.file_provenance is not None:
             roots.append(assessment_resource.file_provenance)

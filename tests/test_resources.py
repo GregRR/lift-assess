@@ -9,8 +9,10 @@ from liftassess.resources import (
     UCSCAssemblyMetadataResources,
     UCSCResourceBundle,
     UCSCResourceDiscoveryError,
+    UCSCSegmentalDuplicationResource,
     _discover_ucsc_assembly_metadata,
     _discover_ucsc_resources,
+    _discover_ucsc_segmental_duplication_resource,
     _ucsc_title_db,
 )
 
@@ -43,6 +45,26 @@ def test_discovers_ucsc_assembly_metadata_from_observed_database_tables() -> Non
         chrom_info_url=f"{database}chromInfo.txt.gz",
         chrom_alias_url=f"{database}chromAlias.txt.gz",
     )
+
+
+def test_discovers_segmental_duplication_table_only_when_observed() -> None:
+    database = "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/"
+
+    result = _discover_ucsc_segmental_duplication_resource(
+        "hg38",
+        _reader({database: frozenset({"genomicSuperDups.txt.gz"})}),
+    )
+
+    assert result == UCSCSegmentalDuplicationResource(
+        db="hg38",
+        url=f"{database}genomicSuperDups.txt.gz",
+    )
+
+    absent = _discover_ucsc_segmental_duplication_resource(
+        "hg38",
+        _reader({database: frozenset({"chromInfo.txt.gz"})}),
+    )
+    assert absent is None
 
 
 def test_assembly_metadata_discovery_requires_observed_chrom_info() -> None:

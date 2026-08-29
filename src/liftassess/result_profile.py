@@ -51,6 +51,10 @@ from .reverse_mapping import (
     ReverseOriginalSourceCoverageState,
     ReverseRelationshipState,
 )
+from .segmental_duplication import (
+    SegmentalDuplicationCheckState,
+    UCSCSegmentalDuplicationContextResult,
+)
 
 
 class InputValidityState(str, Enum):
@@ -111,9 +115,12 @@ class BatchRelationshipState(str, Enum):
 
 
 class ExternalContextState(str, Enum):
-    """Typed external/context evidence state for the current slice."""
+    """Availability state for typed external/context evidence."""
 
     NOT_ASSESSED = "NOT_ASSESSED"
+    UNAVAILABLE = "UNAVAILABLE"
+    PARTIALLY_ASSESSED = "PARTIALLY_ASSESSED"
+    ASSESSED = "ASSESSED"
 
 
 class FactualHeadline(str, Enum):
@@ -239,6 +246,14 @@ class TargetSequenceRoleProfile:
 
 
 @dataclass(frozen=True)
+class ExternalContextProfile:
+    """Typed external-context results kept separate from mapping evidence."""
+
+    state: ExternalContextState
+    ucsc_segmental_duplication: UCSCSegmentalDuplicationContextResult | None = None
+
+
+@dataclass(frozen=True)
 class ResultScopeProfile:
     """Explicit scope states for orthogonal result dimensions."""
 
@@ -275,6 +290,7 @@ class ResultProfile:
     consumed_resource_roles: tuple[str, ...]
     query_context: QueryContextProfile
     comparative_relationship: ComparativeRelationshipProfile
+    external_context: ExternalContextProfile
     target_sequence_roles: tuple[TargetSequenceRoleProfile, ...] = ()
     scope: ResultScopeProfile = field(default_factory=ResultScopeProfile)
 
@@ -294,6 +310,9 @@ def build_result_profile(
     ) = None,
     target_role_catalog: AssemblySequenceCatalog | None = None,
     target_role_unavailable: bool = False,
+    segmental_duplication_context_result: (
+        UCSCSegmentalDuplicationContextResult | None
+    ) = None,
 ) -> ResultProfile:
     """Derive one deterministic factual profile from normalized scientific data."""
 
@@ -360,6 +379,9 @@ def build_result_profile(
         target_role_catalog=target_role_catalog,
         target_role_unavailable=target_role_unavailable,
     )
+    external_context = build_external_context_profile(
+        segmental_duplication_context_result
+    )
     return ResultProfile(
         source_interval=source_interval,
         input_validity=input_validity,
@@ -377,13 +399,50 @@ def build_result_profile(
         consumed_resource_roles=consumed_resource_roles,
         query_context=query_context,
         comparative_relationship=comparative_relationship,
+        external_context=external_context,
         target_sequence_roles=target_sequence_roles,
         scope=ResultScopeProfile(
             target_role=target_role_state,
             reverse_result=_reverse_scope_state(reverse_profiles),
             query_context=query_context.check_state,
             comparative_relationship=comparative_relationship.state,
+            external_context=external_context.state,
         ),
+    )
+
+
+def build_external_context_profile(
+    result: UCSCSegmentalDuplicationContextResult | None,
+) -> ExternalContextProfile:
+    if result is None:
+        return ExternalContextProfile(state=ExternalContextState.NOT_ASSESSED)
+
+    source_assessed = result.source_state is SegmentalDuplicationCheckState.ASSESSED
+    target_complete = result.target_state in {
+        SegmentalDuplicationCheckState.ASSESSED,
+        SegmentalDuplicationCheckState.NO_TARGET_PROJECTIONS,
+    }
+    target_assessed = result.target_state is SegmentalDuplicationCheckState.ASSESSED
+
+    if source_assessed and target_complete:
+        state = ExternalContextState.ASSESSED
+    elif (
+        result.source_state is SegmentalDuplicationCheckState.UNAVAILABLE
+        and result.target_state
+        in {
+            SegmentalDuplicationCheckState.UNAVAILABLE,
+            SegmentalDuplicationCheckState.NO_TARGET_PROJECTIONS,
+        }
+    ):
+        state = ExternalContextState.UNAVAILABLE
+    elif source_assessed or target_assessed:
+        state = ExternalContextState.PARTIALLY_ASSESSED
+    else:
+        state = ExternalContextState.UNAVAILABLE
+
+    return ExternalContextProfile(
+        state=state,
+        ucsc_segmental_duplication=result,
     )
 
 

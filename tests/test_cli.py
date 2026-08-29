@@ -125,6 +125,16 @@ def _install_cached_source_metadata(
         "acquire_ucsc_assembly_metadata",
         lambda resources, cache_root, **kwargs: metadata,
     )
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_segmental_duplication_resource",
+        lambda cache_root, db: None,
+    )
+    monkeypatch.setattr(
+        cli,
+        "discover_ucsc_segmental_duplication_resource",
+        lambda db: None,
+    )
 
 
 def _discovered_bundle() -> UCSCResourceBundle:
@@ -2321,6 +2331,13 @@ def test_json_flag_emits_machine_readable_cached_assessment(
     )
     assert payload["result_profile"]["input_validity"] == "VALID"
     assert payload["result_profile"]["headline"] == "ONE_COMPLETE_CHAIN_PROJECTION"
+    assert payload["typed_external_context"]["state"] == "UNAVAILABLE"
+    assert (
+        payload["typed_external_context"]["ucsc_segmental_duplications"][
+            "source_query_state"
+        ]
+        == "UNAVAILABLE"
+    )
     assert "aggregate_verdict" not in payload["semantics"]
     assert "assessment" not in payload
     assert payload["resources"][0]["role"] == "CHAIN"

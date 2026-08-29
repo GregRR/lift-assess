@@ -150,6 +150,17 @@ def test_assembly_metadata_terms_use_database_directory_without_ack_gate() -> No
     assert terms.directory_terms_url.endswith("/canFam3/database/")
 
 
+def test_segmental_duplication_context_terms_use_database_directory() -> None:
+    terms = ucsc_resource_terms(
+        "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/"
+        "genomicSuperDups.txt.gz"
+    )
+
+    assert terms.resource_class is UCSCResourceClass.CONTEXT
+    assert terms.restricted_liftover_chain is False
+    assert terms.directory_terms_url.endswith("/hg38/database/")
+
+
 def test_assembly_metadata_download_does_not_require_terms_acknowledgement(
     tmp_path: Path,
 ) -> None:
@@ -170,6 +181,32 @@ def test_assembly_metadata_download_does_not_require_terms_acknowledgement(
 
     assert result.source_url == url
     assert result.terms.resource_class is UCSCResourceClass.ASSEMBLY_METADATA
+    assert result.path.read_bytes() == data
+    assert result.provider_checksum is None
+    assert calls == [checksum_url, url]
+
+
+def test_context_database_download_does_not_require_terms_acknowledgement(
+    tmp_path: Path,
+) -> None:
+    url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/"
+        "genomicSuperDups.txt.gz"
+    )
+    checksum_url = "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/md5sum.txt"
+    data = b"compressed genomicSuperDups fixture"
+    calls: list[str] = []
+
+    result = _acquire_ucsc_resource(
+        url,
+        tmp_path,
+        terms_acknowledged=False,
+        open_url=_opener({url: data}, calls=calls),
+        now=_fixed_now,
+    )
+
+    assert result.source_url == url
+    assert result.terms.resource_class is UCSCResourceClass.CONTEXT
     assert result.path.read_bytes() == data
     assert result.provider_checksum is None
     assert calls == [checksum_url, url]

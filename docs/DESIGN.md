@@ -363,9 +363,17 @@ Not addressed in earlier drafts of this design and worth getting right before an
   rows are never widened automatically, and unavailable indexed source bounds produce explicit
   per-record context `NOT_RUN` rather than a guessed window.
 - **Typed contextual evidence:** optional difficult-region/context resources are represented as
-  resource-specific, provenance-bearing observations. The first active pilot is UCSC segmental-
-  duplication context; GIAB stratifications and `excluderanges` categories must be evaluated
-  separately rather than collapsed into one generic warning.
+  resource-specific, provenance-bearing observations. The first active pilot uses UCSC's
+  assembly-scoped `genomicSuperDups` table. UCSC describes these rows as putative genomic
+  duplications meeting the track's alignment/identity criteria; liftAssess therefore reports an
+  overlap as that exact provider observation, not as proof that a mapping is wrong, not as a
+  generic difficult-region flag, and not as a penalty or vote. The source query is intersected
+  directly with source-assembly rows. Target context is intersected against each candidate's exact
+  mapped target segments, never the candidate bounding span across unaligned target gaps. Reported
+  facts retain the paired interval, strand, UCSC UID, aligned bases (`alignB`), matching-base
+  fraction (`fracMatch`), assembly side, and SHA-256-addressed resource provenance. Missing optional
+  tables remain explicitly unavailable and do not block coordinate assessment. GIAB stratifications
+  and `excluderanges` categories must be evaluated separately rather than collapsed into this pilot.
 - **Optional genomic-context evidence:** flanking-gene orthology/synteny or other context may be added
   when a real source is selected and its provenance/dependencies are explicit.
 
@@ -472,8 +480,9 @@ Progressive-disclosure human renderer
   The acquisition/cache layer computes SHA-256 during transfer while recording source URL, retrieval
   metadata, applicable provider terms, and any provider checksum verification. Single-resource
   acquisition and complete bundle planning/execution are implemented against a caller-supplied cache
-  root; no repository-local cache is created. After explicit provider-terms acknowledgement, a
-  separate metadata-inspection step may issue body-free HTTP HEAD requests to expose
+  root; no repository-local cache is created. For terms-gated mapping resources, after explicit
+  provider-terms acknowledgement a separate metadata-inspection step may issue body-free HTTP HEAD
+  requests to expose
   provider-advertised `Content-Length` and transport headers before transfer-plan acknowledgement.
   Live provider checks on 2026-08-14 verified exact HEAD sizes plus byte-range/`If-Range` behavior for
   the canFam3→canFam4 comparative resources. The acquisition layer now uses those semantics
@@ -567,9 +576,12 @@ Progressive-disclosure human renderer
   4. Always tell the user which tier is in play, in plain language, before showing results.
   5. Always accept user-supplied chain/net resources directly — UCSC is a convenient default
      provider, not a hard dependency.
-- **Resource acquisition/cache**: discovery and retrieval remain separate operations. v1 acquisition
-  requires explicit acknowledgement of the applicable UCSC/general and directory-specific terms before
-  network access, distinguishes restricted `liftOver/*.over.chain.gz` resources from comparative
+- **Resource acquisition/cache**: discovery and retrieval remain separate operations. Mapping-evidence
+  acquisition requires explicit acknowledgement of the applicable UCSC/general and directory-specific
+  terms before network access, while explicitly classified UCSC `database/` table dumps used for
+  assembly metadata or typed context are exempt only when that published directory states its files and
+  tables are freely usable. The acquisition layer distinguishes restricted `liftOver/*.over.chain.gz`
+  resources from comparative
   `vsTarget/` resources, verifies provider checksum metadata when an exact filename entry is available,
   validates transport length metadata when supplied, and stores exact downloaded bytes outside the source
   tree by liftAssess SHA-256. A provider checksum is an integrity check, not provenance identity. Cache
@@ -682,10 +694,13 @@ Progressive-disclosure human renderer
   UCSC lists the `src/hg/liftOver` source directory under its non-commercial UC license and offers
   commercial licensing for liftOver. liftAssess therefore does not depend on or redistribute the
   UCSC liftOver implementation for its core logic.
-- **Provider network access is explicitly gated.** The resource resolver may identify either a
-  comparative URL or a restricted `liftOver/*.over.chain.gz` URL. Provider-contacting inspection and
-  acquisition therefore refuse network access until the caller explicitly acknowledges
-  review of UCSC's general and relevant directory-specific terms. Restricted liftOver chains are
+- **Provider network access for mapping evidence is explicitly gated.** The resource resolver may
+  identify either a comparative URL or a restricted `liftOver/*.over.chain.gz` URL. Provider-contacting
+  inspection and acquisition of those mapping resources therefore refuse network access until the caller
+  explicitly acknowledges review of UCSC's general and relevant directory-specific terms. Separately
+  classified small `database/` tables used for assembly metadata or typed context may bypass that
+  acknowledgement only where the published database directory explicitly states that its files/tables are
+  freely usable; their exact source URL and terms references are still retained. Restricted liftOver chains are
   surfaced distinctly because UCSC states that downloading or using them indicates EULA acceptance and
   limits free use to the described non-commercial/nonprofit cases unless an applicable commercial
   license exists. No-network discovery/planning itself does not require terms acknowledgement, and HEAD

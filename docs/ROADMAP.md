@@ -10,9 +10,9 @@ liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public a
 
 The post-alpha redesign is now implemented through Milestone 22. The development code uses the facts-first orthogonal result profile and schema-v2 reporting model, scalable exact-resource chain indexing, actual reverse-mapping context, automatic 101-bp point context, paired filtered/all-chain comparative relationships, and indexed batch assessment with both BED and simple interval-table intake. The required M22 batch scope is complete.
 
-The M22 closure gate contained **506 tests** and passed pytest, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`. Subsequent assembly-metadata work has expanded the development suite to **561 tests** in the current implementation. M22 also has real-data regression coverage against the established B12-B14 COMPARATIVE cases and B15-B18 batch-collision cases. The M22 external review reproduced its checkpoint gate, found no scientific-correctness defect in the reviewed batch core, and its demonstrated reciprocal-best batch-scaling concern was remediated before milestone closure.
+The M22 closure gate contained **506 tests** and passed pytest, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`. Subsequent assembly-metadata/context work has continued to expand the development suite beyond that checkpoint. M22 also has real-data regression coverage against the established B12-B14 COMPARATIVE cases and B15-B18 batch-collision cases. The M22 external review reproduced its checkpoint gate, found no scientific-correctness defect in the reviewed batch core, and its demonstrated reciprocal-best batch-scaling concern was remediated before milestone closure.
 
-One earlier parallel workstream remains open before the held-out Milestone 23 gate: the initial typed difficult-region/context pilot originally scheduled alongside Milestone 18 indexing. The authoritative assembly-sequence metadata/preflight prerequisite is now implemented for source validation and version-matched target-role/context reporting in both single-locus and batch execution. This work does not reopen M22, but Milestone 23 explicitly expects representative typed contextual observations and should not begin until the remaining context pilot is implemented and reviewed.
+One earlier parallel workstream remains open before the held-out Milestone 23 gate: the initial typed difficult-region/context pilot originally scheduled alongside Milestone 18 indexing. The authoritative assembly-sequence metadata/preflight prerequisite is now implemented for source validation and version-matched target-role/context reporting in both single-locus and batch execution. Focused internal review of the initial UCSC segmental-duplication slice found and corrected a cross-module terms-gate defect that otherwise made fresh online context acquisition report itself unavailable; the pilot remains open pending external review and its planned real motivating-case validation. This work does not reopen M22, but Milestone 23 explicitly expects representative typed contextual observations and should not begin until the remaining context pilot is implemented and reviewed.
 
 The next development sequence is therefore:
 
@@ -809,13 +809,18 @@ partial role coverage, and reports explicit `UNAVAILABLE`/`NO_TARGET_PROJECTIONS
 name-based inference. Online single-locus execution may acquire the small target metadata; offline and
 batch execution remain cache-only/provider-free for this optional context.
 
-The remaining prerequisite is therefore:
+The remaining prerequisite is therefore in its implementation/validation phase. The initial UCSC
+segmental-duplication slice now uses the assembly-scoped `genomicSuperDups` table as typed contextual
+observation data, with verified provider semantics/terms, exact source-query overlap, exact mapped-target-
+segment overlap, and content-addressed provenance. It does not alter candidate generation, factual
+headline, comparative interpretation, or any quality/correctness judgment. Missing optional context is
+reported as unavailable rather than inferred from mapping geometry or sequence names.
 
-- implement the initial typed difficult-region/context pilot, beginning with UCSC segmental-duplication
-  context only after source semantics, assembly coverage, provenance, and applicable terms are verified.
-
-This prerequisite does **not** reopen M22. It completes an earlier parallel workstream that Milestone 23
-already assumes when it asks outside users to exercise typed contextual observations.
+Before this prerequisite is closed, the implementation still needs real motivating-case validation
+against the established hg19→hg38 duplication/paralogy cases (especially A03/A04), followed by the
+planned focused internal review. This prerequisite does **not** reopen M22; it completes the earlier
+parallel workstream that Milestone 23 already assumes when it asks outside users to exercise typed
+contextual observations.
 
 ### 23. Held-out result-language and outside-user gate
 

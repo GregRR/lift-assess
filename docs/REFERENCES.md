@@ -9,7 +9,7 @@ the access date is included because provider documentation, directory contents, 
 threads can change over time.
 
 This audit covers sources recoverable from the liftAssess repository/code history and prior
-liftAssess project research discussions through **2026-08-17**. Sources mentioned only as possible
+liftAssess project research discussions through **2026-08-28**. Sources mentioned only as possible
 future additions (for example, an eventual Ensembl Compara evidence source) are intentionally not
 listed unless they materially informed a current design or implementation decision.
 
@@ -170,6 +170,36 @@ listed unless they materially informed a current design or implementation decisi
     [Internet]. Bethesda (MD): National Library of Medicine (US);
     [cited 2026 Aug 28]. Available from:
     https://www.ncbi.nlm.nih.gov/datasets/docs/v2/api/rest-api/
+
+34. UCSC Genome Browser Project. Segmental Dups track description, GRCh38/hg38
+    [Internet]. Santa Cruz (CA): University of California, Santa Cruz;
+    [cited 2026 Aug 28]. Available from:
+    https://genome.ucsc.edu/cgi-bin/hgTrackUi?db=hg38&g=genomicSuperDups
+
+35. UCSC Genome Browser Project. `genomicSuperDups` table schema, GRCh38/hg38
+    [Internet]. Santa Cruz (CA): University of California, Santa Cruz;
+    [cited 2026 Aug 28]. Available from:
+    https://genome.ucsc.edu/cgi-bin/hgTables?db=hg38&hgta_doSchema=describe+table+schema&hgta_group=rep&hgta_table=genomicSuperDups&hgta_track=genomicSuperDups
+
+36. UCSC Genome Browser Project. Segmental Dups track description, GRCh37/hg19
+    [Internet]. Santa Cruz (CA): University of California, Santa Cruz;
+    [cited 2026 Aug 28]. Available from:
+    https://genome.ucsc.edu/cgi-bin/hgTrackUi?db=hg19&g=genomicSuperDups
+
+37. UCSC Genome Browser Project. `genomicSuperDups` table schema, GRCh37/hg19
+    [Internet]. Santa Cruz (CA): University of California, Santa Cruz;
+    [cited 2026 Aug 28]. Available from:
+    https://genome.ucsc.edu/cgi-bin/hgTables?db=hg19&hgta_doSchema=describe+table+schema&hgta_group=rep&hgta_table=genomicSuperDups&hgta_track=genomicSuperDups
+
+38. UCSC Genome Browser Project. hg38 genome annotation database download directory
+    [Internet]. Santa Cruz (CA): University of California, Santa Cruz;
+    [cited 2026 Aug 28]. Available from:
+    https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/
+
+39. UCSC Genome Browser Project. hg19 genome annotation database download directory
+    [Internet]. Santa Cruz (CA): University of California, Santa Cruz;
+    [cited 2026 Aug 28]. Available from:
+    https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/
 
 ### Validation-data note
 

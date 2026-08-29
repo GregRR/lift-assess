@@ -58,9 +58,11 @@ from .resource_files import (
 )
 from .result_profile import (
     ComparativeRelationshipState,
+    ExternalContextState,
     InputValidityState,
     ResultProfile,
     TargetRoleState,
+    build_external_context_profile,
     build_result_profile,
 )
 from .reverse_mapping import (
@@ -68,6 +70,12 @@ from .reverse_mapping import (
     ReverseCheckState,
     build_reverse_mapping_results_from_cached_bundle,
     reverse_mapping_unavailable,
+)
+from .segmental_duplication import (
+    SegmentalDuplicationCheckState,
+    UCSCSegmentalDuplicationCatalog,
+    UCSCSegmentalDuplicationContextResult,
+    build_ucsc_segmental_duplication_context,
 )
 
 
@@ -105,6 +113,32 @@ class UCSCAssessmentResource:
             )
 
 
+def _validate_context_resource_provenance(
+    provenance: ProvenanceSource | None,
+    resource: CachedResource,
+    *,
+    side: str,
+) -> None:
+    if provenance is None:
+        raise ValueError(
+            f"assessed {side} segmental-duplication context requires provenance"
+        )
+    sha256_identifiers = tuple(
+        identifier
+        for identifier in provenance.identifiers
+        if identifier.kind is ProvenanceIdentifierKind.SHA256
+    )
+    if len(sha256_identifiers) != 1:
+        raise ValueError(
+            f"{side} segmental-duplication provenance must carry exactly one SHA256 "
+            "identifier"
+        )
+    if sha256_identifiers[0].value != resource.sha256:
+        raise ValueError(
+            f"{side} segmental-duplication provenance must identify the cached bytes"
+        )
+
+
 @dataclass(frozen=True)
 class UCSCAssessmentReport:
     """Scientific candidate/evidence report plus the derived factual result profile."""
@@ -123,6 +157,11 @@ class UCSCAssessmentReport:
     target_role_metadata: CachedTargetAssemblyRoleMetadata | None = None
     target_role_provenance: ProvenanceSource | None = None
     query_context_result: PointQueryContextResult | None = None
+    segmental_duplication_context_result: (
+        UCSCSegmentalDuplicationContextResult | None
+    ) = None
+    source_segmental_duplication_resource: CachedResource | None = None
+    target_segmental_duplication_resource: CachedResource | None = None
     reverse_mapping_results: tuple[CandidateReverseMappingResult, ...] | None = None
     reverse_alignment_provenance: ProvenanceSource | None = None
     reverse_mapping_resource: UCSCAssessmentResource | None = None
@@ -258,6 +297,7 @@ class UCSCAssessmentReport:
 
         self._validate_query_context()
         self._validate_reverse_mapping_context()
+        self._validate_segmental_duplication_context()
         self._validate_filtered_all_chain_comparison()
 
         for resource in self.resources:
@@ -268,6 +308,67 @@ class UCSCAssessmentReport:
                     "consumed UCSC file provenance must derive from the report "
                     "alignment provenance"
                 )
+
+    def _validate_segmental_duplication_context(self) -> None:
+        result = self.segmental_duplication_context_result
+        state = self.result_profile.scope.external_context
+        if result is None:
+            if state is not ExternalContextState.NOT_ASSESSED:
+                raise ValueError(
+                    "missing segmental-duplication context must remain NOT_ASSESSED"
+                )
+            if (
+                self.source_segmental_duplication_resource is not None
+                or self.target_segmental_duplication_resource is not None
+            ):
+                raise ValueError(
+                    "unassessed segmental-duplication context cannot carry resources"
+                )
+            return
+
+        profile_result = self.result_profile.external_context.ucsc_segmental_duplication
+        if profile_result != result:
+            raise ValueError(
+                "result-profile segmental-duplication context must match report context"
+            )
+        if self.result_profile.external_context.state is not state:
+            raise ValueError("external-context profile state is inconsistent")
+
+        if result.source_state is SegmentalDuplicationCheckState.ASSESSED:
+            source_resource = self.source_segmental_duplication_resource
+            if source_resource is None:
+                raise ValueError(
+                    "assessed source segmental-duplication context requires its "
+                    "resource"
+                )
+            _validate_context_resource_provenance(
+                result.source_provenance,
+                source_resource,
+                side="source",
+            )
+        elif self.source_segmental_duplication_resource is not None:
+            raise ValueError(
+                "unavailable source segmental-duplication context cannot carry a "
+                "resource"
+            )
+
+        if result.target_state is SegmentalDuplicationCheckState.ASSESSED:
+            target_resource = self.target_segmental_duplication_resource
+            if target_resource is None:
+                raise ValueError(
+                    "assessed target segmental-duplication context requires its "
+                    "resource"
+                )
+            _validate_context_resource_provenance(
+                result.target_provenance,
+                target_resource,
+                side="target",
+            )
+        elif self.target_segmental_duplication_resource is not None:
+            raise ValueError(
+                "unavailable/no-target segmental-duplication context cannot carry a "
+                "resource"
+            )
 
     def _validate_query_context(self) -> None:
         result = self.query_context_result
@@ -920,6 +1021,52 @@ def attach_reverse_mapping_context(
             chain=reverse_bundle.chain,
         ),
         reverse_alignment_provenance=reverse_alignment_provenance,
+    )
+
+
+def attach_ucsc_segmental_duplication_context(
+    report: UCSCAssessmentReport,
+    *,
+    source_catalog: UCSCSegmentalDuplicationCatalog | None,
+    target_catalog: UCSCSegmentalDuplicationCatalog | None,
+    source_unavailable: bool,
+    target_unavailable: bool,
+    source_resource: CachedResource | None,
+    target_resource: CachedResource | None,
+) -> UCSCAssessmentReport:
+    """Attach typed UCSC segmental-duplication overlap context to one report.
+
+    This operation does not alter candidate generation, factual mapping headline,
+    comparative interpretation, or any mapping evidence. It only adds a separately
+    scoped contextual observation derived from exact source/target intervals.
+    """
+
+    if report.segmental_duplication_context_result is not None:
+        raise ValueError("segmental-duplication context is already attached")
+
+    result = build_ucsc_segmental_duplication_context(
+        report.source_interval,
+        report.candidates,
+        source_catalog=source_catalog,
+        target_catalog=target_catalog,
+        source_unavailable=source_unavailable,
+        target_unavailable=target_unavailable,
+    )
+    external_context = build_external_context_profile(result)
+    profile = replace(
+        report.result_profile,
+        external_context=external_context,
+        scope=replace(
+            report.result_profile.scope,
+            external_context=external_context.state,
+        ),
+    )
+    return replace(
+        report,
+        result_profile=profile,
+        segmental_duplication_context_result=result,
+        source_segmental_duplication_resource=source_resource,
+        target_segmental_duplication_resource=target_resource,
     )
 
 

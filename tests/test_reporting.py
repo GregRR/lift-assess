@@ -4,6 +4,8 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from liftassess import (
     AssemblyIdentifier,
     AssemblySequenceCatalog,
@@ -972,3 +974,205 @@ def test_reporting_preserves_unusual_provider_target_role_and_provenance() -> No
     provenance_ids = {item["source_id"] for item in payload["provenance"]["sources"]}
     assert catalog.role_provenance is not None
     assert catalog.role_provenance.source_id in provenance_ids
+
+
+def test_segmental_duplication_context_is_typed_and_does_not_change_mapping_result() -> (
+    None
+):
+    from liftassess import (
+        ExternalContextState,
+        UCSCSegmentalDuplicationCatalog,
+        UCSCSegmentalDuplicationRecord,
+        attach_ucsc_segmental_duplication_context,
+    )
+    from liftassess.reporting import render_assessment_json
+
+    candidate = _candidate(1)
+    report = _report((candidate,))
+    original_headline = report.result_profile.headline
+    original_interpretation = report.result_profile.interpretation
+
+    source_resource_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/sourceAsm/database/"
+        "genomicSuperDups.txt.gz"
+    )
+    target_resource_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/targetAsm/database/"
+        "genomicSuperDups.txt.gz"
+    )
+    source_resource = CachedResource(
+        path=Path("/tmp/source-genomicSuperDups.txt.gz"),
+        source_url=source_resource_url,
+        retrieved_at="2026-08-28T00:00:00Z",
+        sha256="sha256:" + "1" * 64,
+        size_bytes=100,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(source_resource_url),
+        cache_hit=True,
+    )
+    target_resource = CachedResource(
+        path=Path("/tmp/target-genomicSuperDups.txt.gz"),
+        source_url=target_resource_url,
+        retrieved_at="2026-08-28T00:00:00Z",
+        sha256="sha256:" + "2" * 64,
+        size_bytes=100,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(target_resource_url),
+        cache_hit=True,
+    )
+    source_provenance = ProvenanceSource(
+        source_id=f"file:{source_resource.sha256}",
+        label="source segmental duplications",
+        identifiers=(
+            ProvenanceIdentifier(
+                ProvenanceIdentifierKind.SHA256, source_resource.sha256
+            ),
+        ),
+    )
+    target_provenance = ProvenanceSource(
+        source_id=f"file:{target_resource.sha256}",
+        label="target segmental duplications",
+        identifiers=(
+            ProvenanceIdentifier(
+                ProvenanceIdentifierKind.SHA256, target_resource.sha256
+            ),
+        ),
+    )
+    source_catalog = UCSCSegmentalDuplicationCatalog(
+        assembly=SOURCE_ASSEMBLY,
+        records=(
+            UCSCSegmentalDuplicationRecord(
+                interval=GenomicInterval(SOURCE_ASSEMBLY, "chr1", 90, 150),
+                paired_interval=GenomicInterval(SOURCE_ASSEMBLY, "chr5", 500, 560),
+                strand="+",
+                uid=10,
+                aligned_bases=60,
+                fraction_matching_bases=0.995,
+            ),
+        ),
+        provenance=source_provenance,
+    )
+    target_catalog = UCSCSegmentalDuplicationCatalog(
+        assembly=TARGET_ASSEMBLY,
+        records=(
+            UCSCSegmentalDuplicationRecord(
+                interval=GenomicInterval(TARGET_ASSEMBLY, "chrA", 1050, 1060),
+                paired_interval=GenomicInterval(TARGET_ASSEMBLY, "chrB", 2050, 2060),
+                strand="-",
+                uid=20,
+                aligned_bases=10,
+                fraction_matching_bases=0.999,
+            ),
+        ),
+        provenance=target_provenance,
+    )
+
+    enriched = attach_ucsc_segmental_duplication_context(
+        report,
+        source_catalog=source_catalog,
+        target_catalog=target_catalog,
+        source_unavailable=False,
+        target_unavailable=False,
+        source_resource=source_resource,
+        target_resource=target_resource,
+    )
+
+    assert enriched.result_profile.headline is original_headline
+    assert enriched.result_profile.interpretation == original_interpretation
+    assert (
+        enriched.result_profile.scope.external_context is ExternalContextState.ASSESSED
+    )
+
+    summary = render_assessment_summary(enriched)
+    assert "putative duplication row(s)" in summary
+    assert "biological correctness" in summary
+
+    details = render_assessment_details(enriched)
+    assert "Typed external context: UCSC segmental duplications" in details
+    assert "chr5:501-560 (1-based inclusive)" in details
+    assert "Fraction matching bases: 0.995" in details
+    assert "descriptive context only" in details
+
+    payload = json.loads(render_assessment_json(enriched))
+    context = payload["typed_external_context"]
+    assert context["state"] == "ASSESSED"
+    assert context["ucsc_segmental_duplications"]["source_query_state"] == "ASSESSED"
+    assert (
+        context["ucsc_segmental_duplications"]["target_projection_state"] == "ASSESSED"
+    )
+    assert len(context["ucsc_segmental_duplications"]["source_overlaps"]) == 1
+    assert len(context["ucsc_segmental_duplications"]["target_overlaps"]) == 1
+    assert {item["side"] for item in context["resources"]} == {"SOURCE", "TARGET"}
+    provenance_ids = {item["source_id"] for item in payload["provenance"]["sources"]}
+    assert source_provenance.source_id in provenance_ids
+    assert target_provenance.source_id in provenance_ids
+
+    mismatched_source_resource = replace(
+        source_resource,
+        sha256="sha256:" + "9" * 64,
+    )
+    with pytest.raises(
+        ValueError,
+        match="source segmental-duplication provenance must identify the cached bytes",
+    ):
+        replace(
+            enriched,
+            source_segmental_duplication_resource=mismatched_source_resource,
+        )
+
+
+def test_external_context_summary_counts_distinct_target_rows() -> None:
+    from liftassess import (
+        CandidateSegmentalDuplicationOverlap,
+        ExternalContextProfile,
+        ExternalContextState,
+        SegmentalDuplicationCheckState,
+        UCSCSegmentalDuplicationContextResult,
+        UCSCSegmentalDuplicationRecord,
+    )
+
+    record = UCSCSegmentalDuplicationRecord(
+        interval=GenomicInterval(TARGET_ASSEMBLY, "chrA", 1000, 1100),
+        paired_interval=GenomicInterval(TARGET_ASSEMBLY, "chrB", 2000, 2100),
+        strand="+",
+        uid=7,
+        aligned_bases=100,
+        fraction_matching_bases=0.99,
+    )
+    target_provenance = ProvenanceSource(
+        "target-segmental-duplication",
+        "target segmental-duplication fixture",
+    )
+    result = UCSCSegmentalDuplicationContextResult(
+        source_state=SegmentalDuplicationCheckState.UNAVAILABLE,
+        target_state=SegmentalDuplicationCheckState.ASSESSED,
+        target_overlaps=(
+            CandidateSegmentalDuplicationOverlap(
+                candidate_id="candidate-a",
+                record=record,
+                overlap_intervals=(
+                    GenomicInterval(TARGET_ASSEMBLY, "chrA", 1010, 1020),
+                ),
+            ),
+            CandidateSegmentalDuplicationOverlap(
+                candidate_id="candidate-b",
+                record=record,
+                overlap_intervals=(
+                    GenomicInterval(TARGET_ASSEMBLY, "chrA", 1030, 1040),
+                ),
+            ),
+        ),
+        target_provenance=target_provenance,
+    )
+    profile = ExternalContextProfile(
+        state=ExternalContextState.PARTIALLY_ASSESSED,
+        ucsc_segmental_duplication=result,
+    )
+
+    assert reporting._external_context_summary_lines(profile) == [
+        (
+            "UCSC segmental-duplication context: 2 target projection(s) overlap "
+            "1 distinct putative duplication row(s); one assembly-side track was "
+            "unavailable."
+        )
+    ]

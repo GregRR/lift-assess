@@ -63,6 +63,7 @@ from .orchestration import (
     attach_point_query_context,
     attach_query_context_result,
     attach_reverse_mapping_results,
+    attach_ucsc_segmental_duplication_context,
 )
 from .query_context import (
     DEFAULT_POINT_CONTEXT_BASES,
@@ -98,11 +99,18 @@ from .resources import (
     UCSCResourceDiscoveryError,
     discover_ucsc_assembly_metadata,
     discover_ucsc_resources,
+    discover_ucsc_segmental_duplication_resource,
 )
 from .reverse_mapping import (
     build_reverse_mapping_results_from_cached_chain,
     reverse_mapping_not_run,
     reverse_mapping_unavailable,
+)
+from .segmental_duplication import (
+    UCSCSegmentalDuplicationCatalog,
+    acquire_ucsc_segmental_duplication_resource,
+    build_cached_ucsc_segmental_duplication_catalog,
+    load_cached_ucsc_segmental_duplication_resource,
 )
 
 
@@ -554,6 +562,13 @@ def _run(
         stderr=stderr,
     )
 
+    report = _attach_ucsc_segmental_duplication_context(
+        report,
+        args=args,
+        cache_root=cache_root,
+        stderr=stderr,
+    )
+
     if args.json_output:
         rendered = render_assessment_json(report)
     elif args.details:
@@ -562,6 +577,106 @@ def _run(
         rendered = render_assessment_summary(report)
     print(rendered, file=stdout)
     return 0
+
+
+def _attach_ucsc_segmental_duplication_context(
+    report: UCSCAssessmentReport,
+    *,
+    args: argparse.Namespace,
+    cache_root: Path,
+    stderr: TextIO,
+) -> UCSCAssessmentReport:
+    """Attach optional UCSC segmental-duplication context without ranking mappings."""
+
+    prepared: dict[
+        str,
+        tuple[UCSCSegmentalDuplicationCatalog | None, CachedResource | None, bool],
+    ] = {}
+
+    def prepare(
+        db: str, assembly: AssemblyIdentifier
+    ) -> tuple[UCSCSegmentalDuplicationCatalog | None, CachedResource | None, bool]:
+        existing = prepared.get(db)
+        if existing is not None:
+            return existing
+
+        result: tuple[
+            UCSCSegmentalDuplicationCatalog | None, CachedResource | None, bool
+        ]
+        resource = None
+        if not args.refresh:
+            resource = load_cached_ucsc_segmental_duplication_resource(cache_root, db)
+
+        if resource is None:
+            if args.offline:
+                result = (None, None, True)
+                prepared[db] = result
+                return result
+            try:
+                discovered = discover_ucsc_segmental_duplication_resource(db)
+                if discovered is None:
+                    result = (None, None, True)
+                    prepared[db] = result
+                    return result
+                resource = acquire_ucsc_segmental_duplication_resource(
+                    discovered,
+                    cache_root,
+                    refresh=args.refresh,
+                )
+            except (
+                UCSCResourceAcquisitionError,
+                UCSCResourceDiscoveryError,
+                OSError,
+            ) as exc:
+                _status(
+                    f"UCSC segmental-duplication context unavailable for {db} "
+                    f"({exc}); mapping result is unchanged.",
+                    quiet=args.quiet,
+                    stderr=stderr,
+                    indent=4,
+                )
+                result = (None, None, True)
+                prepared[db] = result
+                return result
+
+        catalog = build_cached_ucsc_segmental_duplication_catalog(assembly, resource)
+        result = (catalog, resource, False)
+        prepared[db] = result
+        return result
+
+    source_catalog, source_resource, source_unavailable = prepare(
+        report.source_db, report.source_interval.assembly
+    )
+
+    if report.candidates:
+        target_catalog, target_resource, target_unavailable = prepare(
+            report.target_db, report.target_assembly
+        )
+    else:
+        target_catalog = None
+        target_resource = None
+        target_unavailable = False
+
+    enriched = attach_ucsc_segmental_duplication_context(
+        report,
+        source_catalog=source_catalog,
+        target_catalog=target_catalog,
+        source_unavailable=source_unavailable,
+        target_unavailable=target_unavailable,
+        source_resource=source_resource,
+        target_resource=target_resource,
+    )
+    context = enriched.segmental_duplication_context_result
+    assert context is not None
+    if context.source_overlaps or context.target_overlaps:
+        _status(
+            "UCSC segmental-duplication context overlaps observed; mapping "
+            "interpretation remains unchanged.",
+            quiet=args.quiet,
+            stderr=stderr,
+            indent=4,
+        )
+    return enriched
 
 
 def _prepare_target_role_context(

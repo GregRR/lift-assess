@@ -90,6 +90,7 @@ class UCSCResourceClass(str, Enum):
     """UCSC publication classes currently produced by the resource resolver."""
 
     ASSEMBLY_METADATA = "ASSEMBLY_METADATA"
+    CONTEXT = "CONTEXT"
     COMPARATIVE = "COMPARATIVE"
     LIFTOVER_CHAIN = "LIFTOVER_CHAIN"
 
@@ -116,10 +117,11 @@ class UCSCResourceTerms:
     ``restricted_liftover_chain`` distinguishes UCSC's dedicated
     ``liftOver/*.over.chain.gz`` files, for which UCSC currently states that
     downloading/using indicates EULA acceptance and that free use is limited to the
-    described non-commercial/nonprofit cases.  Comparative resources are a distinct
+    described non-commercial/nonprofit cases. Comparative resources are a distinct
     publication class and retain their own directory terms URL instead. UCSC database
-    table dumps used for assembly metadata are separately documented as freely usable
-    and therefore do not require an acknowledgement gate before retrieval.
+    table dumps used for assembly metadata and typed contextual tracks are separately
+    documented as freely usable and therefore do not require an acknowledgement gate
+    before retrieval.
     """
 
     resource_class: UCSCResourceClass
@@ -441,6 +443,19 @@ def ucsc_resource_terms(url: str) -> UCSCResourceTerms:
             restricted_liftover_chain=False,
         )
 
+    if (
+        len(segments) == 4
+        and segments[0] == "goldenPath"
+        and segments[2] == "database"
+        and filename == "genomicSuperDups.txt.gz"
+    ):
+        return UCSCResourceTerms(
+            resource_class=UCSCResourceClass.CONTEXT,
+            general_terms_url=_UCSC_LICENSE_URL,
+            directory_terms_url=_directory_url(parts, segments, 2),
+            restricted_liftover_chain=False,
+        )
+
     if "liftOver" in segments[:-1] and filename.endswith(".over.chain.gz"):
         directory_index = segments.index("liftOver")
         return UCSCResourceTerms(
@@ -467,8 +482,8 @@ def ucsc_resource_terms(url: str) -> UCSCResourceTerms:
         )
 
     raise ValueError(
-        "unsupported UCSC resource URL outside assembly-metadata/comparative/liftOver "
-        "paths"
+        "unsupported UCSC resource URL outside assembly-metadata/context/comparative/"
+        "liftOver paths"
     )
 
 
@@ -1393,9 +1408,10 @@ def acquire_ucsc_resource(
     Evidence-resource callers must explicitly acknowledge the applicable UCSC and
     directory-specific terms. For restricted liftOver chains this acknowledgement is
     especially important because UCSC currently states that downloading or using the
-    files indicates EULA acceptance. The assembly ``chromInfo``/``chromAlias`` table
-    dumps are exempt because UCSC's database download directory explicitly states that
-    its files and tables are freely usable for any purpose.
+    files indicates EULA acceptance. The assembly ``chromInfo``/``chromAlias`` and
+    typed-context database table dumps are exempt because UCSC's database download
+    directory explicitly states that its files and tables are freely usable for any
+    purpose.
 
     UCSC ``md5sum.txt`` metadata is verified when the resource's parent directory
     publishes an exact filename entry.  MD5 remains transfer-integrity metadata only;
@@ -1493,7 +1509,14 @@ def _require_terms_acknowledgement(
     *,
     terms_acknowledged: bool,
 ) -> None:
-    if terms.resource_class is UCSCResourceClass.ASSEMBLY_METADATA:
+    if terms.resource_class in {
+        UCSCResourceClass.ASSEMBLY_METADATA,
+        UCSCResourceClass.CONTEXT,
+    }:
+        # CONTEXT currently covers only explicitly classified UCSC database-table
+        # resources whose published directory terms state that all files/tables are
+        # freely usable. A future context resource from another publication location
+        # must receive its own terms classification rather than inherit this exemption.
         return
     if terms_acknowledged:
         return

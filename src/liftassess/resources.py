@@ -64,6 +64,21 @@ class UCSCResourceDiscoveryError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class UCSCSegmentalDuplicationResource:
+    """Verified UCSC ``genomicSuperDups`` table URL for one assembly."""
+
+    db: str
+    url: str
+
+    def __post_init__(self) -> None:
+        _validate_ucsc_db(self.db)
+        if not self.url:
+            raise ValueError(
+                "UCSC segmental-duplication resource URL must not be empty"
+            )
+
+
+@dataclass(frozen=True)
 class UCSCAssemblyMetadataResources:
     """Verified UCSC database-table URLs for one assembly namespace.
 
@@ -140,6 +155,35 @@ class _HrefParser(HTMLParser):
 
 
 ListingReader = Callable[[str], frozenset[str] | None]
+
+
+def discover_ucsc_segmental_duplication_resource(
+    db: str,
+) -> UCSCSegmentalDuplicationResource | None:
+    """Discover the UCSC ``genomicSuperDups`` table for one assembly.
+
+    The exact table dump must be observed in the assembly's database directory. A
+    reachable directory without that table returns ``None``; transport failures remain
+    errors rather than being misreported as provider absence.
+    """
+
+    return _discover_ucsc_segmental_duplication_resource(db, _read_directory_links)
+
+
+def _discover_ucsc_segmental_duplication_resource(
+    db: str,
+    read_listing: ListingReader,
+) -> UCSCSegmentalDuplicationResource | None:
+    _validate_ucsc_db(db)
+    database_base = urljoin(_UCSC_GOLDEN_PATH, f"{db}/database/")
+    links = read_listing(database_base)
+    table_name = "genomicSuperDups.txt.gz"
+    if links is None or not _listing_contains(database_base, links, table_name):
+        return None
+    return UCSCSegmentalDuplicationResource(
+        db=db,
+        url=urljoin(database_base, table_name),
+    )
 
 
 def discover_ucsc_assembly_metadata(
