@@ -8,6 +8,10 @@ Automatic point-context candidates intentionally remain forward-chain-only.
 
 from dataclasses import dataclass
 
+from .assembly_metadata import (
+    SourceIntervalPreflightResult,
+    SourceIntervalPreflightState,
+)
 from .batch import (
     BatchInputRecord,
     BatchRecordAssessment,
@@ -20,6 +24,7 @@ from .models import (
     AssemblyIdentifier,
     EvidenceAvailabilityTier,
     GenomicInterval,
+    ProvenanceIdentifierKind,
     ProvenanceSource,
 )
 from .query_context import (
@@ -61,6 +66,8 @@ class IndexedChainBatchResult:
     point_context_window_bases: int
     point_context_records: tuple[BatchRecordPointContext, ...]
     point_context_relationships: BatchRelationshipResult
+    source_preflights: tuple[SourceIntervalPreflightResult, ...] | None = None
+    source_preflight_resources: tuple[CachedResource, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.source_db or not self.target_db:
@@ -106,6 +113,11 @@ class IndexedChainBatchResult:
             raise ValueError(
                 "batch point-context records must preserve the input record order"
             )
+        _validate_batch_source_preflights(
+            tuple(item.record for item in self.record_assessments),
+            self.source_preflights,
+            self.source_preflight_resources,
+        )
 
 
 def run_indexed_chain_batch(
@@ -118,6 +130,8 @@ def run_indexed_chain_batch(
     comparative_bundle: CachedUCSCResourceBundle | None = None,
     progress_callback: ResourceReadProgressCallback | None = None,
     point_context_window_bases: int = DEFAULT_POINT_CONTEXT_BASES,
+    source_preflights: tuple[SourceIntervalPreflightResult, ...] | None = None,
+    source_preflight_resources: tuple[CachedResource, ...] = (),
 ) -> IndexedChainBatchResult:
     """Project a batch through one prepared chain index and derive relationships.
 
@@ -135,6 +149,11 @@ def run_indexed_chain_batch(
 
     if not records:
         raise ValueError("indexed batch execution requires at least one input record")
+    _validate_batch_source_preflights(
+        records,
+        source_preflights,
+        source_preflight_resources,
+    )
     if chain_index is None:
         raise ValueError("indexed batch execution requires a prepared chain index")
     if comparative_bundle is not None:
@@ -195,6 +214,7 @@ def run_indexed_chain_batch(
         alignment_provenance=alignment_provenance,
         chain_index=chain_index,
         requested_window_bases=point_context_window_bases,
+        source_preflights=source_preflights,
     )
     return IndexedChainBatchResult(
         source_db=chain_context.source_db,
@@ -217,7 +237,70 @@ def run_indexed_chain_batch(
         point_context_window_bases=point_context_window_bases,
         point_context_records=point_context_records,
         point_context_relationships=point_context_relationships,
+        source_preflights=source_preflights,
+        source_preflight_resources=source_preflight_resources,
     )
+
+
+def _validate_batch_source_preflights(
+    records: tuple[BatchInputRecord, ...],
+    source_preflights: tuple[SourceIntervalPreflightResult, ...] | None,
+    source_preflight_resources: tuple[CachedResource, ...],
+) -> None:
+    """Require valid, record-aligned preflight facts when supplied."""
+
+    if source_preflights is None:
+        if source_preflight_resources:
+            raise ValueError(
+                "batch source preflight resources require source preflight facts"
+            )
+        return
+    if len(source_preflights) != len(records):
+        raise ValueError(
+            "batch source preflight result count must match the input record count"
+        )
+
+    expected_sha256: set[str] = set()
+    for record, preflight in zip(records, source_preflights, strict=True):
+        if preflight.source_interval != record.source_interval:
+            raise ValueError(
+                "batch source preflight intervals must preserve input record order"
+            )
+        if preflight.state is not SourceIntervalPreflightState.VALID:
+            raise ValueError(
+                "indexed batch scientific assessment requires valid source preflight"
+            )
+        expected_sha256.update(
+            identifier.value
+            for source in preflight.provenance_sources
+            for identifier in source.identifiers
+            if identifier.kind is ProvenanceIdentifierKind.SHA256
+        )
+
+    actual_sha256 = {resource.sha256 for resource in source_preflight_resources}
+    if actual_sha256 != expected_sha256:
+        raise ValueError(
+            "batch source preflight resources must match authoritative provenance"
+        )
+
+
+def _batch_source_sequence_bound(
+    record: BatchInputRecord,
+    *,
+    position: int,
+    chain_index: ChainIndex,
+    source_preflights: tuple[SourceIntervalPreflightResult, ...] | None,
+) -> int | None:
+    """Return authoritative source bounds when preflight facts are available."""
+
+    if source_preflights is not None:
+        preflight = source_preflights[position]
+        if preflight.source_interval != record.source_interval:
+            raise ValueError(
+                "batch source preflight intervals must preserve input record order"
+            )
+        return preflight.sequence_length
+    return chain_index.source_sequence_query_bound(record.source_interval.sequence_name)
 
 
 def _run_batch_point_context(
@@ -228,6 +311,7 @@ def _run_batch_point_context(
     alignment_provenance: ProvenanceSource,
     chain_index: ChainIndex,
     requested_window_bases: int,
+    source_preflights: tuple[SourceIntervalPreflightResult, ...] | None,
 ) -> tuple[tuple[BatchRecordPointContext, ...], BatchRelationshipResult]:
     """Assess point neighborhoods from the same prepared index in one batch slice."""
 
@@ -242,8 +326,11 @@ def _run_batch_point_context(
             )
             continue
 
-        source_bound = chain_index.source_sequence_query_bound(
-            record.source_interval.sequence_name
+        source_bound = _batch_source_sequence_bound(
+            record,
+            position=position,
+            chain_index=chain_index,
+            source_preflights=source_preflights,
         )
         if source_bound is None:
             contexts[position] = BatchRecordPointContext(
@@ -281,8 +368,11 @@ def _run_batch_point_context(
 
     for position, candidates in zip(runnable_positions, context_candidate_sets):
         record = records[position]
-        source_bound = chain_index.source_sequence_query_bound(
-            record.source_interval.sequence_name
+        source_bound = _batch_source_sequence_bound(
+            record,
+            position=position,
+            chain_index=chain_index,
+            source_preflights=source_preflights,
         )
         if source_bound is None:
             raise ValueError(

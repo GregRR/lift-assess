@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from liftassess import cli
+from liftassess.assembly_metadata_cache import CachedUCSCAssemblyMetadata
 from liftassess.chain_index import ChainIndex, build_chain_index
 from liftassess.models import EvidenceAvailabilityTier
 from liftassess.resource_cache import (
@@ -83,6 +84,39 @@ def _cached_resource(path: Path, url: str) -> CachedResource:
         provider_checksum=None,
         terms=ucsc_resource_terms(url),
         cache_hit=True,
+    )
+
+
+def _source_metadata(tmp_path: Path) -> CachedUCSCAssemblyMetadata:
+    chrom_info_path = tmp_path / "chromInfo.txt.gz"
+    chrom_alias_path = tmp_path / "chromAlias.txt.gz"
+    _write_gzip(
+        chrom_info_path,
+        "chr1\t1000\t/gbdb/hg38/hg38.2bit\n"
+        + "chrValidNoChain\t1000\t/gbdb/hg38/hg38.2bit\n",
+    )
+    _write_gzip(
+        chrom_alias_path,
+        "1\tchr1\tucscToEnsembl\n",
+    )
+    base = "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/"
+    return CachedUCSCAssemblyMetadata(
+        db=SOURCE_DB,
+        chrom_info=_cached_resource(chrom_info_path, f"{base}chromInfo.txt.gz"),
+        chrom_alias=_cached_resource(chrom_alias_path, f"{base}chromAlias.txt.gz"),
+    )
+
+
+@pytest.fixture(autouse=True)
+def _install_source_metadata_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    metadata = _source_metadata(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_assembly_metadata",
+        lambda *args, **kwargs: metadata,
     )
 
 
@@ -331,8 +365,22 @@ def test_bed_batch_cli_emits_indexed_chain_only_json_without_provider_access(
     assert payload["semantics"]["evidence_scope"] == "indexed_chain_only"
     assert payload["evidence"]["assessment_scope"] == "CHAIN_ONLY"
     assert payload["evidence"]["comparative_net_reciprocal_best"] == "NOT_ASSESSED"
-    assert payload["scope"]["authoritative_source_sequence_preflight"] == (
-        "NOT_ASSESSED"
+    assert payload["scope"]["authoritative_source_sequence_preflight"] == "ASSESSED"
+    assert [record["source_preflight"]["state"] for record in payload["records"]] == [
+        "VALID",
+        "VALID",
+        "VALID",
+        "VALID",
+    ]
+    assert len(payload["source_preflight_resources"]) == 1
+    preflight_resource = payload["source_preflight_resources"][0]
+    assert preflight_resource["source_url"].endswith("/chromInfo.txt.gz")
+    assert preflight_resource["terms"]["restricted_liftover_chain"] is False
+    provenance_ids = {item["source_id"] for item in payload["provenance"]["sources"]}
+    assert f"file:{preflight_resource['sha256']}" in provenance_ids
+    assert all(
+        not item.get("source_url", "").endswith("/chromAlias.txt.gz")
+        for item in payload["source_preflight_resources"]
     )
     assert len(payload["records"]) == 4
     assert [len(record["candidates"]) for record in payload["records"]] == [1, 1, 1, 0]
@@ -450,6 +498,130 @@ def test_bed_batch_cli_does_not_claim_unused_comparative_evidence(
     assert f"file:{bundle.reciprocal_best_chain.sha256}" not in provenance_ids
 
 
+def test_bed_batch_cli_requires_cached_source_metadata_before_chain_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_assembly_metadata",
+        lambda *args, **kwargs: None,
+    )
+
+    def forbidden_chain_lookup(*args: object, **kwargs: object) -> None:
+        raise AssertionError(
+            "batch chain lookup must not start before source preflight"
+        )
+
+    monkeypatch.setattr(
+        cli, "_resolve_preferred_cached_batch_chain", forbidden_chain_lookup
+    )
+    args = cli._build_parser().parse_args(
+        [SOURCE_DB, TARGET_DB, "--bed", str(_bed_path(tmp_path))]
+    )
+
+    with pytest.raises(ValueError, match="requires verified cached UCSC chromInfo"):
+        cli._run(
+            args,
+            stdin=StringIO(""),
+            stdout=StringIO(),
+            stderr=StringIO(),
+        )
+
+
+def test_bed_batch_cli_rejects_verified_alias_before_chain_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bed = tmp_path / "alias.bed"
+    bed.write_text("1\t0\t1\talias-row\n", encoding="utf-8")
+
+    def forbidden_chain_lookup(*args: object, **kwargs: object) -> None:
+        raise AssertionError(
+            "batch chain lookup must not start for invalid source input"
+        )
+
+    monkeypatch.setattr(
+        cli, "_resolve_preferred_cached_batch_chain", forbidden_chain_lookup
+    )
+    args = cli._build_parser().parse_args([SOURCE_DB, TARGET_DB, "--bed", str(bed)])
+
+    with pytest.raises(
+        ValueError,
+        match=r"batch record row-1 .*chromAlias verifies 'chr1'.*not attempted",
+    ):
+        cli._run(
+            args,
+            stdin=StringIO(""),
+            stdout=StringIO(),
+            stderr=StringIO(),
+        )
+
+
+def test_bed_batch_cli_rejects_out_of_bounds_row_before_chain_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bed = tmp_path / "bounds.bed"
+    bed.write_text("chr1\t999\t1001\tbounds-row\n", encoding="utf-8")
+
+    def forbidden_chain_lookup(*args: object, **kwargs: object) -> None:
+        raise AssertionError(
+            "batch chain lookup must not start for invalid source input"
+        )
+
+    monkeypatch.setattr(
+        cli, "_resolve_preferred_cached_batch_chain", forbidden_chain_lookup
+    )
+    args = cli._build_parser().parse_args([SOURCE_DB, TARGET_DB, "--bed", str(bed)])
+
+    with pytest.raises(
+        ValueError,
+        match=r"batch record row-1 .*sequence length is 1000.*not attempted",
+    ):
+        cli._run(
+            args,
+            stdin=StringIO(""),
+            stdout=StringIO(),
+            stderr=StringIO(),
+        )
+
+
+def test_bed_batch_cli_valid_no_chain_sequence_uses_authoritative_point_bounds(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_batch_cache(monkeypatch, tmp_path)
+    bed = tmp_path / "valid-no-chain.bed"
+    bed.write_text(
+        "chrValidNoChain\t100\t101\tvalid-no-chain\n",
+        encoding="utf-8",
+    )
+    args = cli._build_parser().parse_args(
+        [SOURCE_DB, TARGET_DB, "--bed", str(bed), "--json"]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(
+        args,
+        stdin=StringIO(""),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert exit_code == 0
+    payload = json.loads(stdout.getvalue())
+    record = payload["records"][0]
+    assert record["source_preflight"]["state"] == "VALID"
+    assert record["source_preflight"]["sequence_length"] == 1000
+    assert record["candidates"] == []
+    context = payload["point_context"]["records"][0]
+    assert context["state"] == "RUN"
+    assert context["tested_source_interval"]["start"] == 50
+    assert context["tested_source_interval"]["end"] == 151
+    assert context["candidates"] == []
+
+
 def test_bed_batch_cli_summary_preserves_bed_coordinate_convention(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -470,6 +642,12 @@ def test_bed_batch_cli_summary_preserves_bed_coordinate_convention(
     assert exit_code == 0
     rendered = stdout.getvalue()
     assert "* BATCH CHAIN PROJECTIONS *" in rendered
+    assert "Source preflight:" in rendered
+    assert (
+        "4/4 records valid against authoritative UCSC assembly-sequence metadata"
+        in rendered
+    )
+    assert "Source metadata SHA-256:" in rendered
     assert "row-1 [first]" in rendered
     assert "chr1:0-10 (0-based half-open)" in rendered
     assert "EXACT_TARGET_COLLISION=1" in rendered

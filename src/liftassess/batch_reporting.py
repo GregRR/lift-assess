@@ -22,6 +22,7 @@ from .reporting import (
     interval_json_payload,
     provenance_source_json_payload,
 )
+from .resource_cache import CachedResource
 
 _BIOLOGICAL_CORRECTNESS_CAVEAT = "This does not establish biological correctness."
 _JSON_SCHEMA_VERSION = 2
@@ -46,24 +47,45 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
         "* BATCH CHAIN PROJECTIONS *",
         "Input records:",
         f"    {record_count}",
-        "Records with indexed candidate(s):",
-        f"    {records_with_projection}",
-        "Records with zero indexed candidates:",
-        f"    {record_count - records_with_projection}",
-        "Candidate projections:",
-        f"    {candidate_count}",
-        "Input target relationships:",
-        (
-            "    none"
-            if not result.relationships.relationships
-            else "    "
-            + ", ".join(
-                f"{kind.value}={relationship_counts[kind]}"
-                for kind in BatchTargetRelationshipKind
-                if relationship_counts[kind]
-            )
-        ),
     ]
+    if result.source_preflights is not None:
+        lines.extend(
+            [
+                "Source preflight:",
+                (
+                    f"    {record_count}/{record_count} records valid against "
+                    "authoritative UCSC assembly-sequence metadata"
+                ),
+            ]
+        )
+        if result.source_preflight_resources:
+            lines.extend(
+                [
+                    "Source metadata SHA-256:",
+                    f"    {result.source_preflight_resources[0].sha256}",
+                ]
+            )
+    lines.extend(
+        [
+            "Records with indexed candidate(s):",
+            f"    {records_with_projection}",
+            "Records with zero indexed candidates:",
+            f"    {record_count - records_with_projection}",
+            "Candidate projections:",
+            f"    {candidate_count}",
+            "Input target relationships:",
+            (
+                "    none"
+                if not result.relationships.relationships
+                else "    "
+                + ", ".join(
+                    f"{kind.value}={relationship_counts[kind]}"
+                    for kind in BatchTargetRelationshipKind
+                    if relationship_counts[kind]
+                )
+            ),
+        ]
+    )
     if point_count:
         lines.extend(
             [
@@ -173,12 +195,13 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
                 "source_interval": interval_json_payload(
                     assessment.record.source_interval
                 ),
+                "source_preflight": _batch_source_preflight_json(result, index),
                 "candidates": [
                     candidate_json_payload(candidate)
                     for candidate in assessment.candidates
                 ],
             }
-            for assessment in result.record_assessments
+            for index, assessment in enumerate(result.record_assessments)
         ],
         "relationships": [
             {
@@ -209,6 +232,10 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
                 for relationship in result.point_context_relationships.relationships
             ],
         },
+        "source_preflight_resources": [
+            _batch_preflight_resource_json(resource)
+            for resource in result.source_preflight_resources
+        ],
         "resource": _batch_chain_resource_json(result, chain_provenance_source_id),
         "comparative_resources": _batch_comparative_resources_json(result),
         "provenance": {
@@ -216,7 +243,9 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
             "sources": _batch_provenance_sources(result, chain_provenance_source_id),
         },
         "scope": {
-            "authoritative_source_sequence_preflight": "NOT_ASSESSED",
+            "authoritative_source_sequence_preflight": (
+                "ASSESSED" if result.source_preflights is not None else "NOT_ASSESSED"
+            ),
             "cross_record_target_relationships": "ASSESSED",
             "reverse_mapping": "NOT_ASSESSED",
             "point_context": _point_context_scope(result),
@@ -410,9 +439,15 @@ def _batch_scope_summary(result: IndexedChainBatchResult) -> str:
             if result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
             else ""
         )
-        + " Authoritative assembly-sequence name/alias preflight, reverse, "
-        "target-role, named-variant, and gene/transcript evidence are not assessed "
-        "in this batch slice."
+        + (
+            " Authoritative source-sequence names and bounds were preflighted for "
+            "all submitted records."
+            if result.source_preflights is not None
+            else " Authoritative assembly-sequence name/alias preflight was not "
+            "assessed."
+        )
+        + " Reverse, target-role, named-variant, and gene/transcript evidence are "
+        "not assessed in this batch slice."
     )
 
 
@@ -512,7 +547,64 @@ def _batch_provenance_sources(
                     "derived_from_source_ids": [result.alignment_provenance.source_id],
                 }
             )
+    if result.source_preflights is not None:
+        seen_source_ids = {str(source["source_id"]) for source in sources}
+        for preflight in result.source_preflights:
+            for source in preflight.provenance_sources:
+                if source.source_id in seen_source_ids:
+                    continue
+                sources.append(provenance_source_json_payload(source))
+                seen_source_ids.add(source.source_id)
     return sources
+
+
+def _batch_source_preflight_json(
+    result: IndexedChainBatchResult,
+    index: int,
+) -> dict[str, object]:
+    if result.source_preflights is None:
+        return {
+            "state": "NOT_ASSESSED",
+            "canonical_sequence_name": None,
+            "sequence_length": None,
+            "provenance_source_ids": [],
+        }
+    preflight = result.source_preflights[index]
+    return {
+        "state": preflight.state.value,
+        "canonical_sequence_name": preflight.canonical_sequence_name,
+        "sequence_length": preflight.sequence_length,
+        "provenance_source_ids": [
+            source.source_id for source in preflight.provenance_sources
+        ],
+    }
+
+
+def _batch_preflight_resource_json(resource: CachedResource) -> dict[str, object]:
+    checksum = resource.provider_checksum
+    return {
+        "source_url": resource.source_url,
+        "cache_path": str(resource.path),
+        "retrieved_at": resource.retrieved_at,
+        "size_bytes": resource.size_bytes,
+        "sha256": resource.sha256,
+        "cache_hit_at_acquisition": resource.cache_hit,
+        "provider_checksum": (
+            {
+                "algorithm": checksum.algorithm.value,
+                "value": checksum.value,
+                "source_url": checksum.source_url,
+            }
+            if checksum is not None
+            else None
+        ),
+        "terms": {
+            "resource_class": resource.terms.resource_class.value,
+            "general_terms_url": resource.terms.general_terms_url,
+            "directory_terms_url": resource.terms.directory_terms_url,
+            "restricted_liftover_chain": resource.terms.restricted_liftover_chain,
+        },
+    }
 
 
 def _format_half_open_interval(interval: GenomicInterval) -> str:

@@ -799,14 +799,14 @@ M22 closure checks completed on 2026-08-28:
 ### Remaining Milestone-18 parallel prerequisite before Milestone 23
 
 Before starting the held-out gate, finish the still-open work that Milestone 18 intentionally allowed to
-proceed in parallel with indexing. The source-side metadata foundation is now implemented for
-single-locus execution: provider-observed UCSC `chromInfo`/optional `chromAlias` tables are
+proceed in parallel with indexing. The source-side metadata foundation is now implemented across
+single-locus and batch execution: provider-observed UCSC `chromInfo`/optional `chromAlias` tables are
 content-addressed and provenance-bearing, canonical source names and authoritative bounds are checked
-before chain assessment, exact aliases produce suggestions rather than silent rewrites, and a valid
-assembly sequence remains valid even when no chain record mentions it. Remaining work is:
+before chain assessment, exact aliases produce suggestions rather than silent rewrites, one cached
+catalog is reused across all submitted batch rows, and a valid assembly sequence remains valid even
+when no chain record mentions it. Remaining work is:
 
-- reuse the authoritative source preflight across batch intake and complete the version-matched target-role
-  context portion of the assembly-metadata capability; and
+- complete the version-matched target-role context portion of the assembly-metadata capability; and
 - implement the initial typed difficult-region/context pilot, beginning with UCSC segmental-duplication
   context only after source semantics, assembly coverage, provenance, and applicable terms are verified.
 

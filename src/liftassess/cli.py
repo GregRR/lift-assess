@@ -32,6 +32,7 @@ from .assembly_metadata_cache import (
     build_cached_ucsc_assembly_sequence_catalog,
     load_cached_ucsc_assembly_metadata,
 )
+from .batch import BatchInputRecord
 from .batch_execution import run_indexed_chain_batch
 from .batch_input import parse_bed_batch, parse_interval_table_batch
 from .batch_reporting import (
@@ -644,6 +645,110 @@ def _resources_for_source_preflight(
     )
 
 
+def _prepare_cached_batch_source_preflight(
+    args: argparse.Namespace,
+    *,
+    records: tuple[BatchInputRecord, ...],
+    source_assembly: AssemblyIdentifier,
+    cache_root: Path,
+    stderr: TextIO,
+) -> tuple[tuple[SourceIntervalPreflightResult, ...], tuple[CachedResource, ...]]:
+    """Preflight every batch row from one cached UCSC assembly catalog."""
+
+    _status(
+        "Checking authoritative UCSC source-sequence metadata for batch input...",
+        quiet=args.quiet,
+        stderr=stderr,
+    )
+    metadata = load_cached_ucsc_assembly_metadata(cache_root, args.source_db)
+    if metadata is None:
+        raise ValueError(
+            "batch assessment requires verified cached UCSC chromInfo assembly "
+            f"metadata for {args.source_db}; batch mode does not download metadata "
+            "implicitly; run assess-liftover for this assembly pair first to "
+            "acquire/verify source metadata"
+        )
+
+    catalog = build_cached_ucsc_assembly_sequence_catalog(source_assembly, metadata)
+    preflights: list[SourceIntervalPreflightResult] = []
+    for record in records:
+        preflight = preflight_source_interval(record.source_interval, catalog)
+        if preflight.state is SourceIntervalPreflightState.VALID:
+            preflights.append(preflight)
+            continue
+        raise ValueError(
+            _batch_source_preflight_error(record, preflight, args.source_db)
+        )
+
+    source_preflights = tuple(preflights)
+    provenance_sha256 = {
+        identifier.value
+        for preflight in source_preflights
+        for source in preflight.provenance_sources
+        for identifier in source.identifiers
+        if identifier.kind is ProvenanceIdentifierKind.SHA256
+    }
+    available_resources = (metadata.chrom_info,) + (
+        (metadata.chrom_alias,) if metadata.chrom_alias is not None else ()
+    )
+    resources = tuple(
+        resource
+        for resource in available_resources
+        if resource.sha256 in provenance_sha256
+    )
+    _status(
+        f"Authoritative source preflight passed for {len(records)} batch record(s).",
+        quiet=args.quiet,
+        stderr=stderr,
+        indent=4,
+    )
+    return source_preflights, resources
+
+
+def _batch_source_preflight_error(
+    record: BatchInputRecord,
+    preflight: SourceIntervalPreflightResult,
+    source_db: str,
+) -> str:
+    """Return a record-specific invalid-input error before batch mapping starts."""
+
+    prefix = (
+        f"batch record {record.record_id} (input line {record.source_line_number}): "
+    )
+    interval = record.source_interval
+    if preflight.state is SourceIntervalPreflightState.INVALID_SOURCE_COORDINATE:
+        assert preflight.sequence_length is not None
+        return (
+            prefix
+            + "source interval exceeds authoritative UCSC sequence bounds: "
+            + (
+                f"{source_db} {interval.sequence_name}:"
+                f"{interval.start + 1}-{interval.end}; "
+            )
+            + f"sequence length is {preflight.sequence_length}; batch mapping was not "
+            "attempted"
+        )
+    if preflight.suggested_sequence_name is not None:
+        alias_source_text = (
+            f" ({', '.join(preflight.alias_sources)})"
+            if preflight.alias_sources
+            else ""
+        )
+        return (
+            prefix
+            + f"source sequence {interval.sequence_name!r} is not the canonical UCSC "
+            + f"name for {source_db}; chromAlias verifies "
+            + f"{preflight.suggested_sequence_name!r}{alias_source_text} as the "
+            "canonical sequence; batch mapping was not attempted"
+        )
+    return (
+        prefix
+        + f"source sequence {interval.sequence_name!r} is not recognized in "
+        + f"authoritative UCSC chromInfo metadata for {source_db}; batch mapping was "
+        "not attempted"
+    )
+
+
 def _run_indexed_batch(
     args: argparse.Namespace,
     *,
@@ -713,6 +818,15 @@ def _run_indexed_batch(
             f"{input_name} record; ordinary interval rows are not widened "
             "automatically"
         )
+    source_preflights, source_preflight_resources = (
+        _prepare_cached_batch_source_preflight(
+            args,
+            records=records,
+            source_assembly=source_assembly,
+            cache_root=cache_root,
+            stderr=stderr,
+        )
+    )
     structural_chain = _resolve_preferred_cached_batch_chain(
         cache_root,
         args.source_db,
@@ -833,6 +947,8 @@ def _run_indexed_batch(
             point_context_window_bases=(
                 args.context_bases or DEFAULT_POINT_CONTEXT_BASES
             ),
+            source_preflights=source_preflights,
+            source_preflight_resources=source_preflight_resources,
         )
     except ChainIndexCorruptionError as exc:
         raise ValueError(

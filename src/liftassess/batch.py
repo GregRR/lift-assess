@@ -78,8 +78,8 @@ class BatchRecordPointContext:
 
     ``context_result`` is ``None`` for non-point records because ordinary intervals are
     never widened automatically.  One-base records always carry an explicit point-
-    context result, including a truthful NOT_RUN result when the indexed chain cannot
-    provide the conservative source-sequence bound needed to define the window.
+    context result, including a truthful NOT_RUN result when no authoritative or
+    conservative source-sequence bound is available to define the window.
     """
 
     record: BatchInputRecord

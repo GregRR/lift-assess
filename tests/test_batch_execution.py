@@ -5,6 +5,13 @@ from unittest.mock import Mock
 import pytest
 
 import liftassess.resource_files as resource_files_module
+from liftassess.assembly_metadata import (
+    AssemblySequenceCatalog,
+    AssemblySequenceMetadata,
+    SourceIntervalPreflightResult,
+    SourceIntervalPreflightState,
+    preflight_source_interval,
+)
 from liftassess.batch import BatchInputRecord, BatchTargetRelationshipKind
 from liftassess.batch_execution import run_indexed_chain_batch
 from liftassess.chain_index import ChainIndex, build_chain_index
@@ -88,6 +95,28 @@ def _record(record_id: str, start: int, end: int) -> BatchInputRecord:
         source_interval=GenomicInterval(SOURCE, "chr1", start, end),
         source_line_number=int(record_id.removeprefix("row-")),
     )
+
+
+def _source_preflight(
+    interval: GenomicInterval,
+    *,
+    sequence_name: str = "chr1",
+    sequence_length: int = 1000,
+) -> SourceIntervalPreflightResult:
+    catalog = AssemblySequenceCatalog(
+        assembly=SOURCE,
+        sequences=(
+            AssemblySequenceMetadata(
+                sequence_name=sequence_name,
+                length=sequence_length,
+            ),
+        ),
+        sequence_provenance=ProvenanceSource(
+            source_id="metadata",
+            label="authoritative assembly metadata",
+        ),
+    )
+    return preflight_source_interval(interval, catalog)
 
 
 def test_indexed_chain_batch_projects_all_rows_and_derives_relationships(
@@ -275,6 +304,64 @@ def test_indexed_chain_batch_reports_point_context_not_run_without_indexed_bound
     assert context.check_state is QueryContextState.NOT_RUN
     assert context.not_run_reason is QueryContextNotRunReason.SOURCE_BOUNDS_UNAVAILABLE
     assert result.point_context_relationships.relationships == ()
+
+
+def test_indexed_chain_batch_uses_authoritative_bound_for_sequence_absent_from_chain(
+    tmp_path: Path,
+) -> None:
+    chain_context, index = _chain_context(tmp_path)
+    record = BatchInputRecord(
+        record_id="row-1",
+        source_interval=GenomicInterval(SOURCE, "chrValidNoChain", 10, 11),
+        source_line_number=1,
+    )
+    preflight = _source_preflight(
+        record.source_interval,
+        sequence_name="chrValidNoChain",
+        sequence_length=1000,
+    )
+    assert preflight.state is SourceIntervalPreflightState.VALID
+
+    result = run_indexed_chain_batch(
+        (record,),
+        chain_context,
+        target_assembly=TARGET,
+        alignment_provenance=ALIGNMENT,
+        chain_index=index,
+        source_preflights=(preflight,),
+    )
+
+    assert result.record_assessments[0].candidates == ()
+    context = result.point_context_records[0].context_result
+    assert context is not None
+    assert context.check_state is QueryContextState.RUN
+    assert context.tested_source_interval == GenomicInterval(
+        SOURCE, "chrValidNoChain", 0, 61
+    )
+    assert context.candidates == ()
+
+
+def test_indexed_chain_batch_rejects_invalid_supplied_preflight_before_mapping(
+    tmp_path: Path,
+) -> None:
+    chain_context, index = _chain_context(tmp_path)
+    record = BatchInputRecord(
+        record_id="row-1",
+        source_interval=GenomicInterval(SOURCE, "chr1", 999, 1001),
+        source_line_number=1,
+    )
+    preflight = _source_preflight(record.source_interval, sequence_length=1000)
+    assert preflight.state is SourceIntervalPreflightState.INVALID_SOURCE_COORDINATE
+
+    with pytest.raises(ValueError, match="requires valid source preflight"):
+        run_indexed_chain_batch(
+            (record,),
+            chain_context,
+            target_assembly=TARGET,
+            alignment_provenance=ALIGNMENT,
+            chain_index=index,
+            source_preflights=(preflight,),
+        )
 
 
 def test_indexed_chain_batch_does_not_widen_non_point_rows(tmp_path: Path) -> None:

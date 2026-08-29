@@ -256,10 +256,11 @@ silently recurses through 1-kb, 10-kb, or other successively wider windows. A cl
 local chain-geometry context and does not establish global sequence uniqueness or biological
 identity.
 
-Until authoritative assembly-sequence metadata is implemented, boundary clipping uses the
-conservative source-sequence query bound recorded in the authenticated chain-index catalog. That value is
-sufficient to avoid an out-of-bounds indexed query but is not promoted to authoritative assembly
-metadata or used for general source-name validation.
+When authoritative source preflight is available, automatic point-context clipping uses the
+assembly-sequence length from the exact UCSC `chromInfo` metadata. The conservative source-sequence
+query bound recorded in the authenticated chain-index catalog remains only a backward-compatible
+indexed-query fallback for lower-level callers that have not supplied preflight facts; it is not
+promoted to authoritative assembly metadata or used for general source-name validation.
 
 ### 4.6 Common-use evidence boundaries
 
@@ -595,14 +596,16 @@ Progressive-disclosure human renderer
   avoids deriving validity from chain membership or from a generic assembly download that may not
   contain the same patch-sequence set as the live Browser database. Metadata artifacts retain exact
   provider provenance; an alias is never invented from a naming pattern and is not silently
-  substituted for submitted input. The single-locus execution path now discovers and caches the
+  substituted for submitted input. The single-locus execution path discovers and caches the
   provider-observed `chromInfo`/optional `chromAlias` table dumps, re-verifies their exact SHA-256
   identities while parsing, and completes this preflight before chain-bundle verification or
-  scientific candidate generation. A valid `chromInfo` sequence with no chain record remains valid
-  input and may truthfully produce no chain projection. Automatic point-context clipping uses the
-  authoritative `chromInfo` length when this preflight is available rather than promoting the chain
-  index's conservative query bound into assembly authority. Batch intake and target-role population
-  remain separate follow-on work.
+  scientific candidate generation. Cache-only batch execution loads that same cached catalog once,
+  preflights every submitted row before chain/index selection, and carries the authoritative
+  preflight facts and metadata provenance into batch reporting. A valid `chromInfo` sequence with no
+  chain record remains valid input and may truthfully produce no chain projection. Automatic
+  point-context clipping uses the authoritative `chromInfo` length when preflight is available rather
+  than promoting the chain index's conservative query bound into assembly authority. Target-role
+  population remains separate follow-on work.
 - **Target-sequence role/context must come from a defined, version-matched metadata source.** The NCBI
   genome sequence report exposes assembly accession, assembly unit, chromosome name, sequence
   length, GenBank/RefSeq accessions, UCSC-style sequence name, and provider role. It is a candidate
@@ -634,10 +637,11 @@ Progressive-disclosure human renderer
   `--refresh` is rejected, no provider acquisition or automatic index build occurs, and an unavailable/
   corrupt index fails before assessment. Default publication-class selection prefers a complete cached
   COMPARATIVE bundle and otherwise the available LIFTOVER-ONLY chain unless `--evidence-tier` requests
-  an exact class. Human and JSON batch output use canonical 0-based, half-open intervals. Until
-  authoritative assembly-sequence metadata/preflight exists, a row with zero indexed candidates is
-  reported only as zero candidates for the submitted sequence label/interval; it must not be rendered
-  as proof that the sequence name is valid or that a valid source interval has no projection.
+  an exact class. Human and JSON batch output use canonical 0-based, half-open intervals. Batch
+  scientific assessment also requires verified cached UCSC source metadata: one catalog is parsed for
+  the batch, every row must pass canonical-name and authoritative-bound preflight before chain/index
+  lookup, and a valid row with zero indexed candidates can therefore be reported as a valid source
+  interval with no chain projection. Batch mode does not acquire missing metadata implicitly.
 - **Portable case packets are constrained by redistribution terms.** A reproducible case manifest
   may record the schema-versioned result, exact resource SHA-256 identities, source URLs,
   retrieval/checksum/terms metadata, and provenance graph. An archive may embed byte-identical
