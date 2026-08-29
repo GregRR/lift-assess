@@ -11,6 +11,12 @@ from .assembly_metadata import (
     parse_ucsc_chrom_info,
     preflight_source_interval,
 )
+from .assembly_metadata_cache import (
+    CachedUCSCAssemblyMetadata,
+    acquire_ucsc_assembly_metadata,
+    build_cached_ucsc_assembly_sequence_catalog,
+    load_cached_ucsc_assembly_metadata,
+)
 from .batch import (
     BatchInputRecord,
     BatchRecordAssessment,
@@ -109,6 +115,7 @@ from .resource_cache import (
     acquire_ucsc_resource_bundle,
     inspect_ucsc_bundle_transfer_plan,
     inspect_ucsc_resource,
+    load_cached_ucsc_resource,
     load_cached_ucsc_resource_bundle,
     plan_ucsc_bundle_acquisition,
     ucsc_resource_terms,
@@ -130,8 +137,10 @@ from .resource_identity import (
     verify_resource_checksum,
 )
 from .resources import (
+    UCSCAssemblyMetadataResources,
     UCSCResourceBundle,
     UCSCResourceDiscoveryError,
+    discover_ucsc_assembly_metadata,
     discover_ucsc_resources,
 )
 from .result_profile import (
@@ -184,6 +193,7 @@ __all__ = [
     "BatchTargetRelationship",
     "BatchTargetRelationshipKind",
     "CachedResource",
+    "CachedUCSCAssemblyMetadata",
     "CachedUCSCChainResource",
     "CachedUCSCResourceBundle",
     "CandidateResultProfile",
@@ -248,6 +258,7 @@ __all__ = [
     "SourceIntervalPreflightResult",
     "SourceIntervalPreflightState",
     "TargetRoleState",
+    "UCSCAssemblyMetadataResources",
     "UCSCAssessmentReport",
     "UCSCAssessmentResource",
     "UCSCBundleAcquisitionItem",
@@ -264,6 +275,7 @@ __all__ = [
     "UCSCResourceTerms",
     "UCSCResourceTermsAcknowledgementRequired",
     "__version__",
+    "acquire_ucsc_assembly_metadata",
     "acquire_ucsc_resource",
     "acquire_ucsc_resource_bundle",
     "assess_ucsc_cached_bundle",
@@ -274,6 +286,7 @@ __all__ = [
     "attach_reverse_mapping_results",
     "build_batch_target_relationships",
     "build_cached_chain_index",
+    "build_cached_ucsc_assembly_sequence_catalog",
     "build_candidate_reverse_mapping_result",
     "build_centered_point_context_interval",
     "build_chain_index",
@@ -288,12 +301,15 @@ __all__ = [
     "build_ucsc_candidates_from_files",
     "chain_index_cache_path",
     "compute_resource_checksum",
+    "discover_ucsc_assembly_metadata",
     "discover_ucsc_resources",
     "inspect_ucsc_bundle_transfer_plan",
     "inspect_ucsc_resource",
     "iter_chain_file",
     "iter_net_file",
     "load_cached_chain_index",
+    "load_cached_ucsc_assembly_metadata",
+    "load_cached_ucsc_resource",
     "load_cached_ucsc_resource_bundle",
     "load_chain_index",
     "parse_bed_batch",

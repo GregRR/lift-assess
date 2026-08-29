@@ -141,6 +141,16 @@ listed unless they materially informed a current design or implementation decisi
     Available from:
     https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/README.txt
 
+28. UCSC Genome Browser Project. canFam3 genome annotation database download directory
+    [Internet]. Santa Cruz (CA): University of California, Santa Cruz;
+    [cited 2026 Aug 28]. Available from:
+    https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/database/
+
+29. UCSC Genome Browser Project. canFam4 genome annotation database download directory
+    [Internet]. Santa Cruz (CA): University of California, Santa Cruz;
+    [cited 2026 Aug 28]. Available from:
+    https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/database/
+
 ### Validation-data note
 
 The real `canFam3` to `canFam4` mechanical fixture consumes five exact UCSC comparative

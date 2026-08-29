@@ -19,11 +19,13 @@ from liftassess import (
     FilteredAllChainCorrespondenceError,
     FilteredAllChainInventoryState,
     GenomicInterval,
+    InputValidityState,
     MappingSegment,
     ProvenanceSource,
     QueryContextFinding,
     QueryContextNotRunReason,
     QueryContextState,
+    SourceIntervalPreflightResult,
     UCSCAssessmentReport,
     UCSCBundleResourceRole,
     assess_ucsc_cached_bundle,
@@ -32,6 +34,9 @@ from liftassess import (
     attach_query_context_result,
     attach_reverse_mapping_results,
     build_cached_chain_index,
+    build_ucsc_assembly_sequence_catalog,
+    preflight_source_interval,
+    provenance_source_for_file,
     reverse_mapping_unavailable,
     sha256_identifier_for_file,
     ucsc_resource_terms,
@@ -151,6 +156,36 @@ def _liftover_bundle(tmp_path: Path, chain_text: str) -> CachedUCSCResourceBundl
         evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
         chain=_cached_resource(chain_path, url),
     )
+
+
+def _source_preflight(
+    tmp_path: Path,
+    source: AssemblyIdentifier,
+    *,
+    sequence_name: str,
+    sequence_length: int,
+    start: int,
+    end: int,
+) -> tuple[GenomicInterval, SourceIntervalPreflightResult, CachedResource]:
+    path = tmp_path / f"{sequence_name}-chromInfo"
+    _write_gzip(
+        path,
+        f"{sequence_name}\t{sequence_length}\t/gbdb/canFam3/canFam3.2bit\n",
+    )
+    url = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/database/chromInfo.txt.gz"
+    resource = _cached_resource(path, url)
+    provenance = provenance_source_for_file(
+        path,
+        label="UCSC canFam3 chromInfo assembly-sequence metadata",
+        derived_from=(),
+    )
+    catalog = build_ucsc_assembly_sequence_catalog(
+        source,
+        (f"{sequence_name}\t{sequence_length}\t/gbdb/canFam3/canFam3.2bit\n",),
+        sequence_provenance=provenance,
+    )
+    interval = GenomicInterval(source, sequence_name, start, end)
+    return interval, preflight_source_interval(interval, catalog), resource
 
 
 def _consumed_roles(report: UCSCAssessmentReport) -> set[UCSCBundleResourceRole]:
@@ -887,6 +922,83 @@ def test_point_context_without_index_is_explicitly_not_run(tmp_path: Path) -> No
     assert context.not_run_reason is QueryContextNotRunReason.INDEX_UNAVAILABLE
     assert enriched.query_context_result is not None
     assert enriched.query_context_result.candidates == ()
+
+
+def test_valid_source_preflight_is_preserved_in_completed_report(
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    interval, preflight, metadata_resource = _source_preflight(
+        tmp_path,
+        source,
+        sequence_name="chr1",
+        sequence_length=1000,
+        start=100,
+        end=120,
+    )
+    bundle = _liftover_bundle(tmp_path, _chain_text(chain_id=17))
+
+    report = assess_ucsc_cached_bundle(
+        interval,
+        bundle,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
+        source_preflight=preflight,
+        source_preflight_resources=(metadata_resource,),
+    )
+
+    assert report.source_preflight == preflight
+    assert report.source_preflight_resources == (metadata_resource,)
+    assert report.result_profile.input_validity is InputValidityState.VALID
+
+
+def test_authoritative_bounds_allow_context_for_valid_sequence_absent_from_chain(
+    tmp_path: Path,
+) -> None:
+    source, target = _assemblies()
+    interval, preflight, metadata_resource = _source_preflight(
+        tmp_path,
+        source,
+        sequence_name="chrNoChain",
+        sequence_length=200,
+        start=100,
+        end=101,
+    )
+    bundle = _liftover_bundle(
+        tmp_path,
+        _chain_text(chain_id=17, start=0, length=200, target_start=500),
+    )
+    index = build_cached_chain_index(tmp_path / "cache", bundle.chain).index
+    report = assess_ucsc_cached_bundle(
+        interval,
+        bundle,
+        target_assembly=target,
+        alignment_provenance=ProvenanceSource("alignment", "shared UCSC alignment"),
+        source_preflight=preflight,
+        source_preflight_resources=(metadata_resource,),
+        chain_index=index,
+    )
+
+    enriched = attach_point_query_context(
+        report,
+        chain_context=CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        chain_index=index,
+    )
+
+    context = enriched.result_profile.query_context
+    assert report.candidates == ()
+    assert context.check_state is QueryContextState.RUN
+    assert context.not_run_reason is None
+    assert context.findings == (QueryContextFinding.NO_PROJECTION_AT_EITHER_SCALE,)
+    assert enriched.query_context_result is not None
+    assert enriched.query_context_result.tested_source_interval == GenomicInterval(
+        source, "chrNoChain", 50, 151
+    )
 
 
 def test_point_context_without_indexed_source_bound_is_explicitly_not_run(

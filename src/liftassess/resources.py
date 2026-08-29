@@ -64,6 +64,26 @@ class UCSCResourceDiscoveryError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class UCSCAssemblyMetadataResources:
+    """Verified UCSC database-table URLs for one assembly namespace.
+
+    ``chromInfo`` is required because it defines the canonical Genome Browser
+    sequence names and bounds. ``chromAlias`` is optional because not every UCSC
+    database is required to publish it; when present, it provides exact verified
+    alias relationships rather than naming-convention guesses.
+    """
+
+    db: str
+    chrom_info_url: str
+    chrom_alias_url: str | None = None
+
+    def __post_init__(self) -> None:
+        _validate_ucsc_db(self.db)
+        if not self.chrom_info_url:
+            raise ValueError("UCSC assembly metadata requires chromInfo URL")
+
+
+@dataclass(frozen=True)
 class UCSCResourceBundle:
     """Verified UCSC URLs for one source-to-target assembly comparison.
 
@@ -120,6 +140,43 @@ class _HrefParser(HTMLParser):
 
 
 ListingReader = Callable[[str], frozenset[str] | None]
+
+
+def discover_ucsc_assembly_metadata(
+    db: str,
+) -> UCSCAssemblyMetadataResources | None:
+    """Discover authoritative UCSC database tables for one assembly namespace.
+
+    ``chromInfo.txt.gz`` must be observed in the database directory listing.
+    ``chromAlias.txt.gz`` is included only when that exact table dump is observed.
+    A reachable database directory without ``chromInfo`` returns ``None`` rather
+    than treating a constructed URL as provider evidence. Transport failures raise
+    ``UCSCResourceDiscoveryError``.
+    """
+
+    return _discover_ucsc_assembly_metadata(db, _read_directory_links)
+
+
+def _discover_ucsc_assembly_metadata(
+    db: str,
+    read_listing: ListingReader,
+) -> UCSCAssemblyMetadataResources | None:
+    _validate_ucsc_db(db)
+    database_base = urljoin(_UCSC_GOLDEN_PATH, f"{db}/database/")
+    links = read_listing(database_base)
+    if links is None or not _listing_contains(database_base, links, "chromInfo.txt.gz"):
+        return None
+
+    chrom_alias_url = (
+        urljoin(database_base, "chromAlias.txt.gz")
+        if _listing_contains(database_base, links, "chromAlias.txt.gz")
+        else None
+    )
+    return UCSCAssemblyMetadataResources(
+        db=db,
+        chrom_info_url=urljoin(database_base, "chromInfo.txt.gz"),
+        chrom_alias_url=chrom_alias_url,
+    )
 
 
 def discover_ucsc_resources(

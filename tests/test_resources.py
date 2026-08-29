@@ -6,8 +6,10 @@ import pytest
 
 from liftassess import EvidenceAvailabilityTier
 from liftassess.resources import (
+    UCSCAssemblyMetadataResources,
     UCSCResourceBundle,
     UCSCResourceDiscoveryError,
+    _discover_ucsc_assembly_metadata,
     _discover_ucsc_resources,
     _ucsc_title_db,
 )
@@ -20,6 +22,38 @@ def _reader(
         return listings.get(url)
 
     return read
+
+
+def test_discovers_ucsc_assembly_metadata_from_observed_database_tables() -> None:
+    database = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/database/"
+
+    result = _discover_ucsc_assembly_metadata(
+        "canFam3",
+        _reader(
+            {
+                database: frozenset(
+                    {"chromInfo.txt.gz", "chromAlias.txt.gz", "README.txt"}
+                )
+            }
+        ),
+    )
+
+    assert result == UCSCAssemblyMetadataResources(
+        db="canFam3",
+        chrom_info_url=f"{database}chromInfo.txt.gz",
+        chrom_alias_url=f"{database}chromAlias.txt.gz",
+    )
+
+
+def test_assembly_metadata_discovery_requires_observed_chrom_info() -> None:
+    database = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/database/"
+
+    result = _discover_ucsc_assembly_metadata(
+        "canFam3",
+        _reader({database: frozenset({"chromAlias.txt.gz"})}),
+    )
+
+    assert result is None
 
 
 def test_discovers_complete_comparative_resource_set() -> None:

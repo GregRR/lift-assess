@@ -595,7 +595,14 @@ Progressive-disclosure human renderer
   avoids deriving validity from chain membership or from a generic assembly download that may not
   contain the same patch-sequence set as the live Browser database. Metadata artifacts retain exact
   provider provenance; an alias is never invented from a naming pattern and is not silently
-  substituted for submitted input.
+  substituted for submitted input. The single-locus execution path now discovers and caches the
+  provider-observed `chromInfo`/optional `chromAlias` table dumps, re-verifies their exact SHA-256
+  identities while parsing, and completes this preflight before chain-bundle verification or
+  scientific candidate generation. A valid `chromInfo` sequence with no chain record remains valid
+  input and may truthfully produce no chain projection. Automatic point-context clipping uses the
+  authoritative `chromInfo` length when this preflight is available rather than promoting the chain
+  index's conservative query bound into assembly authority. Batch intake and target-role population
+  remain separate follow-on work.
 - **Target-sequence role/context must come from a defined, version-matched metadata source.** The NCBI
   genome sequence report exposes assembly accession, assembly unit, chromosome name, sequence
   length, GenBank/RefSeq accessions, UCSC-style sequence name, and provider role. It is a candidate

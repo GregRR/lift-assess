@@ -21,6 +21,17 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
 
+from .assembly_metadata import (
+    SourceIntervalPreflightResult,
+    SourceIntervalPreflightState,
+    preflight_source_interval,
+)
+from .assembly_metadata_cache import (
+    CachedUCSCAssemblyMetadata,
+    acquire_ucsc_assembly_metadata,
+    build_cached_ucsc_assembly_sequence_catalog,
+    load_cached_ucsc_assembly_metadata,
+)
 from .batch_execution import run_indexed_chain_batch
 from .batch_input import parse_bed_batch, parse_interval_table_batch
 from .batch_reporting import (
@@ -30,7 +41,13 @@ from .batch_reporting import (
 from .chain_index import ChainIndex, ChainIndexCorruptionError, load_cached_chain_index
 from .cli_input import parse_ucsc_locus, ucsc_assembly_identifier
 from .comparative_inventory import FilteredAllChainCorrespondenceError
-from .models import AssemblyIdentifier, EvidenceAvailabilityTier, ProvenanceSource
+from .models import (
+    AssemblyIdentifier,
+    EvidenceAvailabilityTier,
+    GenomicInterval,
+    ProvenanceIdentifierKind,
+    ProvenanceSource,
+)
 from .orchestration import (
     UCSCAssessmentReport,
     assess_ucsc_cached_bundle,
@@ -50,6 +67,7 @@ from .reporting import (
     render_assessment_summary,
 )
 from .resource_cache import (
+    CachedResource,
     CachedUCSCChainResource,
     CachedUCSCResourceBundle,
     CacheVerificationProgressCallback,
@@ -68,7 +86,11 @@ from .resource_cache import (
     resolve_cached_ucsc_resource_bundle_metadata,
 )
 from .resource_files import ResourceReadProgressCallback
-from .resources import UCSCResourceDiscoveryError, discover_ucsc_resources
+from .resources import (
+    UCSCResourceDiscoveryError,
+    discover_ucsc_assembly_metadata,
+    discover_ucsc_resources,
+)
 from .reverse_mapping import (
     build_reverse_mapping_results_from_cached_chain,
     reverse_mapping_not_run,
@@ -251,6 +273,14 @@ def _run(
     source_interval = parse_ucsc_locus(args.locus, assembly=source_assembly)
     if args.context_bases is not None and source_interval.length != 1:
         raise ValueError("--context-bases currently requires a 1-bp point query")
+
+    source_preflight, source_preflight_resources = _prepare_source_preflight(
+        args,
+        source_interval=source_interval,
+        source_assembly=source_assembly,
+        cache_root=cache_root,
+        stderr=stderr,
+    )
 
     cached_bundle = None
     chain_index = None
@@ -441,6 +471,8 @@ def _run(
             cached_bundle,
             target_assembly=target_assembly,
             alignment_provenance=alignment_provenance,
+            source_preflight=source_preflight,
+            source_preflight_resources=source_preflight_resources,
             progress_callback=progress_callback,
             chain_index=chain_index,
         )
@@ -464,6 +496,8 @@ def _run(
             cached_bundle,
             target_assembly=target_assembly,
             alignment_provenance=alignment_provenance,
+            source_preflight=source_preflight,
+            source_preflight_resources=source_preflight_resources,
             progress_callback=progress_callback,
             chain_index=None,
         )
@@ -503,6 +537,111 @@ def _run(
         rendered = render_assessment_summary(report)
     print(rendered, file=stdout)
     return 0
+
+
+def _prepare_source_preflight(
+    args: argparse.Namespace,
+    *,
+    source_interval: GenomicInterval,
+    source_assembly: AssemblyIdentifier,
+    cache_root: Path,
+    stderr: TextIO,
+) -> tuple[SourceIntervalPreflightResult, tuple[CachedResource, ...]]:
+    """Load/acquire source assembly metadata and reject invalid input early."""
+
+    metadata: CachedUCSCAssemblyMetadata | None = None
+    if not args.refresh:
+        _status(
+            "Checking authoritative UCSC source-sequence metadata...",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        metadata = load_cached_ucsc_assembly_metadata(
+            cache_root,
+            args.source_db,
+        )
+        if metadata is not None:
+            _status(
+                "Using verified cached UCSC source-sequence metadata; "
+                "provider access was not needed for source preflight.",
+                quiet=args.quiet,
+                stderr=stderr,
+                indent=4,
+            )
+
+    if metadata is None:
+        if args.offline:
+            raise ValueError(
+                "--offline requires verified cached UCSC chromInfo assembly metadata "
+                f"for {args.source_db} before scientific assessment"
+            )
+        _status(
+            "Discovering authoritative UCSC source-sequence metadata...",
+            quiet=args.quiet,
+            stderr=stderr,
+        )
+        discovered = discover_ucsc_assembly_metadata(args.source_db)
+        if discovered is None:
+            raise ValueError(
+                "UCSC database metadata discovery did not find chromInfo.txt.gz for "
+                f"{args.source_db}; scientific assessment was not started"
+            )
+        metadata = acquire_ucsc_assembly_metadata(
+            discovered,
+            cache_root,
+            refresh=args.refresh,
+        )
+
+    catalog = build_cached_ucsc_assembly_sequence_catalog(source_assembly, metadata)
+    preflight = preflight_source_interval(source_interval, catalog)
+    if preflight.state is SourceIntervalPreflightState.VALID:
+        return preflight, _resources_for_source_preflight(metadata, preflight)
+
+    if preflight.state is SourceIntervalPreflightState.INVALID_SOURCE_COORDINATE:
+        assert preflight.sequence_length is not None
+        raise ValueError(
+            "source interval exceeds authoritative UCSC sequence bounds: "
+            f"{args.source_db} {source_interval.sequence_name}:"
+            f"{source_interval.start + 1}-{source_interval.end}; "
+            f"sequence length is {preflight.sequence_length}; mapping was not attempted"
+        )
+
+    if preflight.suggested_sequence_name is not None:
+        alias_source_text = (
+            f" ({', '.join(preflight.alias_sources)})"
+            if preflight.alias_sources
+            else ""
+        )
+        raise ValueError(
+            f"source sequence {source_interval.sequence_name!r} is not the canonical "
+            f"UCSC name for {args.source_db}; chromAlias verifies "
+            f"{preflight.suggested_sequence_name!r}{alias_source_text} as the "
+            "canonical sequence; mapping was not attempted"
+        )
+
+    raise ValueError(
+        f"source sequence {source_interval.sequence_name!r} is not recognized in "
+        f"authoritative UCSC chromInfo metadata for {args.source_db}; "
+        "mapping was not attempted"
+    )
+
+
+def _resources_for_source_preflight(
+    metadata: CachedUCSCAssemblyMetadata,
+    preflight: SourceIntervalPreflightResult,
+) -> tuple[CachedResource, ...]:
+    provenance_sha256 = {
+        identifier.value
+        for source in preflight.provenance_sources
+        for identifier in source.identifiers
+        if identifier.kind is ProvenanceIdentifierKind.SHA256
+    }
+    resources = (metadata.chrom_info,) + (
+        (metadata.chrom_alias,) if metadata.chrom_alias is not None else ()
+    )
+    return tuple(
+        resource for resource in resources if resource.sha256 in provenance_sha256
+    )
 
 
 def _run_indexed_batch(

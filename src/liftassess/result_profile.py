@@ -14,6 +14,10 @@ from ._candidate_geometry import (
     canonical_mapping_segments,
     validate_distinct_candidate_geometries,
 )
+from .assembly_metadata import (
+    SourceIntervalPreflightResult,
+    SourceIntervalPreflightState,
+)
 from .comparative_inventory import (
     FilteredAllChainComparisonResult,
     FilteredAllChainInventoryState,
@@ -48,9 +52,10 @@ from .reverse_mapping import (
 
 
 class InputValidityState(str, Enum):
-    """Preflight state available to the current result profile."""
+    """Authoritative source-input preflight state for completed assessments."""
 
     NOT_ASSESSED = "NOT_ASSESSED"
+    VALID = "VALID"
 
 
 class ProjectionCountState(str, Enum):
@@ -265,6 +270,7 @@ def build_result_profile(
     *,
     evidence_tier: EvidenceAvailabilityTier,
     consumed_resource_roles: tuple[str, ...] = (),
+    source_preflight: SourceIntervalPreflightResult | None = None,
     reverse_mapping_results: tuple[CandidateReverseMappingResult, ...] | None = None,
     query_context_result: PointQueryContextResult | None = None,
     filtered_all_chain_comparison: FilteredAllChainComparisonResult | None = None,
@@ -276,6 +282,19 @@ def build_result_profile(
 
     if source_interval.length <= 0:
         raise ValueError("result profile requires a non-empty source interval")
+
+    input_validity = InputValidityState.NOT_ASSESSED
+    if source_preflight is not None:
+        if source_preflight.source_interval != source_interval:
+            raise ValueError(
+                "source preflight interval must match result-profile input"
+            )
+        if source_preflight.state is not SourceIntervalPreflightState.VALID:
+            raise ValueError(
+                "scientific result profile cannot be built from invalid source "
+                "preflight"
+            )
+        input_validity = InputValidityState.VALID
 
     _validate_candidate_ids(candidates)
     validate_distinct_candidate_geometries(candidates)
@@ -321,7 +340,7 @@ def build_result_profile(
     )
     return ResultProfile(
         source_interval=source_interval,
-        input_validity=InputValidityState.NOT_ASSESSED,
+        input_validity=input_validity,
         projection_count=projection_count,
         source_coverage=coverage_state,
         orientation=_orientation_state(candidates),

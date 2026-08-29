@@ -12,6 +12,10 @@ scientific evidence unless the engine consumed the resource.
 
 from dataclasses import dataclass, replace
 
+from .assembly_metadata import (
+    SourceIntervalPreflightResult,
+    SourceIntervalPreflightState,
+)
 from .chain_index import ChainIndex
 from .comparative_inventory import (
     FilteredAllChainComparisonResult,
@@ -52,6 +56,7 @@ from .resource_files import (
 )
 from .result_profile import (
     ComparativeRelationshipState,
+    InputValidityState,
     ResultProfile,
     build_result_profile,
 )
@@ -110,6 +115,8 @@ class UCSCAssessmentReport:
     target_db: str
     alignment_provenance: ProvenanceSource
     resources: tuple[UCSCAssessmentResource, ...]
+    source_preflight: SourceIntervalPreflightResult | None = None
+    source_preflight_resources: tuple[CachedResource, ...] = ()
     query_context_result: PointQueryContextResult | None = None
     reverse_mapping_results: tuple[CandidateReverseMappingResult, ...] | None = None
     reverse_alignment_provenance: ProvenanceSource | None = None
@@ -144,6 +151,42 @@ class UCSCAssessmentReport:
 
         if self.result_profile.source_interval != self.source_interval:
             raise ValueError("result profile source interval must match the report")
+        if self.source_preflight is None:
+            if (
+                self.result_profile.input_validity
+                is not InputValidityState.NOT_ASSESSED
+            ):
+                raise ValueError(
+                    "result profile cannot claim source preflight without report facts"
+                )
+            if self.source_preflight_resources:
+                raise ValueError(
+                    "source preflight resources require source preflight facts"
+                )
+        else:
+            if self.source_preflight.source_interval != self.source_interval:
+                raise ValueError("source preflight interval must match the report")
+            if self.source_preflight.state is not SourceIntervalPreflightState.VALID:
+                raise ValueError(
+                    "completed scientific assessment requires valid source preflight"
+                )
+            if self.result_profile.input_validity is not InputValidityState.VALID:
+                raise ValueError(
+                    "result profile must expose completed valid source preflight"
+                )
+            expected_preflight_sha256 = {
+                identifier.value
+                for source in self.source_preflight.provenance_sources
+                for identifier in source.identifiers
+                if identifier.kind is ProvenanceIdentifierKind.SHA256
+            }
+            actual_preflight_sha256 = {
+                resource.sha256 for resource in self.source_preflight_resources
+            }
+            if actual_preflight_sha256 != expected_preflight_sha256:
+                raise ValueError(
+                    "source preflight resources must match authoritative provenance"
+                )
         if self.result_profile.evidence_tier is not self.evidence_tier:
             raise ValueError("result profile evidence tier must match the report")
         expected_profile_consumed_roles = tuple(
@@ -429,6 +472,8 @@ def assess_ucsc_cached_bundle(
     *,
     target_assembly: AssemblyIdentifier,
     alignment_provenance: ProvenanceSource,
+    source_preflight: SourceIntervalPreflightResult | None = None,
+    source_preflight_resources: tuple[CachedResource, ...] = (),
     progress_callback: ResourceReadProgressCallback | None = None,
     chain_index: ChainIndex | None = None,
 ) -> UCSCAssessmentReport:
@@ -455,6 +500,7 @@ def assess_ucsc_cached_bundle(
         candidates,
         evidence_tier=bundle.evidence_tier,
         consumed_resource_roles=consumed_resource_roles,
+        source_preflight=source_preflight,
     )
     return UCSCAssessmentReport(
         source_interval=source_interval,
@@ -466,6 +512,8 @@ def assess_ucsc_cached_bundle(
         target_db=bundle.target_db,
         alignment_provenance=alignment_provenance,
         resources=resources,
+        source_preflight=source_preflight,
+        source_preflight_resources=source_preflight_resources,
     )
 
 
@@ -543,6 +591,7 @@ def attach_filtered_all_chain_comparison(
         report.candidates,
         evidence_tier=report.evidence_tier,
         consumed_resource_roles=report.result_profile.consumed_resource_roles,
+        source_preflight=report.source_preflight,
         reverse_mapping_results=report.reverse_mapping_results,
         query_context_result=report.query_context_result,
         filtered_all_chain_comparison=comparison,
@@ -573,6 +622,7 @@ def attach_query_context_result(
         report.candidates,
         evidence_tier=report.evidence_tier,
         consumed_resource_roles=report.result_profile.consumed_resource_roles,
+        source_preflight=report.source_preflight,
         reverse_mapping_results=report.reverse_mapping_results,
         query_context_result=query_context_result,
         filtered_all_chain_comparison=report.filtered_all_chain_comparison,
@@ -623,8 +673,12 @@ def attach_point_query_context(
             ),
         )
 
-    source_sequence_query_bound = chain_index.source_sequence_query_bound(
-        report.source_interval.sequence_name
+    source_sequence_query_bound = (
+        report.source_preflight.sequence_length
+        if report.source_preflight is not None
+        else chain_index.source_sequence_query_bound(
+            report.source_interval.sequence_name
+        )
     )
     if source_sequence_query_bound is None:
         return attach_query_context_result(
@@ -721,6 +775,7 @@ def attach_reverse_mapping_results(
         report.candidates,
         evidence_tier=report.evidence_tier,
         consumed_resource_roles=report.result_profile.consumed_resource_roles,
+        source_preflight=report.source_preflight,
         reverse_mapping_results=reverse_mapping_results,
         query_context_result=report.query_context_result,
         filtered_all_chain_comparison=report.filtered_all_chain_comparison,

@@ -11,6 +11,7 @@ import pytest
 from liftassess import (
     AssemblyIdentifier,
     CachedResource,
+    CachedUCSCAssemblyMetadata,
     CachedUCSCChainResource,
     CachedUCSCResourceBundle,
     ChainIndex,
@@ -22,6 +23,8 @@ from liftassess import (
     QueryContextState,
     ResourceReadProgressCallback,
     ReverseCheckState,
+    SourceIntervalPreflightResult,
+    UCSCAssemblyMetadataResources,
     UCSCAssessmentReport,
     UCSCBundleResourceRole,
     UCSCBundleTransferInspection,
@@ -45,6 +48,81 @@ _CHAIN_URL = (
     "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/"
     "canFam3ToCanFam4.over.chain.gz"
 )
+
+
+def _cached_source_metadata(
+    tmp_path: Path,
+    *,
+    with_alias: bool = False,
+) -> CachedUCSCAssemblyMetadata:
+    path = tmp_path / "source-chromInfo.gz"
+    with gzip.open(path, mode="wt", encoding="utf-8", newline="") as handle:
+        handle.write(
+            "chr1\t10000\t/gbdb/canFam3/canFam3.2bit\n"
+            "chrNoChain\t1000\t/gbdb/canFam3/canFam3.2bit\n"
+        )
+    url = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/database/chromInfo.txt.gz"
+    resource = CachedResource(
+        path=path,
+        source_url=url,
+        retrieved_at="2026-08-28T00:00:00Z",
+        sha256=sha256_identifier_for_file(path).value,
+        size_bytes=path.stat().st_size,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(url),
+        cache_hit=True,
+    )
+    if not with_alias:
+        return CachedUCSCAssemblyMetadata(db=_SOURCE_DB, chrom_info=resource)
+
+    alias_path = tmp_path / "source-chromAlias.gz"
+    with gzip.open(alias_path, mode="wt", encoding="utf-8", newline="") as handle:
+        handle.write("1\tchr1\tassembly\n")
+    alias_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/database/chromAlias.txt.gz"
+    )
+    alias_resource = CachedResource(
+        path=alias_path,
+        source_url=alias_url,
+        retrieved_at="2026-08-28T00:00:00Z",
+        sha256=sha256_identifier_for_file(alias_path).value,
+        size_bytes=alias_path.stat().st_size,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(alias_url),
+        cache_hit=True,
+    )
+    return CachedUCSCAssemblyMetadata(
+        db=_SOURCE_DB,
+        chrom_info=resource,
+        chrom_alias=alias_resource,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _install_cached_source_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    metadata = _cached_source_metadata(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_assembly_metadata",
+        lambda cache_root, db: metadata if db == _SOURCE_DB else None,
+    )
+    discovered = UCSCAssemblyMetadataResources(
+        db=_SOURCE_DB,
+        chrom_info_url=metadata.chrom_info.source_url,
+    )
+    monkeypatch.setattr(
+        cli,
+        "discover_ucsc_assembly_metadata",
+        lambda db: discovered if db == _SOURCE_DB else None,
+    )
+    monkeypatch.setattr(
+        cli,
+        "acquire_ucsc_assembly_metadata",
+        lambda resources, cache_root, **kwargs: metadata,
+    )
 
 
 def _discovered_bundle() -> UCSCResourceBundle:
@@ -207,6 +285,140 @@ def _install_successful_resource_flow(
         "acquire_ucsc_resource_bundle",
         lambda plan, cache_root, **kwargs: cached,
     )
+
+
+def test_invalid_source_name_is_rejected_before_chain_assessment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_resource_bundle_metadata",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("chain resolution must not run before source preflight")
+        ),
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chrMissing:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+        ]
+    )
+
+    with pytest.raises(
+        ValueError, match="not recognized in authoritative UCSC chromInfo"
+    ):
+        cli._run(args, stdin=StringIO(""), stdout=StringIO(), stderr=StringIO())
+
+
+def test_out_of_bounds_source_interval_is_rejected_before_chain_assessment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_resource_bundle_metadata",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("chain resolution must not run before source preflight")
+        ),
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:9999-10001",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+        ]
+    )
+
+    with pytest.raises(ValueError, match="sequence length is 10000"):
+        cli._run(args, stdin=StringIO(""), stdout=StringIO(), stderr=StringIO())
+
+
+def test_verified_alias_is_suggested_without_silent_rewrite(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    metadata = _cached_source_metadata(tmp_path, with_alias=True)
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_assembly_metadata",
+        lambda cache_root, db: metadata,
+    )
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_resource_bundle_metadata",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("chain resolution must not run before source preflight")
+        ),
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+        ]
+    )
+
+    with pytest.raises(ValueError, match="chromAlias verifies 'chr1'.*canonical"):
+        cli._run(args, stdin=StringIO(""), stdout=StringIO(), stderr=StringIO())
+
+
+def test_offline_requires_cached_source_metadata_before_chain_assessment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(cli, "load_cached_ucsc_assembly_metadata", lambda *args: None)
+    monkeypatch.setattr(
+        cli,
+        "resolve_cached_ucsc_resource_bundle_metadata",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("chain resolution must not run before source preflight")
+        ),
+    )
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chr1:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--offline",
+        ]
+    )
+
+    with pytest.raises(ValueError, match="verified cached UCSC chromInfo"):
+        cli._run(args, stdin=StringIO(""), stdout=StringIO(), stderr=StringIO())
+
+
+def test_valid_assembly_sequence_without_chain_projection_is_assessed_normally(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_successful_resource_flow(monkeypatch, tmp_path)
+    args = cli._build_parser().parse_args(
+        [
+            _SOURCE_DB,
+            _TARGET_DB,
+            "chrNoChain:101-120",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--acknowledge-ucsc-terms",
+            "--accept-transfer-plan",
+        ]
+    )
+    stdout = StringIO()
+
+    exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=StringIO())
+
+    assert exit_code == 0
+    assert "* NO CHAIN PROJECTION *" in stdout.getvalue()
 
 
 def test_cli_runs_end_to_end_with_interactive_acknowledgements(
@@ -935,6 +1147,8 @@ def test_comparative_cli_run_shares_pair_provenance_across_consumed_resources(
         *,
         target_assembly: AssemblyIdentifier,
         alignment_provenance: ProvenanceSource,
+        source_preflight: SourceIntervalPreflightResult | None = None,
+        source_preflight_resources: tuple[CachedResource, ...] = (),
         progress_callback: object = None,
         chain_index: object = None,
     ) -> UCSCAssessmentReport:
@@ -945,6 +1159,8 @@ def test_comparative_cli_run_shares_pair_provenance_across_consumed_resources(
             bundle,
             target_assembly=target_assembly,
             alignment_provenance=alignment_provenance,
+            source_preflight=source_preflight,
+            source_preflight_resources=source_preflight_resources,
         )
         reports.append(report)
         return report
@@ -1644,6 +1860,8 @@ def test_run_uses_matching_cached_chain_index_when_present(
         *,
         target_assembly: AssemblyIdentifier,
         alignment_provenance: ProvenanceSource,
+        source_preflight: SourceIntervalPreflightResult | None = None,
+        source_preflight_resources: tuple[CachedResource, ...] = (),
         progress_callback: object = None,
         chain_index: object = None,
     ) -> UCSCAssessmentReport:
@@ -1653,6 +1871,8 @@ def test_run_uses_matching_cached_chain_index_when_present(
             bundle,
             target_assembly=target_assembly,
             alignment_provenance=alignment_provenance,
+            source_preflight=source_preflight,
+            source_preflight_resources=source_preflight_resources,
             chain_index=built.index,
         )
 
@@ -1708,6 +1928,8 @@ def test_run_retries_full_traversal_after_mid_query_index_corruption(
         *,
         target_assembly: AssemblyIdentifier,
         alignment_provenance: ProvenanceSource,
+        source_preflight: SourceIntervalPreflightResult | None = None,
+        source_preflight_resources: tuple[CachedResource, ...] = (),
         progress_callback: object = None,
         chain_index: object = None,
     ) -> UCSCAssessmentReport:
@@ -2078,6 +2300,15 @@ def test_json_flag_emits_machine_readable_cached_assessment(
     assert payload["schema_version"] == 2
     assert payload["source_interval"]["start"] == 100
     assert payload["source_interval"]["end"] == 120
+    assert payload["source_preflight"]["state"] == "VALID"
+    assert payload["source_preflight"]["canonical_sequence_name"] == "chr1"
+    assert payload["source_preflight"]["sequence_length"] == 10000
+    assert len(payload["source_preflight"]["resources"]) == 1
+    assert (
+        payload["source_preflight"]["resources"][0]["terms"]["resource_class"]
+        == "ASSEMBLY_METADATA"
+    )
+    assert payload["result_profile"]["input_validity"] == "VALID"
     assert payload["result_profile"]["headline"] == "ONE_COMPLETE_CHAIN_PROJECTION"
     assert "aggregate_verdict" not in payload["semantics"]
     assert "assessment" not in payload
@@ -2348,6 +2579,8 @@ def test_run_marks_point_context_not_run_after_index_lookup_corruption(
         *,
         target_assembly: AssemblyIdentifier,
         alignment_provenance: ProvenanceSource,
+        source_preflight: SourceIntervalPreflightResult | None = None,
+        source_preflight_resources: tuple[CachedResource, ...] = (),
         progress_callback: ResourceReadProgressCallback | None = None,
         chain_index: ChainIndex | None = None,
     ) -> UCSCAssessmentReport:
@@ -2358,6 +2591,8 @@ def test_run_marks_point_context_not_run_after_index_lookup_corruption(
             bundle,
             target_assembly=target_assembly,
             alignment_provenance=alignment_provenance,
+            source_preflight=source_preflight,
+            source_preflight_resources=source_preflight_resources,
             progress_callback=progress_callback,
             chain_index=chain_index,
         )

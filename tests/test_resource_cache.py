@@ -39,6 +39,7 @@ from liftassess import (
     inspect_ucsc_bundle_transfer_plan,
     inspect_ucsc_resource,
     iter_chain_file,
+    load_cached_ucsc_resource,
     load_cached_ucsc_resource_bundle,
     plan_ucsc_bundle_acquisition,
     provenance_source_for_file,
@@ -137,6 +138,56 @@ def test_liftover_terms_are_distinguished_from_comparative_terms() -> None:
     )
     assert reciprocal.resource_class is UCSCResourceClass.COMPARATIVE
     assert reciprocal.directory_terms_url.endswith("/canFam4/vsCanFam3/")
+
+
+def test_assembly_metadata_terms_use_database_directory_without_ack_gate() -> None:
+    terms = ucsc_resource_terms(
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/database/chromInfo.txt.gz"
+    )
+
+    assert terms.resource_class is UCSCResourceClass.ASSEMBLY_METADATA
+    assert terms.restricted_liftover_chain is False
+    assert terms.directory_terms_url.endswith("/canFam3/database/")
+
+
+def test_assembly_metadata_download_does_not_require_terms_acknowledgement(
+    tmp_path: Path,
+) -> None:
+    url = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/database/chromInfo.txt.gz"
+    checksum_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/database/md5sum.txt"
+    )
+    data = b"compressed chromInfo fixture"
+    calls: list[str] = []
+
+    result = _acquire_ucsc_resource(
+        url,
+        tmp_path,
+        terms_acknowledged=False,
+        open_url=_opener({url: data}, calls=calls),
+        now=_fixed_now,
+    )
+
+    assert result.source_url == url
+    assert result.terms.resource_class is UCSCResourceClass.ASSEMBLY_METADATA
+    assert result.path.read_bytes() == data
+    assert result.provider_checksum is None
+    assert calls == [checksum_url, url]
+
+
+def test_load_cached_ucsc_resource_verifies_exact_metadata_artifact(
+    tmp_path: Path,
+) -> None:
+    url = "https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/database/chromInfo.txt.gz"
+    data = b"cached chromInfo bytes"
+    _publish_cached_index_entry(tmp_path, url, data)
+
+    result = load_cached_ucsc_resource(tmp_path, url)
+
+    assert result is not None
+    assert result.source_url == url
+    assert result.sha256 == f"sha256:{hashlib.sha256(data).hexdigest()}"
+    assert result.path.read_bytes() == data
 
 
 def test_terms_acknowledgement_is_required_before_network_access(

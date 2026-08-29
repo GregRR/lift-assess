@@ -635,13 +635,44 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
         "  Named variant / rsID identity: NOT ASSESSED",
         "  Gene / transcript identity: NOT ASSESSED",
         "  File / downstream workflow: NOT ASSESSED",
-        "",
-        "Candidates",
-        (
-            "Candidate order is preserved for reproducibility and does not indicate "
-            "rank or preference."
-        ),
     ]
+
+    if report.source_preflight is not None:
+        preflight = report.source_preflight
+        lines.extend(
+            (
+                "",
+                "Source preflight",
+                f"  State: {preflight.state.value}",
+                f"  Canonical sequence: {preflight.canonical_sequence_name}",
+                f"  Authoritative sequence length: {preflight.sequence_length}",
+                "  Metadata provenance: "
+                + ", ".join(
+                    source.source_id for source in preflight.provenance_sources
+                ),
+            )
+        )
+        for resource in report.source_preflight_resources:
+            lines.extend(
+                (
+                    f"  Metadata resource: {resource.source_url}",
+                    f"    Cache path: {resource.path}",
+                    f"    Retrieved at: {resource.retrieved_at}",
+                    f"    Size: {resource.size_bytes} bytes",
+                    f"    SHA-256: {resource.sha256}",
+                )
+            )
+
+    lines.extend(
+        (
+            "",
+            "Candidates",
+            (
+                "Candidate order is preserved for reproducibility and does not "
+                "indicate rank or preference."
+            ),
+        )
+    )
 
     if not report.candidates:
         lines.append("  none")
@@ -797,6 +828,7 @@ def render_assessment_json(report: UCSCAssessmentReport) -> str:
         "source_assembly": _assembly_json(report.source_interval.assembly),
         "target_assembly": _assembly_json(report.target_assembly),
         "source_interval": _interval_json(report.source_interval),
+        "source_preflight": _source_preflight_json(report),
         "result_profile": _result_profile_json(report.result_profile),
         "candidates": [_candidate_json(candidate) for candidate in report.candidates],
         "query_context": _query_context_json(report),
@@ -816,6 +848,61 @@ def render_assessment_json(report: UCSCAssessmentReport) -> str:
         "caveat": _BIOLOGICAL_CORRECTNESS_CAVEAT,
     }
     return json.dumps(payload, indent=2, sort_keys=True, allow_nan=False)
+
+
+def _source_preflight_json(report: UCSCAssessmentReport) -> dict[str, object]:
+    preflight = report.source_preflight
+    if preflight is None:
+        return {
+            "state": "NOT_ASSESSED",
+            "canonical_sequence_name": None,
+            "sequence_length": None,
+            "suggested_sequence_name": None,
+            "alias_sources": [],
+            "provenance_source_ids": [],
+            "resources": [],
+        }
+    return {
+        "state": preflight.state.value,
+        "canonical_sequence_name": preflight.canonical_sequence_name,
+        "sequence_length": preflight.sequence_length,
+        "suggested_sequence_name": preflight.suggested_sequence_name,
+        "alias_sources": list(preflight.alias_sources),
+        "provenance_source_ids": [
+            source.source_id for source in preflight.provenance_sources
+        ],
+        "resources": [
+            _preflight_resource_json(resource)
+            for resource in report.source_preflight_resources
+        ],
+    }
+
+
+def _preflight_resource_json(resource: CachedResource) -> dict[str, object]:
+    checksum = resource.provider_checksum
+    return {
+        "source_url": resource.source_url,
+        "cache_path": str(resource.path),
+        "retrieved_at": resource.retrieved_at,
+        "size_bytes": resource.size_bytes,
+        "sha256": resource.sha256,
+        "cache_hit_at_acquisition": resource.cache_hit,
+        "provider_checksum": (
+            {
+                "algorithm": checksum.algorithm.value,
+                "value": checksum.value,
+                "source_url": checksum.source_url,
+            }
+            if checksum is not None
+            else None
+        ),
+        "terms": {
+            "resource_class": resource.terms.resource_class.value,
+            "general_terms_url": resource.terms.general_terms_url,
+            "directory_terms_url": resource.terms.directory_terms_url,
+            "restricted_liftover_chain": resource.terms.restricted_liftover_chain,
+        },
+    }
 
 
 def _result_profile_json(profile: ResultProfile) -> dict[str, object]:
@@ -1637,6 +1724,8 @@ def _report_provenance_sources(
     report: UCSCAssessmentReport,
 ) -> tuple[ProvenanceSource, ...]:
     roots: list[ProvenanceSource] = [report.alignment_provenance]
+    if report.source_preflight is not None:
+        roots.extend(report.source_preflight.provenance_sources)
     for assessment_resource in report.resources:
         if assessment_resource.file_provenance is not None:
             roots.append(assessment_resource.file_provenance)

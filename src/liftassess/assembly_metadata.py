@@ -149,8 +149,16 @@ class SourceIntervalPreflightResult:
     sequence_length: int | None
     suggested_sequence_name: str | None = None
     alias_sources: tuple[str, ...] = ()
+    provenance_sources: tuple[ProvenanceSource, ...] = ()
 
     def __post_init__(self) -> None:
+        if not self.provenance_sources:
+            raise ValueError(
+                "source preflight requires authoritative metadata provenance"
+            )
+        source_ids = tuple(source.source_id for source in self.provenance_sources)
+        if len(set(source_ids)) != len(source_ids):
+            raise ValueError("source preflight provenance sources must be unique")
         if self.sequence_length is not None and self.sequence_length <= 0:
             raise ValueError("preflight sequence length must be positive")
         if self.state is SourceIntervalPreflightState.UNRECOGNIZED_SOURCE_SEQUENCE_NAME:
@@ -197,6 +205,11 @@ def preflight_source_interval(
     if source_interval.length <= 0:
         raise ValueError("source interval preflight requires a non-empty interval")
 
+    canonical_provenance = (catalog.sequence_provenance,)
+    alias_lookup_provenance = canonical_provenance + (
+        (catalog.alias_provenance,) if catalog.alias_provenance is not None else ()
+    )
+
     sequence = catalog.sequence(source_interval.sequence_name)
     if sequence is None:
         alias_match = catalog.alias_match(source_interval.sequence_name)
@@ -206,6 +219,7 @@ def preflight_source_interval(
                 source_interval=source_interval,
                 canonical_sequence_name=None,
                 sequence_length=None,
+                provenance_sources=alias_lookup_provenance,
             )
 
         canonical_name, alias = alias_match
@@ -216,6 +230,7 @@ def preflight_source_interval(
             sequence_length=None,
             suggested_sequence_name=canonical_name,
             alias_sources=alias.sources,
+            provenance_sources=alias_lookup_provenance,
         )
 
     if source_interval.end > sequence.length:
@@ -224,6 +239,7 @@ def preflight_source_interval(
             source_interval=source_interval,
             canonical_sequence_name=sequence.sequence_name,
             sequence_length=sequence.length,
+            provenance_sources=canonical_provenance,
         )
 
     return SourceIntervalPreflightResult(
@@ -231,6 +247,7 @@ def preflight_source_interval(
         source_interval=source_interval,
         canonical_sequence_name=sequence.sequence_name,
         sequence_length=sequence.length,
+        provenance_sources=canonical_provenance,
     )
 
 
