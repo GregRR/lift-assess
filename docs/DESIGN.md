@@ -976,10 +976,11 @@ The post-alpha redesign therefore proceeds in this order:
    assessment, exact collision/overlap relationships, automatic point-context relationships, and shared
    submitted-row COMPARATIVE evidence are implemented. Batch scope boundaries remain explicit where
    single-locus capabilities are not run.
-7. **Complete the remaining parallel context work from step 2.** Authoritative assembly-sequence
-   metadata/preflight, including version-matched target role/context, is implemented. The initial typed
-   difficult-region/context pilot remains the prerequisite to the held-out gate; its deferral did not
-   make it part of the completed batch milestone.
+7. **Complete the remaining parallel context work from step 2 — completed.** Authoritative
+   assembly-sequence metadata/preflight, including version-matched target role/context, is implemented.
+   The initial typed UCSC segmental-duplication pilot completed focused review/remediation and motivating-
+   case A03/A04 real-data exercise without changing mapping interpretation. Those motivating cases are
+   implementation/design evidence, not the held-out validation gate.
 8. **Held-out language/usability gate.** Exercise the implemented redesign on unseen real cases and
    outside users/domain reviewers before describing it as validated/release-ready.
 
@@ -1002,9 +1003,10 @@ implementation/evidence questions or deliberately deferred domains:
   tests. Do not introduce hidden weighting of `ali`, `qDup`, chain score, or related observations.
 - Browser-link UX and optional BED12/export remain optional navigation/visualization work within the
   constraints in §§4, 6, and 9; the required BED/simple-table batch CLI and schema surface is implemented.
-- Pilot UCSC segmental-duplication context against the motivating real cases. Evaluate GIAB
-  stratifications and relevant `excluderanges` categories separately before promoting them into
-  implemented evidence families.
+- The initial UCSC segmental-duplication pilot has been exercised against its motivating A03/A04 real
+  cases. Treat those results as same-corpus implementation/design evidence, not held-out validation.
+  Evaluate GIAB stratifications and relevant `excluderanges` categories separately before promoting them
+  into implemented evidence families.
 - Identify and document at least one concrete CanFam3.1 locus whose later placement in canFam6 is
   independently established, turning the historical-resolution pedigree in §10 into an actual
   truth-bearing fixture.

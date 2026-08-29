@@ -4,7 +4,7 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 [`DESIGN.md`](DESIGN.md) remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, result-model semantics, current scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
 
-## Current status — 2026-08-28
+## Current status — 2026-08-29
 
 liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
 
@@ -12,13 +12,12 @@ The post-alpha redesign is now implemented through Milestone 22. The development
 
 The M22 closure gate contained **506 tests** and passed pytest, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`. Subsequent assembly-metadata/context work has continued to expand the development suite beyond that checkpoint. M22 also has real-data regression coverage against the established B12-B14 COMPARATIVE cases and B15-B18 batch-collision cases. The M22 external review reproduced its checkpoint gate, found no scientific-correctness defect in the reviewed batch core, and its demonstrated reciprocal-best batch-scaling concern was remediated before milestone closure.
 
-One earlier parallel workstream remains open before the held-out Milestone 23 gate: the initial typed difficult-region/context pilot originally scheduled alongside Milestone 18 indexing. The authoritative assembly-sequence metadata/preflight prerequisite is now implemented for source validation and version-matched target-role/context reporting in both single-locus and batch execution. Focused internal review of the initial UCSC segmental-duplication slice found and corrected a cross-module terms-gate defect that otherwise made fresh online context acquisition report itself unavailable; the pilot remains open pending external review and its planned real motivating-case validation. This work does not reopen M22, but Milestone 23 explicitly expects representative typed contextual observations and should not begin until the remaining context pilot is implemented and reviewed.
+The earlier parallel prerequisite before the held-out Milestone 23 gate is now complete. The authoritative assembly-sequence metadata/preflight capability is implemented for source validation and version-matched target-role/context reporting, and the initial typed UCSC segmental-duplication pilot has completed focused internal review, external review/remediation, and its planned motivating-case A03/A04 real-data exercise. The external review found optional-context failure-boundary defects that were remediated and independently re-verified before the real-data runs. This work does not reopen M22; it closes the earlier parallel workstream that Milestone 23 assumes.
 
 The next development sequence is therefore:
 
-1. complete and review the initial typed difficult-region/context pilot;
-2. run Milestone 23's held-out real-case and outside-user/domain language/usability gate; and
-3. if that gate passes, prepare the `v0.2.0a1` release candidate in Milestone 24.
+1. run Milestone 23's held-out real-case and outside-user/domain language/usability gate; and
+2. if that gate passes, prepare the `v0.2.0a1` release candidate in Milestone 24.
 
 ## Implementation history
 
@@ -815,18 +814,32 @@ later GRCh37.p13 sequences and an additional mitochondrial sequence. Online sing
 acquire the small target metadata; offline and batch execution remain cache-only/provider-free for this
 optional context.
 
-The remaining prerequisite is therefore in its implementation/validation phase. The initial UCSC
-segmental-duplication slice now uses the assembly-scoped `genomicSuperDups` table as typed contextual
-observation data, with verified provider semantics/terms, exact source-query overlap, exact mapped-target-
-segment overlap, and content-addressed provenance. It does not alter candidate generation, factual
-headline, comparative interpretation, or any quality/correctness judgment. Missing optional context is
-reported as unavailable rather than inferred from mapping geometry or sequence names.
+The initial UCSC segmental-duplication slice uses the assembly-scoped `genomicSuperDups` table as typed
+contextual observation data, with verified provider semantics/terms, exact source-query overlap, exact
+mapped-target-segment overlap, and content-addressed provenance. It does not alter candidate generation,
+factual headline, comparative interpretation, or any quality/correctness judgment. Missing or unusable
+optional context degrades to `UNAVAILABLE` rather than aborting the primary assessment or being inferred
+from mapping geometry or sequence names.
 
-Before this prerequisite is closed, the implementation still needs real motivating-case validation
-against the established hg19→hg38 duplication/paralogy cases (especially A03/A04), followed by the
-planned focused internal review. This prerequisite does **not** reopen M22; it completes the earlier
-parallel workstream that Milestone 23 already assumes when it asks outside users to exercise typed
-contextual observations.
+The prerequisite closed on 2026-08-29 after focused internal review, external scientific/code review,
+remediation of optional-context failure boundaries, independent follow-up verification, and direct A03/A04
+real-data exercise against SHA-256-identified hg19/hg38 `genomicSuperDups` resources. The motivating-case
+results were intentionally treated as implementation/design checks, not held-out validation:
+
+- **A03 (FAM72/SRGAP2):** the 1-bp projection remained complete, while automatic reverse mapping returned
+  elsewhere and the 101-bp context became partial/fragmented. The source point overlapped two hg19
+  segmental-duplication rows and the projected hg38 point overlapped two hg38 rows; the contextual
+  observations did not change the mapping headline or interpretation.
+- **A04 (documented chr22 problematic liftOver case):** the forward point and 101-bp context remained
+  complete and contiguous, while reverse mapping returned the historical hg19 chr14 locus. The hg19
+  source point overlapped a `genomicSuperDups` row with `fracMatch=0.994191` whose paired chr14 interval
+  contains that reverse locus; the projected hg38 point overlapped a row with `fracMatch=0.992693`. These
+  remain descriptive duplication-context observations, not proof of a causal mechanism or biological
+  correctness.
+
+This closes the earlier parallel prerequisite without changing the Milestone 23 validation boundary. The
+50-case corpus and A03/A04 remain same-corpus/motivating evidence; held-out real cases and outside-user/domain
+feedback are still required before the redesigned language is described as validated or release-ready.
 
 ### 23. Held-out result-language and outside-user gate
 
