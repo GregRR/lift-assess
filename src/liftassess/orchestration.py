@@ -13,9 +13,11 @@ scientific evidence unless the engine consumed the resource.
 from dataclasses import dataclass, replace
 
 from .assembly_metadata import (
+    AssemblySequenceCatalog,
     SourceIntervalPreflightResult,
     SourceIntervalPreflightState,
 )
+from .assembly_metadata_cache import CachedTargetAssemblyRoleMetadata
 from .chain_index import ChainIndex
 from .comparative_inventory import (
     FilteredAllChainComparisonResult,
@@ -58,6 +60,7 @@ from .result_profile import (
     ComparativeRelationshipState,
     InputValidityState,
     ResultProfile,
+    TargetRoleState,
     build_result_profile,
 )
 from .reverse_mapping import (
@@ -117,6 +120,8 @@ class UCSCAssessmentReport:
     resources: tuple[UCSCAssessmentResource, ...]
     source_preflight: SourceIntervalPreflightResult | None = None
     source_preflight_resources: tuple[CachedResource, ...] = ()
+    target_role_metadata: CachedTargetAssemblyRoleMetadata | None = None
+    target_role_provenance: ProvenanceSource | None = None
     query_context_result: PointQueryContextResult | None = None
     reverse_mapping_results: tuple[CandidateReverseMappingResult, ...] | None = None
     reverse_alignment_provenance: ProvenanceSource | None = None
@@ -187,6 +192,47 @@ class UCSCAssessmentReport:
                 raise ValueError(
                     "source preflight resources must match authoritative provenance"
                 )
+        target_role_state = self.result_profile.scope.target_role
+        if target_role_state is TargetRoleState.ASSESSED:
+            if self.target_role_metadata is None:
+                raise ValueError(
+                    "assessed target-role context requires cached target-role metadata"
+                )
+            if self.target_role_metadata.db != self.target_db:
+                raise ValueError(
+                    "target-role metadata must match report target database"
+                )
+            if self.target_role_provenance is None:
+                raise ValueError(
+                    "assessed target-role context requires role provenance"
+                )
+        elif target_role_state in {
+            TargetRoleState.NOT_ASSESSED,
+            TargetRoleState.UNAVAILABLE,
+        }:
+            if (
+                self.target_role_metadata is not None
+                or self.target_role_provenance is not None
+            ):
+                raise ValueError(
+                    "unassessed/unavailable target-role context cannot carry cached "
+                    "target-role metadata"
+                )
+        elif target_role_state is TargetRoleState.NO_TARGET_PROJECTIONS:
+            if (self.target_role_metadata is None) != (
+                self.target_role_provenance is None
+            ):
+                raise ValueError(
+                    "target-role metadata and provenance must be present together"
+                )
+            if (
+                self.target_role_metadata is not None
+                and self.target_role_metadata.db != self.target_db
+            ):
+                raise ValueError(
+                    "target-role metadata must match report target database"
+                )
+
         if self.result_profile.evidence_tier is not self.evidence_tier:
             raise ValueError("result profile evidence tier must match the report")
         expected_profile_consumed_roles = tuple(
@@ -466,6 +512,20 @@ class UCSCAssessmentReport:
             )
 
 
+def _preserve_target_role_profile(
+    profile: ResultProfile,
+    previous: ResultProfile,
+) -> ResultProfile:
+    return replace(
+        profile,
+        target_sequence_roles=previous.target_sequence_roles,
+        scope=replace(
+            profile.scope,
+            target_role=previous.scope.target_role,
+        ),
+    )
+
+
 def assess_ucsc_cached_bundle(
     source_interval: GenomicInterval,
     bundle: CachedUCSCResourceBundle,
@@ -474,6 +534,9 @@ def assess_ucsc_cached_bundle(
     alignment_provenance: ProvenanceSource,
     source_preflight: SourceIntervalPreflightResult | None = None,
     source_preflight_resources: tuple[CachedResource, ...] = (),
+    target_role_catalog: AssemblySequenceCatalog | None = None,
+    target_role_metadata: CachedTargetAssemblyRoleMetadata | None = None,
+    target_role_unavailable: bool = False,
     progress_callback: ResourceReadProgressCallback | None = None,
     chain_index: ChainIndex | None = None,
 ) -> UCSCAssessmentReport:
@@ -501,6 +564,8 @@ def assess_ucsc_cached_bundle(
         evidence_tier=bundle.evidence_tier,
         consumed_resource_roles=consumed_resource_roles,
         source_preflight=source_preflight,
+        target_role_catalog=target_role_catalog,
+        target_role_unavailable=target_role_unavailable,
     )
     return UCSCAssessmentReport(
         source_interval=source_interval,
@@ -514,6 +579,12 @@ def assess_ucsc_cached_bundle(
         resources=resources,
         source_preflight=source_preflight,
         source_preflight_resources=source_preflight_resources,
+        target_role_metadata=target_role_metadata,
+        target_role_provenance=(
+            target_role_catalog.role_provenance
+            if target_role_catalog is not None
+            else None
+        ),
     )
 
 
@@ -597,6 +668,7 @@ def attach_filtered_all_chain_comparison(
         filtered_all_chain_comparison=comparison,
         comparative_evidence_relationship=relationship,
     )
+    profile = _preserve_target_role_profile(profile, report.result_profile)
     return replace(
         report,
         result_profile=profile,
@@ -628,6 +700,7 @@ def attach_query_context_result(
         filtered_all_chain_comparison=report.filtered_all_chain_comparison,
         comparative_evidence_relationship=report.comparative_evidence_relationship,
     )
+    profile = _preserve_target_role_profile(profile, report.result_profile)
     return replace(
         report,
         result_profile=profile,
@@ -781,6 +854,7 @@ def attach_reverse_mapping_results(
         filtered_all_chain_comparison=report.filtered_all_chain_comparison,
         comparative_evidence_relationship=report.comparative_evidence_relationship,
     )
+    profile = _preserve_target_role_profile(profile, report.result_profile)
     return replace(
         report,
         result_profile=profile,

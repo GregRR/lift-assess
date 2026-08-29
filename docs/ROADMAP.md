@@ -10,13 +10,13 @@ liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public a
 
 The post-alpha redesign is now implemented through Milestone 22. The development code uses the facts-first orthogonal result profile and schema-v2 reporting model, scalable exact-resource chain indexing, actual reverse-mapping context, automatic 101-bp point context, paired filtered/all-chain comparative relationships, and indexed batch assessment with both BED and simple interval-table intake. The required M22 batch scope is complete.
 
-The routine automated suite contains **506 tests**. The current native gate passes pytest, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`. M22 also has real-data regression coverage against the established B12-B14 COMPARATIVE cases and B15-B18 batch-collision cases. The M22 external review reproduced its checkpoint gate, found no scientific-correctness defect in the reviewed batch core, and its demonstrated reciprocal-best batch-scaling concern was remediated before milestone closure.
+The M22 closure gate contained **506 tests** and passed pytest, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`. Subsequent assembly-metadata work has expanded the development suite to **561 tests** in the current implementation. M22 also has real-data regression coverage against the established B12-B14 COMPARATIVE cases and B15-B18 batch-collision cases. The M22 external review reproduced its checkpoint gate, found no scientific-correctness defect in the reviewed batch core, and its demonstrated reciprocal-best batch-scaling concern was remediated before milestone closure.
 
-One earlier parallel workstream remains open before the held-out Milestone 23 gate: the authoritative assembly-sequence metadata/preflight capability and the initial typed difficult-region/context pilot originally scheduled alongside Milestone 18 indexing. Those items are not part of M22 and do not reopen it, but Milestone 23 explicitly expects representative typed contextual observations and should not begin until that prerequisite work is implemented and reviewed.
+One earlier parallel workstream remains open before the held-out Milestone 23 gate: the initial typed difficult-region/context pilot originally scheduled alongside Milestone 18 indexing. The authoritative assembly-sequence metadata/preflight prerequisite is now implemented for source validation and version-matched target-role/context reporting in both single-locus and batch execution. This work does not reopen M22, but Milestone 23 explicitly expects representative typed contextual observations and should not begin until the remaining context pilot is implemented and reviewed.
 
 The next development sequence is therefore:
 
-1. close the remaining Milestone-18 parallel metadata/preflight and typed-context work;
+1. complete and review the initial typed difficult-region/context pilot;
 2. run Milestone 23's held-out real-case and outside-user/domain language/usability gate; and
 3. if that gate passes, prepare the `v0.2.0a1` release candidate in Milestone 24.
 
@@ -580,9 +580,9 @@ Integrated point-context behavior:
 For `COMPARATIVE` point assessments, neighborhood context is intentionally forward all-chain-derived
 evidence only; its relationship state is based on projection identity and exact structural geometry.
 Comparative net/reciprocal-best observations remain point-level unless a later indexed
-comparative capability explicitly assesses them at the neighborhood scale. The chain-index catalog's
-conservative source-sequence query bound is used only for safe context clipping, not as a substitute for
-the authoritative assembly metadata/preflight capability still planned separately.
+comparative capability explicitly assesses them at the neighborhood scale. Authoritative source-sequence metadata now supplies assembly bounds for point-context clipping;
+the chain-index catalog's conservative source-sequence query bound remains only an internal safe-read
+bound and is not an assembly-validity authority.
 
 Corpus B provides six matched clean 101-bp controls showing that widening can remain neutral when
 local geometry is uncomplicated; difficult cases show that context can also expose fragmentation or
@@ -798,18 +798,19 @@ M22 closure checks completed on 2026-08-28:
 
 ### Remaining Milestone-18 parallel prerequisite before Milestone 23
 
-Before starting the held-out gate, finish the still-open work that Milestone 18 intentionally allowed to
-proceed in parallel with indexing. The source-side metadata foundation is now implemented across
-single-locus and batch execution: provider-observed UCSC `chromInfo`/optional `chromAlias` tables are
-content-addressed and provenance-bearing, canonical source names and authoritative bounds are checked
-before chain assessment, exact aliases produce suggestions rather than silent rewrites, one cached
-catalog is reused across all submitted batch rows, and a valid assembly sequence remains valid even
-when no chain record mentions it. Remaining work is:
+The authoritative assembly-sequence metadata/preflight capability is now implemented end to end.
+Source-side UCSC `chromInfo`/optional `chromAlias` metadata provide canonical names, authoritative
+bounds, exact alias suggestions, cache/provenance identity, single-locus preflight, and one shared
+batch catalog. Target-side role/context now binds the UCSC Browser database to its exact versioned
+NCBI assembly accession through the UCSC assembly description, caches the matching NCBI sequence
+report by SHA-256, preserves provider-native `role` and `assemblyUnit`, joins only through exact
+UCSC-style names or verified accession aliases, verifies sequence lengths against `chromInfo`, permits
+partial role coverage, and reports explicit `UNAVAILABLE`/`NO_TARGET_PROJECTIONS` states without
+name-based inference. Online single-locus execution may acquire the small target metadata; offline and
+batch execution remain cache-only/provider-free for this optional context.
 
-- complete target-role acquisition/profile wiring. The role-model/parser foundation now binds a UCSC
-  database to an exact versioned NCBI assembly accession, preserves NCBI provider-native `role` plus
-  `assemblyUnit`, joins only through exact UCSC-style names or verified accession aliases, verifies
-  sequence length against `chromInfo`, permits partial coverage, and rejects a zero-match join; and
+The remaining prerequisite is therefore:
+
 - implement the initial typed difficult-region/context pilot, beginning with UCSC segmental-duplication
   context only after source semantics, assembly coverage, provenance, and applicable terms are verified.
 

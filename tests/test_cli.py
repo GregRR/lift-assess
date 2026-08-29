@@ -10,6 +10,7 @@ import pytest
 
 from liftassess import (
     AssemblyIdentifier,
+    AssemblySequenceCatalog,
     CachedResource,
     CachedUCSCAssemblyMetadata,
     CachedUCSCChainResource,
@@ -40,6 +41,7 @@ from liftassess import (
     sha256_identifier_for_file,
     ucsc_resource_terms,
 )
+from liftassess.assembly_metadata_cache import CachedTargetAssemblyRoleMetadata
 from liftassess.resource_cache import _write_url_index
 
 _SOURCE_DB = "canFam3"
@@ -1149,6 +1151,9 @@ def test_comparative_cli_run_shares_pair_provenance_across_consumed_resources(
         alignment_provenance: ProvenanceSource,
         source_preflight: SourceIntervalPreflightResult | None = None,
         source_preflight_resources: tuple[CachedResource, ...] = (),
+        target_role_catalog: AssemblySequenceCatalog | None = None,
+        target_role_metadata: CachedTargetAssemblyRoleMetadata | None = None,
+        target_role_unavailable: bool = False,
         progress_callback: object = None,
         chain_index: object = None,
     ) -> UCSCAssessmentReport:
@@ -1862,6 +1867,9 @@ def test_run_uses_matching_cached_chain_index_when_present(
         alignment_provenance: ProvenanceSource,
         source_preflight: SourceIntervalPreflightResult | None = None,
         source_preflight_resources: tuple[CachedResource, ...] = (),
+        target_role_catalog: AssemblySequenceCatalog | None = None,
+        target_role_metadata: CachedTargetAssemblyRoleMetadata | None = None,
+        target_role_unavailable: bool = False,
         progress_callback: object = None,
         chain_index: object = None,
     ) -> UCSCAssessmentReport:
@@ -1930,6 +1938,9 @@ def test_run_retries_full_traversal_after_mid_query_index_corruption(
         alignment_provenance: ProvenanceSource,
         source_preflight: SourceIntervalPreflightResult | None = None,
         source_preflight_resources: tuple[CachedResource, ...] = (),
+        target_role_catalog: AssemblySequenceCatalog | None = None,
+        target_role_metadata: CachedTargetAssemblyRoleMetadata | None = None,
+        target_role_unavailable: bool = False,
         progress_callback: object = None,
         chain_index: object = None,
     ) -> UCSCAssessmentReport:
@@ -2581,6 +2592,9 @@ def test_run_marks_point_context_not_run_after_index_lookup_corruption(
         alignment_provenance: ProvenanceSource,
         source_preflight: SourceIntervalPreflightResult | None = None,
         source_preflight_resources: tuple[CachedResource, ...] = (),
+        target_role_catalog: AssemblySequenceCatalog | None = None,
+        target_role_metadata: CachedTargetAssemblyRoleMetadata | None = None,
+        target_role_unavailable: bool = False,
         progress_callback: ResourceReadProgressCallback | None = None,
         chain_index: ChainIndex | None = None,
     ) -> UCSCAssessmentReport:

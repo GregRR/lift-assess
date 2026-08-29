@@ -2,6 +2,7 @@
 
 import json
 
+from .assembly_metadata_cache import CachedAssemblyRoleArtifact
 from .batch import (
     BatchRecordPointContext,
     BatchTargetRelationship,
@@ -23,6 +24,7 @@ from .reporting import (
     provenance_source_json_payload,
 )
 from .resource_cache import CachedResource
+from .result_profile import TargetRoleState, TargetSequenceRoleProfile
 
 _BIOLOGICAL_CORRECTNESS_CAVEAT = "This does not establish biological correctness."
 _JSON_SCHEMA_VERSION = 2
@@ -99,6 +101,7 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
                 _render_context_relationship_counts(result),
             ]
         )
+    lines.extend(_batch_target_role_summary_lines(result))
     lines.extend(
         [
             "Evidence:",
@@ -236,6 +239,14 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
             _batch_preflight_resource_json(resource)
             for resource in result.source_preflight_resources
         ],
+        "target_role": {
+            "state": result.target_role_state.value,
+            "sequences": [
+                _batch_target_sequence_role_json(item)
+                for item in result.target_sequence_roles
+            ],
+        },
+        "target_role_metadata": _batch_target_role_metadata_json(result),
         "resource": _batch_chain_resource_json(result, chain_provenance_source_id),
         "comparative_resources": _batch_comparative_resources_json(result),
         "provenance": {
@@ -252,7 +263,7 @@ def render_indexed_chain_batch_json(result: IndexedChainBatchResult) -> str:
             "point_context_comparative_evidence": "NOT_ASSESSED",
             "filtered_all_chain_comparison": "NOT_ASSESSED",
             "comparative_relationship_interpretation": "NOT_ASSESSED",
-            "target_role": "NOT_ASSESSED",
+            "target_role": result.target_role_state.value,
             "named_variant_identity": "NOT_ASSESSED",
             "gene_transcript_identity": "NOT_ASSESSED",
         },
@@ -446,9 +457,123 @@ def _batch_scope_summary(result: IndexedChainBatchResult) -> str:
             else " Authoritative assembly-sequence name/alias preflight was not "
             "assessed."
         )
-        + " Reverse, target-role, named-variant, and gene/transcript evidence are "
-        "not assessed in this batch slice."
+        + _batch_target_role_scope_text(result)
+        + " Reverse, named-variant, and gene/transcript evidence are not assessed "
+        "in this batch slice."
     )
+
+
+def _batch_target_role_summary_lines(
+    result: IndexedChainBatchResult,
+) -> list[str]:
+    if result.target_role_state is TargetRoleState.UNAVAILABLE:
+        return [
+            "Target role/context:",
+            "    unavailable; no role inferred from sequence naming",
+        ]
+    if result.target_role_state is not TargetRoleState.ASSESSED:
+        return []
+
+    unusual = [
+        item
+        for item in result.target_sequence_roles
+        if item.context is None
+        or item.context.provider_role != "assembled-molecule"
+        or item.context.assembly_unit != "Primary Assembly"
+    ]
+    if not unusual:
+        return []
+
+    lines = ["Target role/context:"]
+    for item in unusual[:_DEFAULT_INLINE_PROJECTION_LIMIT]:
+        if item.context is None:
+            lines.append(
+                f"    {item.sequence_name}: no version-matched NCBI sequence-role row"
+            )
+        else:
+            lines.append(
+                f"    {item.sequence_name}: role={item.context.provider_role}; "
+                f"assembly unit={item.context.assembly_unit}"
+            )
+    omitted = len(unusual) - _DEFAULT_INLINE_PROJECTION_LIMIT
+    if omitted > 0:
+        lines.append(f"    ... {omitted} more target sequence(s)")
+    return lines
+
+
+def _batch_target_role_scope_text(result: IndexedChainBatchResult) -> str:
+    if result.target_role_state is TargetRoleState.ASSESSED:
+        return (
+            " Version-matched target sequence role/context was assessed from "
+            "authoritative metadata; provider role and assembly unit remain "
+            "descriptive facts, not mapping-quality evidence."
+        )
+    if result.target_role_state is TargetRoleState.UNAVAILABLE:
+        return (
+            " Version-matched target sequence role/context was unavailable; no role "
+            "was inferred from target sequence naming."
+        )
+    if result.target_role_state is TargetRoleState.NO_TARGET_PROJECTIONS:
+        return (
+            " Target role/context is not applicable because no target projection "
+            "exists."
+        )
+    return " Target role/context was not assessed."
+
+
+def _batch_target_sequence_role_json(
+    item: TargetSequenceRoleProfile,
+) -> dict[str, object]:
+    context = item.context
+    return {
+        "sequence_name": item.sequence_name,
+        "provenance_source_id": item.provenance_source_id,
+        "context": (
+            {
+                "assembly_accession": context.assembly_accession,
+                "assembly_unit": context.assembly_unit,
+                "provider_role": context.provider_role,
+                "length": context.length,
+                "sequence_name": context.sequence_name,
+                "chromosome_name": context.chromosome_name,
+                "ucsc_style_name": context.ucsc_style_name,
+                "genbank_accession": context.genbank_accession,
+                "refseq_accession": context.refseq_accession,
+            }
+            if context is not None
+            else None
+        ),
+    }
+
+
+def _batch_target_role_metadata_json(
+    result: IndexedChainBatchResult,
+) -> dict[str, object] | None:
+    metadata = result.target_role_metadata
+    if metadata is None:
+        return None
+    return {
+        "ucsc_database": metadata.db,
+        "assembly_accession": metadata.assembly_accession,
+        "assembly_description": _batch_role_artifact_json(
+            metadata.assembly_description
+        ),
+        "sequence_report": _batch_role_artifact_json(metadata.sequence_report),
+    }
+
+
+def _batch_role_artifact_json(
+    artifact: CachedAssemblyRoleArtifact,
+) -> dict[str, object]:
+    return {
+        "source_url": artifact.source_url,
+        "cache_path": str(artifact.path),
+        "retrieved_at": artifact.retrieved_at,
+        "size_bytes": artifact.size_bytes,
+        "sha256": artifact.sha256,
+        "cache_hit_at_acquisition": artifact.cache_hit,
+        "archive_member": artifact.archive_member,
+    }
 
 
 def _batch_evidence_summary(result: IndexedChainBatchResult) -> str:
@@ -555,6 +680,16 @@ def _batch_provenance_sources(
                     continue
                 sources.append(provenance_source_json_payload(source))
                 seen_source_ids.add(source.source_id)
+    if result.target_role_provenance is not None:
+        seen_source_ids = {str(source["source_id"]) for source in sources}
+        pending = [result.target_role_provenance]
+        while pending:
+            source = pending.pop(0)
+            if source.source_id in seen_source_ids:
+                continue
+            sources.append(provenance_source_json_payload(source))
+            seen_source_ids.add(source.source_id)
+            pending.extend(source.derived_from)
     return sources
 
 

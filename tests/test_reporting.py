@@ -6,7 +6,12 @@ from pathlib import Path
 
 from liftassess import (
     AssemblyIdentifier,
+    AssemblySequenceCatalog,
+    AssemblySequenceMetadata,
+    AssemblySequenceRoleContext,
+    CachedAssemblyRoleArtifact,
     CachedResource,
+    CachedTargetAssemblyRoleMetadata,
     ChainGap,
     ChainGapSummary,
     ComparativeEvidenceRelationship,
@@ -29,6 +34,7 @@ from liftassess import (
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
     ResourceChecksumAlgorithm,
+    TargetRoleState,
     UCSCAssessmentReport,
     UCSCAssessmentResource,
     UCSCBundleResourceRole,
@@ -853,3 +859,116 @@ def test_provider_checksum_text_and_resource_json_preserve_transfer_metadata() -
         "source_url": checksum_url,
         "value": "c" * 32,
     }
+
+
+def _target_role_catalog_for_reporting(
+    *, provider_role: str
+) -> AssemblySequenceCatalog:
+    role_provenance = ProvenanceSource(
+        "target-role-report", "version-matched NCBI sequence report"
+    )
+    return AssemblySequenceCatalog(
+        assembly=TARGET_ASSEMBLY,
+        sequences=(
+            AssemblySequenceMetadata(
+                sequence_name="chrA",
+                length=10_000,
+                role_context=AssemblySequenceRoleContext(
+                    assembly_accession="GCA_000000001.1",
+                    assembly_unit="Primary Assembly",
+                    provider_role=provider_role,
+                    length=10_000,
+                    ucsc_style_name="chrA",
+                ),
+            ),
+        ),
+        sequence_provenance=ProvenanceSource(
+            "target-chrom-info", "target chromInfo metadata"
+        ),
+        role_provenance=role_provenance,
+    )
+
+
+def _target_role_metadata_for_reporting() -> CachedTargetAssemblyRoleMetadata:
+    accession = "GCA_000000001.1"
+    description = CachedAssemblyRoleArtifact(
+        path=Path("/cache/description.html"),
+        source_url=(
+            "https://hgdownload.soe.ucsc.edu/gbdb/targetAsm/html/description.html"
+        ),
+        retrieved_at="2026-08-28T00:00:00Z",
+        sha256="sha256:" + "1" * 64,
+        size_bytes=100,
+        cache_hit=True,
+    )
+    sequence_report = CachedAssemblyRoleArtifact(
+        path=Path("/cache/sequence_report.jsonl"),
+        source_url=(
+            "https://api.ncbi.nlm.nih.gov/datasets/v2/genome/accession/"
+            f"{accession}/download?include_annotation_type=SEQUENCE_REPORT&"
+            "hydrated=FULLY_HYDRATED"
+        ),
+        retrieved_at="2026-08-28T00:00:00Z",
+        sha256="sha256:" + "2" * 64,
+        size_bytes=200,
+        cache_hit=True,
+        archive_member=f"ncbi_dataset/data/{accession}/sequence_report.jsonl",
+    )
+    return CachedTargetAssemblyRoleMetadata(
+        db="targetAsm",
+        assembly_accession=accession,
+        assembly_description=description,
+        sequence_report=sequence_report,
+    )
+
+
+def test_reporting_marks_unavailable_target_role_without_name_inference() -> None:
+    report = _report((_candidate(1),))
+    profile = build_result_profile(
+        SOURCE,
+        report.candidates,
+        evidence_tier=report.evidence_tier,
+        consumed_resource_roles=report.result_profile.consumed_resource_roles,
+        target_role_unavailable=True,
+    )
+    report = replace(report, result_profile=profile)
+
+    summary = render_assessment_summary(report)
+    payload = json.loads(reporting.render_assessment_json(report))
+
+    assert "unavailable; no role was inferred from sequence naming" in summary
+    assert payload["result_profile"]["target_role"]["state"] == "UNAVAILABLE"
+    assert payload["target_role_metadata"]["assembly_accession"] is None
+    assert payload["target_role_metadata"]["resources"] == []
+
+
+def test_reporting_preserves_unusual_provider_target_role_and_provenance() -> None:
+    report = _report((_candidate(1),))
+    catalog = _target_role_catalog_for_reporting(provider_role="unplaced-scaffold")
+    metadata = _target_role_metadata_for_reporting()
+    profile = build_result_profile(
+        SOURCE,
+        report.candidates,
+        evidence_tier=report.evidence_tier,
+        consumed_resource_roles=report.result_profile.consumed_resource_roles,
+        target_role_catalog=catalog,
+    )
+    report = replace(
+        report,
+        result_profile=profile,
+        target_role_metadata=metadata,
+        target_role_provenance=catalog.role_provenance,
+    )
+
+    summary = render_assessment_summary(report)
+    payload = json.loads(reporting.render_assessment_json(report))
+
+    assert "role=unplaced-scaffold" in summary
+    assert profile.scope.target_role is TargetRoleState.ASSESSED
+    role = payload["result_profile"]["target_role"]["sequences"][0]
+    assert role["provider_role"] == "unplaced-scaffold"
+    assert role["assembly_unit"] == "Primary Assembly"
+    assert payload["target_role_metadata"]["assembly_accession"] == "GCA_000000001.1"
+    provenance_ids = {item["source_id"] for item in payload["provenance"]["sources"]}
+    assert catalog.role_provenance is not None
+    assert catalog.role_provenance.source_id in provenance_ids

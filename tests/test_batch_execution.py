@@ -1,4 +1,5 @@
 import gzip
+import json
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -8,12 +9,18 @@ import liftassess.resource_files as resource_files_module
 from liftassess.assembly_metadata import (
     AssemblySequenceCatalog,
     AssemblySequenceMetadata,
+    AssemblySequenceRoleContext,
     SourceIntervalPreflightResult,
     SourceIntervalPreflightState,
     preflight_source_interval,
 )
+from liftassess.assembly_metadata_cache import (
+    CachedAssemblyRoleArtifact,
+    CachedTargetAssemblyRoleMetadata,
+)
 from liftassess.batch import BatchInputRecord, BatchTargetRelationshipKind
 from liftassess.batch_execution import run_indexed_chain_batch
+from liftassess.batch_reporting import render_indexed_chain_batch_json
 from liftassess.chain_index import ChainIndex, build_chain_index
 from liftassess.models import (
     AssemblyIdentifier,
@@ -32,6 +39,7 @@ from liftassess.resource_cache import (
     ucsc_resource_terms,
 )
 from liftassess.resource_identity import sha256_identifier_for_file
+from liftassess.result_profile import TargetRoleState
 
 SOURCE = AssemblyIdentifier(name="hg38", provider="UCSC")
 TARGET = AssemblyIdentifier(name="hg19", provider="UCSC")
@@ -595,3 +603,121 @@ def test_indexed_comparative_batch_keeps_point_context_chain_only(
         for candidate in context.candidates
         for observation in candidate.evidence
     )
+
+
+def _target_role_context() -> tuple[
+    AssemblySequenceCatalog,
+    CachedTargetAssemblyRoleMetadata,
+]:
+    accession = "GCA_000001405.14"
+    role_provenance = ProvenanceSource(
+        source_id="target-role-report",
+        label="version-matched NCBI sequence report",
+        derived_from=(
+            ProvenanceSource(
+                source_id="target-assembly-description",
+                label="UCSC assembly description",
+            ),
+        ),
+    )
+    catalog = AssemblySequenceCatalog(
+        assembly=TARGET,
+        sequences=(
+            AssemblySequenceMetadata(
+                sequence_name="chrA",
+                length=2000,
+                role_context=AssemblySequenceRoleContext(
+                    assembly_accession=accession,
+                    assembly_unit="Primary Assembly",
+                    provider_role="unplaced-scaffold",
+                    length=2000,
+                    ucsc_style_name="chrA",
+                ),
+            ),
+        ),
+        sequence_provenance=ProvenanceSource(
+            source_id="target-chrom-info",
+            label="target chromInfo metadata",
+        ),
+        role_provenance=role_provenance,
+    )
+    metadata = CachedTargetAssemblyRoleMetadata(
+        db="hg19",
+        assembly_accession=accession,
+        assembly_description=CachedAssemblyRoleArtifact(
+            path=Path("/cache/hg19-description.html"),
+            source_url=(
+                "https://hgdownload.soe.ucsc.edu/gbdb/hg19/html/description.html"
+            ),
+            retrieved_at="2026-08-28T00:00:00Z",
+            sha256="sha256:" + "4" * 64,
+            size_bytes=100,
+            cache_hit=True,
+        ),
+        sequence_report=CachedAssemblyRoleArtifact(
+            path=Path("/cache/hg19-sequence-report.jsonl"),
+            source_url=(
+                "https://api.ncbi.nlm.nih.gov/datasets/v2/genome/accession/"
+                f"{accession}/download?include_annotation_type=SEQUENCE_REPORT&"
+                "hydrated=FULLY_HYDRATED"
+            ),
+            retrieved_at="2026-08-28T00:00:00Z",
+            sha256="sha256:" + "5" * 64,
+            size_bytes=200,
+            cache_hit=True,
+            archive_member=f"ncbi_dataset/data/{accession}/sequence_report.jsonl",
+        ),
+    )
+    return catalog, metadata
+
+
+def test_indexed_batch_reuses_one_target_role_catalog_across_records(
+    tmp_path: Path,
+) -> None:
+    chain_context, index = _chain_context(tmp_path)
+    catalog, metadata = _target_role_context()
+
+    result = run_indexed_chain_batch(
+        (_record("row-1", 0, 10), _record("row-2", 20, 30)),
+        chain_context,
+        target_assembly=TARGET,
+        alignment_provenance=ALIGNMENT,
+        chain_index=index,
+        target_role_catalog=catalog,
+        target_role_metadata=metadata,
+    )
+
+    assert result.target_role_state is TargetRoleState.ASSESSED
+    assert len(result.target_sequence_roles) == 1
+    assert result.target_sequence_roles[0].sequence_name == "chrA"
+    assert result.target_sequence_roles[0].context is not None
+    assert result.target_sequence_roles[0].context.provider_role == "unplaced-scaffold"
+    assert result.target_role_provenance == catalog.role_provenance
+
+
+def test_batch_json_reports_target_role_metadata_and_provenance(tmp_path: Path) -> None:
+    chain_context, index = _chain_context(tmp_path)
+    catalog, metadata = _target_role_context()
+    result = run_indexed_chain_batch(
+        (_record("row-1", 0, 10),),
+        chain_context,
+        target_assembly=TARGET,
+        alignment_provenance=ALIGNMENT,
+        chain_index=index,
+        target_role_catalog=catalog,
+        target_role_metadata=metadata,
+    )
+
+    payload = json.loads(render_indexed_chain_batch_json(result))
+
+    assert payload["scope"]["target_role"] == "ASSESSED"
+    assert payload["target_role"]["sequences"][0]["context"]["provider_role"] == (
+        "unplaced-scaffold"
+    )
+    assert (
+        payload["target_role_metadata"]["assembly_accession"]
+        == metadata.assembly_accession
+    )
+    source_ids = {item["source_id"] for item in payload["provenance"]["sources"]}
+    assert catalog.role_provenance is not None
+    assert catalog.role_provenance.source_id in source_ids

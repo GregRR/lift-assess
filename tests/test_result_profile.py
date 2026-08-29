@@ -6,6 +6,9 @@ import pytest
 
 from liftassess import (
     AssemblyIdentifier,
+    AssemblySequenceCatalog,
+    AssemblySequenceMetadata,
+    AssemblySequenceRoleContext,
     ChainGap,
     ChainGapSummary,
     ComparativeEvidenceRelationshipResult,
@@ -34,6 +37,7 @@ from liftassess import (
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
     SourceCoverageState,
+    TargetRoleState,
     build_comparative_evidence_relationship,
     build_filtered_all_chain_comparison,
     build_result_profile,
@@ -1113,3 +1117,71 @@ def test_point_context_profile_keeps_structural_findings_independent() -> None:
         QueryContextFinding.REVEALS_TARGET_DISCONTINUITY,
         QueryContextFinding.CHANGES_WITH_QUERY_SCALE,
     }
+
+
+def _target_role_catalog() -> AssemblySequenceCatalog:
+    role_source = ProvenanceSource("target-role", "version-matched target role report")
+    return AssemblySequenceCatalog(
+        assembly=TARGET_ASSEMBLY,
+        sequences=(
+            AssemblySequenceMetadata(
+                sequence_name="chrA",
+                length=10_000,
+                role_context=AssemblySequenceRoleContext(
+                    assembly_accession="GCA_test.1",
+                    assembly_unit="Primary Assembly",
+                    provider_role="assembled-molecule",
+                    length=10_000,
+                    ucsc_style_name="chrA",
+                ),
+            ),
+        ),
+        sequence_provenance=ProvenanceSource(
+            "target-chrom-info", "target chromInfo metadata"
+        ),
+        role_provenance=role_source,
+    )
+
+
+def test_target_role_is_not_applicable_when_no_projection_exists() -> None:
+    profile = build_result_profile(
+        SOURCE,
+        (),
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        target_role_unavailable=True,
+    )
+
+    assert profile.scope.target_role is TargetRoleState.NO_TARGET_PROJECTIONS
+    assert profile.target_sequence_roles == ()
+
+
+def test_target_role_unavailable_does_not_infer_from_target_name() -> None:
+    profile = build_result_profile(
+        SOURCE,
+        (_candidate("c1"),),
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        target_role_unavailable=True,
+    )
+
+    assert profile.scope.target_role is TargetRoleState.UNAVAILABLE
+    assert profile.target_sequence_roles == ()
+
+
+def test_target_role_profile_preserves_provider_role_and_unit() -> None:
+    catalog = _target_role_catalog()
+    profile = build_result_profile(
+        SOURCE,
+        (_candidate("c1"),),
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        target_role_catalog=catalog,
+    )
+
+    assert profile.scope.target_role is TargetRoleState.ASSESSED
+    assert len(profile.target_sequence_roles) == 1
+    target_role = profile.target_sequence_roles[0]
+    assert target_role.sequence_name == "chrA"
+    assert target_role.context is not None
+    assert target_role.context.provider_role == "assembled-molecule"
+    assert target_role.context.assembly_unit == "Primary Assembly"
+    assert catalog.role_provenance is not None
+    assert target_role.provenance_source_id == catalog.role_provenance.source_id

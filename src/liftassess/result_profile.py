@@ -15,6 +15,8 @@ from ._candidate_geometry import (
     validate_distinct_candidate_geometries,
 )
 from .assembly_metadata import (
+    AssemblySequenceCatalog,
+    AssemblySequenceRoleContext,
     SourceIntervalPreflightResult,
     SourceIntervalPreflightState,
 )
@@ -84,9 +86,12 @@ class OrientationState(str, Enum):
 
 
 class TargetRoleState(str, Enum):
-    """Target-sequence metadata state reserved for the metadata milestone."""
+    """Availability state for authoritative target-sequence role/context."""
 
     NOT_ASSESSED = "NOT_ASSESSED"
+    UNAVAILABLE = "UNAVAILABLE"
+    NO_TARGET_PROJECTIONS = "NO_TARGET_PROJECTIONS"
+    ASSESSED = "ASSESSED"
 
 
 class ComparativeRelationshipState(str, Enum):
@@ -225,6 +230,15 @@ class QueryContextProfile:
 
 
 @dataclass(frozen=True)
+class TargetSequenceRoleProfile:
+    """Provider-native role/context for one projected target sequence."""
+
+    sequence_name: str
+    context: AssemblySequenceRoleContext | None
+    provenance_source_id: str | None
+
+
+@dataclass(frozen=True)
 class ResultScopeProfile:
     """Explicit scope states for orthogonal result dimensions."""
 
@@ -261,6 +275,7 @@ class ResultProfile:
     consumed_resource_roles: tuple[str, ...]
     query_context: QueryContextProfile
     comparative_relationship: ComparativeRelationshipProfile
+    target_sequence_roles: tuple[TargetSequenceRoleProfile, ...] = ()
     scope: ResultScopeProfile = field(default_factory=ResultScopeProfile)
 
 
@@ -277,6 +292,8 @@ def build_result_profile(
     comparative_evidence_relationship: (
         ComparativeEvidenceRelationshipResult | None
     ) = None,
+    target_role_catalog: AssemblySequenceCatalog | None = None,
+    target_role_unavailable: bool = False,
 ) -> ResultProfile:
     """Derive one deterministic factual profile from normalized scientific data."""
 
@@ -338,6 +355,11 @@ def build_result_profile(
         comparison=filtered_all_chain_comparison,
         relationship=comparative_evidence_relationship,
     )
+    target_role_state, target_sequence_roles = build_target_sequence_role_profiles(
+        candidates,
+        target_role_catalog=target_role_catalog,
+        target_role_unavailable=target_role_unavailable,
+    )
     return ResultProfile(
         source_interval=source_interval,
         input_validity=input_validity,
@@ -355,12 +377,69 @@ def build_result_profile(
         consumed_resource_roles=consumed_resource_roles,
         query_context=query_context,
         comparative_relationship=comparative_relationship,
+        target_sequence_roles=target_sequence_roles,
         scope=ResultScopeProfile(
+            target_role=target_role_state,
             reverse_result=_reverse_scope_state(reverse_profiles),
             query_context=query_context.check_state,
             comparative_relationship=comparative_relationship.state,
         ),
     )
+
+
+def build_target_sequence_role_profiles(
+    candidates: tuple[NormalizedCandidate, ...],
+    *,
+    target_role_catalog: AssemblySequenceCatalog | None,
+    target_role_unavailable: bool,
+) -> tuple[TargetRoleState, tuple[TargetSequenceRoleProfile, ...]]:
+    if target_role_catalog is not None and target_role_unavailable:
+        raise ValueError(
+            "target-role catalog and unavailable state are mutually exclusive"
+        )
+    if not candidates:
+        return TargetRoleState.NO_TARGET_PROJECTIONS, ()
+    if target_role_catalog is None:
+        state = (
+            TargetRoleState.UNAVAILABLE
+            if target_role_unavailable
+            else TargetRoleState.NOT_ASSESSED
+        )
+        return state, ()
+
+    target_assembly = candidates[0].target_interval.assembly
+    if target_role_catalog.assembly != target_assembly:
+        raise ValueError("target-role catalog assembly must match candidate targets")
+    for candidate in candidates[1:]:
+        if candidate.target_interval.assembly != target_assembly:
+            raise ValueError("all candidates must use one target assembly")
+
+    provenance_source_id = (
+        target_role_catalog.role_provenance.source_id
+        if target_role_catalog.role_provenance is not None
+        else None
+    )
+    profiles: list[TargetSequenceRoleProfile] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        sequence_name = candidate.target_interval.sequence_name
+        if sequence_name in seen:
+            continue
+        seen.add(sequence_name)
+        metadata = target_role_catalog.sequence(sequence_name)
+        if metadata is None:
+            raise ValueError(
+                "candidate target sequence is absent from authoritative target catalog: "
+                f"{sequence_name}"
+            )
+        profiles.append(
+            TargetSequenceRoleProfile(
+                sequence_name=sequence_name,
+                context=metadata.role_context,
+                provenance_source_id=provenance_source_id,
+            )
+        )
+    return TargetRoleState.ASSESSED, tuple(profiles)
 
 
 def _comparative_relationship_profile(

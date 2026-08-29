@@ -604,8 +604,7 @@ Progressive-disclosure human renderer
   preflight facts and metadata provenance into batch reporting. A valid `chromInfo` sequence with no
   chain record remains valid input and may truthfully produce no chain projection. Automatic
   point-context clipping uses the authoritative `chromInfo` length when preflight is available rather
-  than promoting the chain index's conservative query bound into assembly authority. Target-role
-  population remains separate follow-on work.
+  than promoting the chain index's conservative query bound into assembly authority.
 - **Target-sequence role/context must come from a defined, version-matched metadata source.** The
   UCSC assembly description/database metadata provides the exact versioned NCBI assembly accession
   associated with a Browser database. The NCBI genome sequence report for that exact accession then
@@ -620,7 +619,16 @@ Progressive-disclosure human renderer
   but a zero-match join is an error. No role is inferred from names such as `_alt`, `_random`, or
   `chrUn`. Sequence role/context is descriptive evidence and must not silently become an
   error/quality rule or a claim that ambiguity was biologically caused by duplication or an
-  alternate sequence. Runtime acquisition/profile population remain separate follow-on wiring.
+  alternate sequence. Runtime acquisition uses the UCSC database's static assembly description to
+  bind the Browser database to an exact versioned NCBI assembly accession, then caches the exact
+  NCBI Datasets sequence-report member as a separate SHA-256-addressed metadata artifact. Online
+  single-locus runs may acquire these small target-context resources after the mapping bundle is
+  resolved. Offline single-locus and batch runs remain provider-free: they reuse cached role/context
+  when available, otherwise report `UNAVAILABLE` and infer nothing from target names. Missing optional
+  role metadata never blocks coordinate assessment, while present-but-inconsistent or corrupt cached
+  metadata remains an operational integrity error. If no target projection exists, the role dimension
+  is `NO_TARGET_PROJECTIONS` rather than an availability judgment. Exact metadata identities and the
+  UCSC-description -> NCBI-sequence-report dependency are retained in report provenance.
 - **Batch assessment must reuse resource work across loci.** A batch interface must not be a naive
   outer loop that reparses multi-gigabyte comparative resources once per locus. It should either
   evaluate many intervals during shared resource traversal or use an indexed/preprocessed local
@@ -950,9 +958,10 @@ The post-alpha redesign therefore proceeds in this order:
    assessment, exact collision/overlap relationships, automatic point-context relationships, and shared
    submitted-row COMPARATIVE evidence are implemented. Batch scope boundaries remain explicit where
    single-locus capabilities are not run.
-7. **Complete the remaining parallel metadata/context work from step 2.** Authoritative assembly-sequence
-   metadata/preflight and the initial typed difficult-region/context pilot remain prerequisites to the
-   held-out gate; their deferral did not make them part of the completed batch milestone.
+7. **Complete the remaining parallel context work from step 2.** Authoritative assembly-sequence
+   metadata/preflight, including version-matched target role/context, is implemented. The initial typed
+   difficult-region/context pilot remains the prerequisite to the held-out gate; its deferral did not
+   make it part of the completed batch milestone.
 8. **Held-out language/usability gate.** Exercise the implemented redesign on unseen real cases and
    outside users/domain reviewers before describing it as validated/release-ready.
 

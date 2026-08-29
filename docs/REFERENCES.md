@@ -151,6 +151,26 @@ listed unless they materially informed a current design or implementation decisi
     [cited 2026 Aug 28]. Available from:
     https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/database/
 
+30. UCSC Genome Browser Project. hg38 assembly description [Internet].
+    Santa Cruz (CA): University of California, Santa Cruz; [cited 2026 Aug 28].
+    Available from:
+    https://hgdownload.soe.ucsc.edu/gbdb/hg38/html/description.html
+
+31. National Center for Biotechnology Information. `datasets download genome`
+    [Internet]. Bethesda (MD): National Library of Medicine (US);
+    [cited 2026 Aug 28]. Available from:
+    https://www.ncbi.nlm.nih.gov/datasets/docs/v2/reference-docs/command-line/datasets/download/genome/
+
+32. National Center for Biotechnology Information. NCBI genome data package
+    [Internet]. Bethesda (MD): National Library of Medicine (US);
+    [cited 2026 Aug 28]. Available from:
+    https://www.ncbi.nlm.nih.gov/datasets/docs/v2/reference-docs/file-formats/data-package/
+
+33. National Center for Biotechnology Information. NCBI Datasets v2 REST API
+    [Internet]. Bethesda (MD): National Library of Medicine (US);
+    [cited 2026 Aug 28]. Available from:
+    https://www.ncbi.nlm.nih.gov/datasets/docs/v2/api/rest-api/
+
 ### Validation-data note
 
 The real `canFam3` to `canFam4` mechanical fixture consumes five exact UCSC comparative

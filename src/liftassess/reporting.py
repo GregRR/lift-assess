@@ -37,6 +37,8 @@ from .result_profile import (
     QueryContextProfile,
     ResultProfile,
     SourceCoverageState,
+    TargetRoleState,
+    TargetSequenceRoleProfile,
 )
 from .reverse_mapping import (
     CandidateReverseMappingResult,
@@ -82,6 +84,7 @@ def render_assessment_summary(report: UCSCAssessmentReport) -> str:
 
     lines.extend(_query_context_summary_lines(profile.query_context))
     lines.extend(_comparative_summary_lines(report, profile.comparative_relationship))
+    lines.extend(_target_role_summary_lines(profile))
 
     lines.append(f"Evidence: {_evidence_summary(profile)}")
     lines.append(f"Interpretation: {profile.interpretation}")
@@ -147,6 +150,51 @@ def _single_candidate_summary_lines(
         )
     lines.append(f"Reverse mapping: {_reverse_summary_text(profile.reverse_mapping)}")
     return lines
+
+
+def _target_role_summary_lines(profile: ResultProfile) -> list[str]:
+    state = profile.scope.target_role
+    if state is TargetRoleState.UNAVAILABLE:
+        return [
+            (
+                "Target sequence role: unavailable; no role was inferred from sequence "
+                "naming."
+            )
+        ]
+    if state in {TargetRoleState.NOT_ASSESSED, TargetRoleState.NO_TARGET_PROJECTIONS}:
+        return []
+    if state is not TargetRoleState.ASSESSED:
+        raise ValueError(f"unsupported target-role state: {state!r}")
+
+    unusual = tuple(
+        item
+        for item in profile.target_sequence_roles
+        if item.context is None
+        or item.context.provider_role != "assembled-molecule"
+        or item.context.assembly_unit != "Primary Assembly"
+    )
+    if not unusual:
+        return []
+    rendered: list[str] = []
+    for item in unusual[:_DEFAULT_INLINE_PROJECTION_LIMIT]:
+        if item.context is None:
+            rendered.append(
+                f"Target sequence role: {item.sequence_name}: no matching provider "
+                "role row in the version-matched NCBI sequence report."
+            )
+            continue
+        rendered.append(
+            f"Target sequence role: {item.sequence_name}: "
+            f"role={item.context.provider_role}; "
+            f"assembly unit={item.context.assembly_unit}."
+        )
+    omitted = len(unusual) - len(rendered)
+    if omitted > 0:
+        rendered.append(
+            f"Target sequence role: {omitted} additional unusual target sequence(s); "
+            "use --details or --json."
+        )
+    return rendered
 
 
 def _query_context_summary_lines(profile: QueryContextProfile) -> list[str]:
@@ -663,6 +711,29 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
                 )
             )
 
+    if profile.scope.target_role is not TargetRoleState.NOT_ASSESSED:
+        lines.extend(("", "Target sequence role/context"))
+        lines.append(f"  State: {profile.scope.target_role.value}")
+        for item in profile.target_sequence_roles:
+            lines.extend(_target_role_detail_lines(item))
+        if report.target_role_metadata is not None:
+            metadata = report.target_role_metadata
+            lines.extend(
+                (
+                    f"  UCSC database: {metadata.db}",
+                    f"  Version-matched NCBI assembly: {metadata.assembly_accession}",
+                    "  UCSC assembly description:",
+                    f"    Source URL: {metadata.assembly_description.source_url}",
+                    f"    Cache path: {metadata.assembly_description.path}",
+                    f"    SHA-256: {metadata.assembly_description.sha256}",
+                    "  NCBI sequence report:",
+                    f"    Source URL: {metadata.sequence_report.source_url}",
+                    f"    Archive member: {metadata.sequence_report.archive_member}",
+                    f"    Cache path: {metadata.sequence_report.path}",
+                    f"    SHA-256: {metadata.sequence_report.sha256}",
+                )
+            )
+
     lines.extend(
         (
             "",
@@ -829,6 +900,7 @@ def render_assessment_json(report: UCSCAssessmentReport) -> str:
         "target_assembly": _assembly_json(report.target_assembly),
         "source_interval": _interval_json(report.source_interval),
         "source_preflight": _source_preflight_json(report),
+        "target_role_metadata": _target_role_metadata_json(report),
         "result_profile": _result_profile_json(report.result_profile),
         "candidates": [_candidate_json(candidate) for candidate in report.candidates],
         "query_context": _query_context_json(report),
@@ -905,6 +977,84 @@ def _preflight_resource_json(resource: CachedResource) -> dict[str, object]:
     }
 
 
+def _target_role_detail_lines(item: TargetSequenceRoleProfile) -> list[str]:
+    lines = [f"  {item.sequence_name}"]
+    if item.context is None:
+        lines.append("    Provider role: unavailable for this UCSC target sequence")
+    else:
+        context = item.context
+        lines.extend(
+            (
+                f"    Assembly accession: {context.assembly_accession}",
+                f"    Assembly unit: {context.assembly_unit}",
+                f"    Provider role: {context.provider_role}",
+                f"    Length: {context.length}",
+                f"    Chromosome name: {context.chromosome_name or 'none'}",
+                f"    GenBank accession: {context.genbank_accession or 'none'}",
+                f"    RefSeq accession: {context.refseq_accession or 'none'}",
+            )
+        )
+    lines.append(f"    Role provenance: {item.provenance_source_id or 'none'}")
+    return lines
+
+
+def _target_sequence_role_json(
+    item: TargetSequenceRoleProfile,
+) -> dict[str, object]:
+    context = item.context
+    return {
+        "sequence_name": item.sequence_name,
+        "metadata_available": context is not None,
+        "assembly_accession": context.assembly_accession if context else None,
+        "assembly_unit": context.assembly_unit if context else None,
+        "provider_role": context.provider_role if context else None,
+        "length": context.length if context else None,
+        "chromosome_name": context.chromosome_name if context else None,
+        "ucsc_style_name": context.ucsc_style_name if context else None,
+        "genbank_accession": context.genbank_accession if context else None,
+        "refseq_accession": context.refseq_accession if context else None,
+        "provenance_source_id": item.provenance_source_id,
+    }
+
+
+def _target_role_metadata_json(report: UCSCAssessmentReport) -> dict[str, object]:
+    metadata = report.target_role_metadata
+    if metadata is None:
+        return {
+            "state": report.result_profile.scope.target_role.value,
+            "ucsc_database": report.target_db,
+            "assembly_accession": None,
+            "resources": [],
+        }
+    return {
+        "state": report.result_profile.scope.target_role.value,
+        "ucsc_database": metadata.db,
+        "assembly_accession": metadata.assembly_accession,
+        "resources": [
+            {
+                "kind": "UCSC_ASSEMBLY_DESCRIPTION",
+                "source_url": metadata.assembly_description.source_url,
+                "archive_member": metadata.assembly_description.archive_member,
+                "cache_path": str(metadata.assembly_description.path),
+                "retrieved_at": metadata.assembly_description.retrieved_at,
+                "size_bytes": metadata.assembly_description.size_bytes,
+                "sha256": metadata.assembly_description.sha256,
+                "cache_hit_at_acquisition": metadata.assembly_description.cache_hit,
+            },
+            {
+                "kind": "NCBI_SEQUENCE_REPORT",
+                "source_url": metadata.sequence_report.source_url,
+                "archive_member": metadata.sequence_report.archive_member,
+                "cache_path": str(metadata.sequence_report.path),
+                "retrieved_at": metadata.sequence_report.retrieved_at,
+                "size_bytes": metadata.sequence_report.size_bytes,
+                "sha256": metadata.sequence_report.sha256,
+                "cache_hit_at_acquisition": metadata.sequence_report.cache_hit,
+            },
+        ],
+    }
+
+
 def _result_profile_json(profile: ResultProfile) -> dict[str, object]:
     return {
         "input_validity": profile.input_validity.value,
@@ -935,6 +1085,13 @@ def _result_profile_json(profile: ResultProfile) -> dict[str, object]:
         "comparative_relationship": _comparative_relationship_profile_json(
             profile.comparative_relationship
         ),
+        "target_role": {
+            "state": profile.scope.target_role.value,
+            "sequences": [
+                _target_sequence_role_json(item)
+                for item in profile.target_sequence_roles
+            ],
+        },
         "scope": {
             "target_role": profile.scope.target_role.value,
             "actual_reverse_mapping": profile.scope.reverse_result.value,
@@ -1726,6 +1883,8 @@ def _report_provenance_sources(
     roots: list[ProvenanceSource] = [report.alignment_provenance]
     if report.source_preflight is not None:
         roots.extend(report.source_preflight.provenance_sources)
+    if report.target_role_provenance is not None:
+        roots.append(report.target_role_provenance)
     for assessment_resource in report.resources:
         if assessment_resource.file_provenance is not None:
             roots.append(assessment_resource.file_provenance)

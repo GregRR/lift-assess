@@ -9,9 +9,11 @@ Automatic point-context candidates intentionally remain forward-chain-only.
 from dataclasses import dataclass
 
 from .assembly_metadata import (
+    AssemblySequenceCatalog,
     SourceIntervalPreflightResult,
     SourceIntervalPreflightState,
 )
+from .assembly_metadata_cache import CachedTargetAssemblyRoleMetadata
 from .batch import (
     BatchInputRecord,
     BatchRecordAssessment,
@@ -46,6 +48,11 @@ from .resource_files import (
     build_ucsc_chain_candidates_for_intervals_from_cached_chain,
 )
 from .resource_identity import sha256_hex_from_identifier
+from .result_profile import (
+    TargetRoleState,
+    TargetSequenceRoleProfile,
+    build_target_sequence_role_profiles,
+)
 
 
 @dataclass(frozen=True)
@@ -68,6 +75,10 @@ class IndexedChainBatchResult:
     point_context_relationships: BatchRelationshipResult
     source_preflights: tuple[SourceIntervalPreflightResult, ...] | None = None
     source_preflight_resources: tuple[CachedResource, ...] = ()
+    target_role_state: TargetRoleState = TargetRoleState.NOT_ASSESSED
+    target_sequence_roles: tuple[TargetSequenceRoleProfile, ...] = ()
+    target_role_metadata: CachedTargetAssemblyRoleMetadata | None = None
+    target_role_provenance: ProvenanceSource | None = None
 
     def __post_init__(self) -> None:
         if not self.source_db or not self.target_db:
@@ -118,6 +129,45 @@ class IndexedChainBatchResult:
             self.source_preflights,
             self.source_preflight_resources,
         )
+        if self.target_role_state is TargetRoleState.ASSESSED:
+            if self.target_role_metadata is None:
+                raise ValueError(
+                    "assessed batch target-role context requires cached metadata"
+                )
+            if self.target_role_metadata.db != self.target_db:
+                raise ValueError(
+                    "batch target-role metadata must match target database"
+                )
+            if self.target_role_provenance is None:
+                raise ValueError(
+                    "assessed batch target-role context requires role provenance"
+                )
+        elif self.target_role_state in {
+            TargetRoleState.NOT_ASSESSED,
+            TargetRoleState.UNAVAILABLE,
+        }:
+            if (
+                self.target_role_metadata is not None
+                or self.target_role_provenance is not None
+            ):
+                raise ValueError(
+                    "unassessed/unavailable batch target-role context cannot carry "
+                    "metadata"
+                )
+        elif self.target_role_state is TargetRoleState.NO_TARGET_PROJECTIONS:
+            if (self.target_role_metadata is None) != (
+                self.target_role_provenance is None
+            ):
+                raise ValueError(
+                    "batch target-role metadata and provenance must be present together"
+                )
+            if (
+                self.target_role_metadata is not None
+                and self.target_role_metadata.db != self.target_db
+            ):
+                raise ValueError(
+                    "batch target-role metadata must match target database"
+                )
 
 
 def run_indexed_chain_batch(
@@ -132,6 +182,9 @@ def run_indexed_chain_batch(
     point_context_window_bases: int = DEFAULT_POINT_CONTEXT_BASES,
     source_preflights: tuple[SourceIntervalPreflightResult, ...] | None = None,
     source_preflight_resources: tuple[CachedResource, ...] = (),
+    target_role_catalog: AssemblySequenceCatalog | None = None,
+    target_role_metadata: CachedTargetAssemblyRoleMetadata | None = None,
+    target_role_unavailable: bool = False,
 ) -> IndexedChainBatchResult:
     """Project a batch through one prepared chain index and derive relationships.
 
@@ -216,6 +269,14 @@ def run_indexed_chain_batch(
         requested_window_bases=point_context_window_bases,
         source_preflights=source_preflights,
     )
+    all_candidates = tuple(
+        candidate for candidates in candidate_sets for candidate in candidates
+    )
+    target_role_state, target_sequence_roles = build_target_sequence_role_profiles(
+        all_candidates,
+        target_role_catalog=target_role_catalog,
+        target_role_unavailable=target_role_unavailable,
+    )
     return IndexedChainBatchResult(
         source_db=chain_context.source_db,
         target_db=chain_context.target_db,
@@ -239,6 +300,14 @@ def run_indexed_chain_batch(
         point_context_relationships=point_context_relationships,
         source_preflights=source_preflights,
         source_preflight_resources=source_preflight_resources,
+        target_role_state=target_role_state,
+        target_sequence_roles=target_sequence_roles,
+        target_role_metadata=target_role_metadata,
+        target_role_provenance=(
+            target_role_catalog.role_provenance
+            if target_role_catalog is not None
+            else None
+        ),
     )
 
 

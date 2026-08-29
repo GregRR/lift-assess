@@ -22,14 +22,21 @@ from pathlib import Path
 from typing import TextIO
 
 from .assembly_metadata import (
+    AssemblySequenceCatalog,
     SourceIntervalPreflightResult,
     SourceIntervalPreflightState,
     preflight_source_interval,
 )
 from .assembly_metadata_cache import (
+    AssemblyRoleMetadataAcquisitionError,
+    AssemblyRoleMetadataCacheIntegrityError,
+    CachedTargetAssemblyRoleMetadata,
     CachedUCSCAssemblyMetadata,
+    acquire_target_assembly_role_metadata,
     acquire_ucsc_assembly_metadata,
+    attach_cached_target_role_context,
     build_cached_ucsc_assembly_sequence_catalog,
+    load_cached_target_assembly_role_metadata,
     load_cached_ucsc_assembly_metadata,
 )
 from .batch import BatchInputRecord
@@ -108,6 +115,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run(args, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr)
     except (
         OSError,
+        AssemblyRoleMetadataAcquisitionError,
+        AssemblyRoleMetadataCacheIntegrityError,
         UCSCResourceAcquisitionError,
         UCSCResourceDiscoveryError,
         ValueError,
@@ -451,6 +460,15 @@ def _run(
             indent=4,
         )
 
+    target_role_catalog, target_role_metadata, target_role_unavailable = (
+        _prepare_target_role_context(
+            args,
+            target_assembly=target_assembly,
+            cache_root=cache_root,
+            stderr=stderr,
+        )
+    )
+
     _status("Assessing locus...", quiet=args.quiet, stderr=stderr)
     progress_display = _AssessmentProgressDisplay(
         cached_bundle,
@@ -474,6 +492,9 @@ def _run(
             alignment_provenance=alignment_provenance,
             source_preflight=source_preflight,
             source_preflight_resources=source_preflight_resources,
+            target_role_catalog=target_role_catalog,
+            target_role_metadata=target_role_metadata,
+            target_role_unavailable=target_role_unavailable,
             progress_callback=progress_callback,
             chain_index=chain_index,
         )
@@ -499,6 +520,9 @@ def _run(
             alignment_provenance=alignment_provenance,
             source_preflight=source_preflight,
             source_preflight_resources=source_preflight_resources,
+            target_role_catalog=target_role_catalog,
+            target_role_metadata=target_role_metadata,
+            target_role_unavailable=target_role_unavailable,
             progress_callback=progress_callback,
             chain_index=None,
         )
@@ -538,6 +562,89 @@ def _run(
         rendered = render_assessment_summary(report)
     print(rendered, file=stdout)
     return 0
+
+
+def _prepare_target_role_context(
+    args: argparse.Namespace,
+    *,
+    target_assembly: AssemblyIdentifier,
+    cache_root: Path,
+    stderr: TextIO,
+) -> tuple[
+    AssemblySequenceCatalog | None,
+    CachedTargetAssemblyRoleMetadata | None,
+    bool,
+]:
+    """Prepare optional version-matched target role/context without blocking mapping."""
+
+    target_sequence_metadata: CachedUCSCAssemblyMetadata | None = None
+    role_metadata: CachedTargetAssemblyRoleMetadata | None = None
+    if not args.refresh:
+        target_sequence_metadata = load_cached_ucsc_assembly_metadata(
+            cache_root, args.target_db
+        )
+        role_metadata = load_cached_target_assembly_role_metadata(
+            cache_root, args.target_db
+        )
+
+    if target_sequence_metadata is None or role_metadata is None:
+        if args.offline:
+            _status(
+                "Target sequence role/context unavailable in the local cache; "
+                "mapping will continue without inferring a role.",
+                quiet=args.quiet,
+                stderr=stderr,
+                indent=4,
+            )
+            return None, None, True
+        try:
+            if target_sequence_metadata is None:
+                discovered = discover_ucsc_assembly_metadata(args.target_db)
+                if discovered is None:
+                    _status(
+                        "Target sequence role/context unavailable: UCSC target "
+                        "chromInfo metadata was not published at the expected "
+                        "database-table location.",
+                        quiet=args.quiet,
+                        stderr=stderr,
+                        indent=4,
+                    )
+                    return None, None, True
+                target_sequence_metadata = acquire_ucsc_assembly_metadata(
+                    discovered, cache_root, refresh=args.refresh
+                )
+            if role_metadata is None:
+                role_metadata = acquire_target_assembly_role_metadata(
+                    cache_root, args.target_db, refresh=args.refresh
+                )
+        except (
+            AssemblyRoleMetadataAcquisitionError,
+            UCSCResourceAcquisitionError,
+            UCSCResourceDiscoveryError,
+            OSError,
+        ) as exc:
+            _status(
+                f"Target sequence role/context unavailable ({exc}); mapping will "
+                "continue without inferring a role.",
+                quiet=args.quiet,
+                stderr=stderr,
+                indent=4,
+            )
+            return None, None, True
+
+    assert target_sequence_metadata is not None
+    assert role_metadata is not None
+    catalog = build_cached_ucsc_assembly_sequence_catalog(
+        target_assembly, target_sequence_metadata
+    )
+    catalog = attach_cached_target_role_context(catalog, role_metadata)
+    _status(
+        "Using version-matched UCSC/NCBI target sequence role/context metadata.",
+        quiet=args.quiet,
+        stderr=stderr,
+        indent=4,
+    )
+    return catalog, role_metadata, False
 
 
 def _prepare_source_preflight(
@@ -703,6 +810,48 @@ def _prepare_cached_batch_source_preflight(
         indent=4,
     )
     return source_preflights, resources
+
+
+def _prepare_cached_batch_target_role_context(
+    args: argparse.Namespace,
+    *,
+    target_assembly: AssemblyIdentifier,
+    cache_root: Path,
+    stderr: TextIO,
+) -> tuple[
+    AssemblySequenceCatalog | None,
+    CachedTargetAssemblyRoleMetadata | None,
+    bool,
+]:
+    """Load optional target role/context for batch execution without provider access."""
+
+    target_sequence_metadata = load_cached_ucsc_assembly_metadata(
+        cache_root, args.target_db
+    )
+    role_metadata = load_cached_target_assembly_role_metadata(
+        cache_root, args.target_db
+    )
+    if target_sequence_metadata is None or role_metadata is None:
+        _status(
+            "Target sequence role/context unavailable in the local cache; batch "
+            "mapping will continue without inferring a role.",
+            quiet=args.quiet,
+            stderr=stderr,
+            indent=4,
+        )
+        return None, None, True
+    catalog = build_cached_ucsc_assembly_sequence_catalog(
+        target_assembly, target_sequence_metadata
+    )
+    catalog = attach_cached_target_role_context(catalog, role_metadata)
+    _status(
+        "Using cached version-matched UCSC/NCBI target sequence role/context "
+        "metadata for batch results.",
+        quiet=args.quiet,
+        stderr=stderr,
+        indent=4,
+    )
+    return catalog, role_metadata, False
 
 
 def _batch_source_preflight_error(
@@ -902,6 +1051,15 @@ def _run_indexed_batch(
             )
         chain_context = loaded_chain_context
 
+    target_role_catalog, target_role_metadata, target_role_unavailable = (
+        _prepare_cached_batch_target_role_context(
+            args,
+            target_assembly=target_assembly,
+            cache_root=cache_root,
+            stderr=stderr,
+        )
+    )
+
     status_message = (
         f"Assessing {input_name} batch with prepared chain index; automatic point "
         "context uses the same index for 1-bp rows; "
@@ -949,6 +1107,9 @@ def _run_indexed_batch(
             ),
             source_preflights=source_preflights,
             source_preflight_resources=source_preflight_resources,
+            target_role_catalog=target_role_catalog,
+            target_role_metadata=target_role_metadata,
+            target_role_unavailable=target_role_unavailable,
         )
     except ChainIndexCorruptionError as exc:
         raise ValueError(
