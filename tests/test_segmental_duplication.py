@@ -21,6 +21,7 @@ from liftassess.resources import UCSCSegmentalDuplicationResource
 from liftassess.segmental_duplication import (
     SegmentalDuplicationCheckState,
     UCSCSegmentalDuplicationCatalog,
+    UCSCSegmentalDuplicationCatalogError,
     acquire_ucsc_segmental_duplication_resource,
     build_cached_ucsc_segmental_duplication_catalog,
     build_ucsc_segmental_duplication_context,
@@ -323,7 +324,28 @@ def test_cached_catalog_verifies_exact_resource_bytes(tmp_path: Path) -> None:
 
     with gzip.open(path, mode="wt", encoding="utf-8", newline="") as handle:
         handle.write(_SAMPLE_ROW.replace("\t11764\t", "\t11765\t"))
-    with pytest.raises(ResourceIdentityMismatchError):
+    with pytest.raises(UCSCSegmentalDuplicationCatalogError) as exc_info:
+        build_cached_ucsc_segmental_duplication_catalog(ASSEMBLY, resource)
+    assert isinstance(exc_info.value.__cause__, ResourceIdentityMismatchError)
+
+
+def test_cached_catalog_wraps_checksum_valid_malformed_table(tmp_path: Path) -> None:
+    path = tmp_path / "genomicSuperDups.txt.gz"
+    with gzip.open(path, mode="wt", encoding="utf-8", newline="") as handle:
+        handle.write("chr1\t1\t2\n")
+    url = ucsc_segmental_duplication_table_url("hg38")
+    resource = CachedResource(
+        path=path,
+        source_url=url,
+        retrieved_at="2026-08-28T00:00:00Z",
+        sha256=sha256_identifier_for_file(path).value,
+        size_bytes=path.stat().st_size,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(url),
+        cache_hit=True,
+    )
+
+    with pytest.raises(UCSCSegmentalDuplicationCatalogError, match="could not be"):
         build_cached_ucsc_segmental_duplication_catalog(ASSEMBLY, resource)
 
 

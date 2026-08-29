@@ -252,7 +252,10 @@ def load_cached_target_assembly_role_metadata(
 
     _validate_ucsc_db(db)
     description_url = _ucsc_assembly_description_url(db)
-    description = _load_role_artifact(cache_root, description_url)
+    try:
+        description = _load_role_artifact(cache_root, description_url)
+    except AssemblyRoleMetadataCacheIntegrityError:
+        return None
     if description is None:
         return None
     try:
@@ -263,7 +266,10 @@ def load_cached_target_assembly_role_metadata(
         return None
     report_url = _ncbi_sequence_report_download_url(accession)
     member = _ncbi_sequence_report_member(accession)
-    report = _load_role_artifact(cache_root, report_url, archive_member=member)
+    try:
+        report = _load_role_artifact(cache_root, report_url, archive_member=member)
+    except AssemblyRoleMetadataCacheIntegrityError:
+        return None
     if report is None:
         return None
     return CachedTargetAssemblyRoleMetadata(

@@ -108,6 +108,7 @@ from .reverse_mapping import (
 )
 from .segmental_duplication import (
     UCSCSegmentalDuplicationCatalog,
+    UCSCSegmentalDuplicationCatalogError,
     acquire_ucsc_segmental_duplication_resource,
     build_cached_ucsc_segmental_duplication_catalog,
     load_cached_ucsc_segmental_duplication_resource,
@@ -639,7 +640,21 @@ def _attach_ucsc_segmental_duplication_context(
                 prepared[db] = result
                 return result
 
-        catalog = build_cached_ucsc_segmental_duplication_catalog(assembly, resource)
+        try:
+            catalog = build_cached_ucsc_segmental_duplication_catalog(
+                assembly, resource
+            )
+        except UCSCSegmentalDuplicationCatalogError as exc:
+            _status(
+                f"UCSC segmental-duplication context unavailable for {db} "
+                f"({exc}); mapping result is unchanged.",
+                quiet=args.quiet,
+                stderr=stderr,
+                indent=4,
+            )
+            result = (None, None, True)
+            prepared[db] = result
+            return result
         result = (catalog, resource, False)
         prepared[db] = result
         return result
@@ -749,10 +764,20 @@ def _prepare_target_role_context(
 
     assert target_sequence_metadata is not None
     assert role_metadata is not None
-    catalog = build_cached_ucsc_assembly_sequence_catalog(
-        target_assembly, target_sequence_metadata
-    )
-    catalog = attach_cached_target_role_context(catalog, role_metadata)
+    try:
+        catalog = build_cached_ucsc_assembly_sequence_catalog(
+            target_assembly, target_sequence_metadata
+        )
+        catalog = attach_cached_target_role_context(catalog, role_metadata)
+    except (OSError, TypeError, ValueError) as exc:
+        _status(
+            f"Target sequence role/context unavailable ({exc}); mapping will "
+            "continue without inferring a role.",
+            quiet=args.quiet,
+            stderr=stderr,
+            indent=4,
+        )
+        return None, None, True
     _status(
         "Using version-matched UCSC/NCBI target sequence role/context metadata.",
         quiet=args.quiet,

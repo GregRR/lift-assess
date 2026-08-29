@@ -41,8 +41,12 @@ from liftassess import (
     sha256_identifier_for_file,
     ucsc_resource_terms,
 )
-from liftassess.assembly_metadata_cache import CachedTargetAssemblyRoleMetadata
+from liftassess.assembly_metadata_cache import (
+    CachedAssemblyRoleArtifact,
+    CachedTargetAssemblyRoleMetadata,
+)
 from liftassess.resource_cache import _write_url_index
+from liftassess.segmental_duplication import ucsc_segmental_duplication_table_url
 
 _SOURCE_DB = "canFam3"
 _TARGET_DB = "canFam4"
@@ -2866,3 +2870,149 @@ def test_cli_can_explicitly_acquire_liftover_only_chain(
 
     assert exit_code == 0
     assert requested == [EvidenceAvailabilityTier.LIFTOVER_ONLY]
+
+
+def test_segmental_duplication_parse_failure_degrades_optional_context(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    report = assess_ucsc_cached_bundle(
+        GenomicInterval(
+            AssemblyIdentifier(name=_SOURCE_DB, provider="UCSC"),
+            "chr1",
+            100,
+            120,
+        ),
+        _cached_bundle(bundle_dir),
+        target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
+        alignment_provenance=cli._ucsc_pair_dependency_provenance(
+            _SOURCE_DB, _TARGET_DB
+        ),
+    )
+
+    resources: dict[str, CachedResource] = {}
+    for db in (_SOURCE_DB, _TARGET_DB):
+        path = tmp_path / f"{db}-genomicSuperDups.txt.gz"
+        with gzip.open(path, mode="wt", encoding="utf-8", newline="") as handle:
+            handle.write("chr1\t1\t2\n")
+        url = ucsc_segmental_duplication_table_url(db)
+        resources[db] = CachedResource(
+            path=path,
+            source_url=url,
+            retrieved_at="2026-08-29T00:00:00Z",
+            sha256=sha256_identifier_for_file(path).value,
+            size_bytes=path.stat().st_size,
+            provider_checksum=None,
+            terms=ucsc_resource_terms(url),
+            cache_hit=True,
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_segmental_duplication_resource",
+        lambda cache_root, db: resources[db],
+    )
+    args = cli._build_parser().parse_args(
+        [_SOURCE_DB, _TARGET_DB, "chr1:101-120", "--offline"]
+    )
+    stderr = StringIO()
+
+    enriched = cli._attach_ucsc_segmental_duplication_context(
+        report,
+        args=args,
+        cache_root=tmp_path / "cache",
+        stderr=stderr,
+    )
+
+    assert enriched.result_profile.headline == report.result_profile.headline
+    assert (
+        enriched.result_profile.interpretation == report.result_profile.interpretation
+    )
+    assert enriched.result_profile.scope.external_context.value == "UNAVAILABLE"
+    assert "mapping result is unchanged" in stderr.getvalue()
+
+
+def test_target_role_parse_failure_degrades_optional_context(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    chrom_info_path = tmp_path / "target-chromInfo.gz"
+    with gzip.open(chrom_info_path, mode="wt", encoding="utf-8", newline="") as handle:
+        handle.write("chrA\t2000\t/gbdb/canFam4/canFam4.2bit\n")
+    chrom_info_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/database/chromInfo.txt.gz"
+    )
+    target_sequence_metadata = CachedUCSCAssemblyMetadata(
+        db=_TARGET_DB,
+        chrom_info=CachedResource(
+            path=chrom_info_path,
+            source_url=chrom_info_url,
+            retrieved_at="2026-08-29T00:00:00Z",
+            sha256=sha256_identifier_for_file(chrom_info_path).value,
+            size_bytes=chrom_info_path.stat().st_size,
+            provider_checksum=None,
+            terms=ucsc_resource_terms(chrom_info_url),
+            cache_hit=True,
+        ),
+    )
+
+    description_path = tmp_path / "description.html"
+    description_path.write_text("Assembly accession: GCA_011100685.1", encoding="utf-8")
+    report_path = tmp_path / "sequence_report.jsonl"
+    report_path.write_text("{not valid json}\n", encoding="utf-8")
+    role_metadata = CachedTargetAssemblyRoleMetadata(
+        db=_TARGET_DB,
+        assembly_accession="GCA_011100685.1",
+        assembly_description=CachedAssemblyRoleArtifact(
+            path=description_path,
+            source_url=(
+                "https://hgdownload.soe.ucsc.edu/gbdb/canFam4/html/description.html"
+            ),
+            retrieved_at="2026-08-29T00:00:00Z",
+            sha256=sha256_identifier_for_file(description_path).value,
+            size_bytes=description_path.stat().st_size,
+            cache_hit=True,
+        ),
+        sequence_report=CachedAssemblyRoleArtifact(
+            path=report_path,
+            source_url=(
+                "https://api.ncbi.nlm.nih.gov/datasets/v2/genome/accession/"
+                "GCA_011100685.1/download?include_annotation_type=SEQUENCE_REPORT&"
+                "hydrated=FULLY_HYDRATED"
+            ),
+            retrieved_at="2026-08-29T00:00:00Z",
+            sha256=sha256_identifier_for_file(report_path).value,
+            size_bytes=report_path.stat().st_size,
+            cache_hit=True,
+            archive_member=("ncbi_dataset/data/GCA_011100685.1/sequence_report.jsonl"),
+        ),
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "load_cached_ucsc_assembly_metadata",
+        lambda cache_root, db: target_sequence_metadata,
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_cached_target_assembly_role_metadata",
+        lambda cache_root, db: role_metadata,
+    )
+    args = cli._build_parser().parse_args(
+        [_SOURCE_DB, _TARGET_DB, "chr1:101-120", "--offline"]
+    )
+    stderr = StringIO()
+
+    catalog, returned_metadata, unavailable = cli._prepare_target_role_context(
+        args,
+        target_assembly=AssemblyIdentifier(name=_TARGET_DB, provider="UCSC"),
+        cache_root=tmp_path / "cache",
+        stderr=stderr,
+    )
+
+    assert catalog is None
+    assert returned_metadata is None
+    assert unavailable
+    assert "continue without inferring a role" in stderr.getvalue()

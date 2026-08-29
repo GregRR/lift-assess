@@ -256,6 +256,10 @@ def test_target_role_reacquisition_repairs_corrupt_content_artifact(
     first = metadata_cache.acquire_target_assembly_role_metadata(tmp_path, _DB)
     first.sequence_report.path.write_bytes(b"corrupt")
 
+    assert (
+        metadata_cache.load_cached_target_assembly_role_metadata(tmp_path, _DB) is None
+    )
+
     repaired = metadata_cache.acquire_target_assembly_role_metadata(tmp_path, _DB)
 
     assert repaired.sequence_report.path.read_text(encoding="utf-8") == report

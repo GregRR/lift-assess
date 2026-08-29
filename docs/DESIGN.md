@@ -617,9 +617,9 @@ Progressive-disclosure human renderer
   chain record remains valid input and may truthfully produce no chain projection. Automatic
   point-context clipping uses the authoritative `chromInfo` length when preflight is available rather
   than promoting the chain index's conservative query bound into assembly authority.
-- **Target-sequence role/context must come from a defined, version-matched metadata source.** The
-  UCSC assembly description/database metadata provides the exact versioned NCBI assembly accession
-  associated with a Browser database. The NCBI genome sequence report for that exact accession then
+- **Target-sequence role/context must come from a defined, version-matched metadata source.** When a
+  UCSC assembly description explicitly states an exact versioned NCBI assembly accession, the NCBI
+  genome sequence report for that exact accession then
   supplies assembly unit, provider-native sequence role, chromosome name, sequence length,
   GenBank/RefSeq accessions, and UCSC-style sequence name. liftAssess preserves NCBI `role` and
   `assemblyUnit` as separate factual fields rather than collapsing them into a synthetic
@@ -636,9 +636,12 @@ Progressive-disclosure human renderer
   NCBI Datasets sequence-report member as a separate SHA-256-addressed metadata artifact. Online
   single-locus runs may acquire these small target-context resources after the mapping bundle is
   resolved. Offline single-locus and batch runs remain provider-free: they reuse cached role/context
-  when available, otherwise report `UNAVAILABLE` and infer nothing from target names. Missing optional
-  role metadata never blocks coordinate assessment, while present-but-inconsistent or corrupt cached
-  metadata remains an operational integrity error. If no target projection exists, the role dimension
+  when available, otherwise report `UNAVAILABLE` and infer nothing from target names. A Browser
+  database whose description does not state an exact versioned NCBI accession also remains
+  `UNAVAILABLE`; liftAssess does not manufacture a binding from nearby release names or naming
+  conventions. Missing, corrupt, or provider-inconsistent optional role metadata never blocks the
+  already-computed coordinate assessment; it degrades this context dimension to `UNAVAILABLE` with an
+  operational status message. If no target projection exists, the role dimension
   is `NO_TARGET_PROJECTIONS` rather than an availability judgment. Exact metadata identities and the
   UCSC-description -> NCBI-sequence-report dependency are retained in report provenance.
 - **Batch assessment must reuse resource work across loci.** A batch interface must not be a naive

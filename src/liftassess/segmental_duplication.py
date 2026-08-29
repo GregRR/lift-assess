@@ -36,6 +36,10 @@ from .resources import UCSCSegmentalDuplicationResource
 _GENOMIC_SUPER_DUPS_FIELD_COUNT = 30
 
 
+class UCSCSegmentalDuplicationCatalogError(RuntimeError):
+    """Cached UCSC segmental-duplication bytes could not be verified or parsed."""
+
+
 class SegmentalDuplicationCheckState(str, Enum):
     """Availability state for one assembly side of the typed context check."""
 
@@ -270,18 +274,23 @@ def build_cached_ucsc_segmental_duplication_catalog(
 ) -> UCSCSegmentalDuplicationCatalog:
     """Parse one verified cached UCSC table into an in-memory interval catalog."""
 
-    expected_sha256 = sha256_hex_from_identifier(resource.sha256)
-    provenance = _segmental_duplication_provenance(assembly, resource)
-    with open_text_resource(
-        resource.path,
-        expected_sha256_hex=expected_sha256,
-    ) as lines:
-        records = tuple(iter_ucsc_genomic_super_dups(lines, assembly=assembly))
-    return UCSCSegmentalDuplicationCatalog(
-        assembly=assembly,
-        records=records,
-        provenance=provenance,
-    )
+    try:
+        expected_sha256 = sha256_hex_from_identifier(resource.sha256)
+        provenance = _segmental_duplication_provenance(assembly, resource)
+        with open_text_resource(
+            resource.path,
+            expected_sha256_hex=expected_sha256,
+        ) as lines:
+            records = tuple(iter_ucsc_genomic_super_dups(lines, assembly=assembly))
+        return UCSCSegmentalDuplicationCatalog(
+            assembly=assembly,
+            records=records,
+            provenance=provenance,
+        )
+    except (OSError, ValueError) as exc:
+        raise UCSCSegmentalDuplicationCatalogError(
+            "cached UCSC segmental-duplication table could not be verified or parsed"
+        ) from exc
 
 
 def iter_ucsc_genomic_super_dups(

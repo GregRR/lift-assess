@@ -163,14 +163,31 @@ def test_parse_ucsc_assembly_description_accession_supports_refseq_accession() -
     assert parse_ucsc_assembly_description_accession(html) == "GCF_000002285.5"
 
 
-def test_parse_ucsc_description_accession_supports_assembly_accession_label() -> None:
-    html = (
-        "<html><body>Assembly accession: "
-        '<a href="https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_000001405.29/">'
-        "GCA_000001405.29</a></body></html>"
-    )
+def test_parse_current_hg38_description_excerpt_uses_assembly_accession() -> None:
+    html = """
+    <html><body>
+    UCSC Genome Browser assembly ID: hg38
+    Sequencing/Assembly provider ID: Genome Reference Consortium Human GRCh38.p14
+    (GCA_000001405.29)
+    Assembly accession: GCA_000001405.29
+    NCBI Assembly ID: GCF_000001405.40 (GRCh38.p14, GCA_000001405.29)
+    </body></html>
+    """
 
     assert parse_ucsc_assembly_description_accession(html) == "GCA_000001405.29"
+
+
+def test_current_hg19_description_excerpt_does_not_infer_an_accession() -> None:
+    html = """
+    <html><body>
+    The February 2009 human reference sequence (GRCh37) was produced by the
+    Genome Reference Consortium. For more information about this assembly, see
+    GRCh37 in the NCBI Assembly database.
+    </body></html>
+    """
+
+    with pytest.raises(ValueError, match="does not state a versioned NCBI"):
+        parse_ucsc_assembly_description_accession(html)
 
 
 def test_parse_ncbi_sequence_report_preserves_provider_native_role_and_unit() -> None:

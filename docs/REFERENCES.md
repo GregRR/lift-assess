@@ -156,6 +156,7 @@ listed unless they materially informed a current design or implementation decisi
     Available from:
     https://hgdownload.soe.ucsc.edu/gbdb/hg38/html/description.html
 
+
 31. National Center for Biotechnology Information. `datasets download genome`
     [Internet]. Bethesda (MD): National Library of Medicine (US);
     [cited 2026 Aug 28]. Available from:
@@ -200,6 +201,16 @@ listed unless they materially informed a current design or implementation decisi
     [Internet]. Santa Cruz (CA): University of California, Santa Cruz;
     [cited 2026 Aug 28]. Available from:
     https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/
+
+40. UCSC Genome Browser Project. hg19 assembly description [Internet].
+    Santa Cruz (CA): University of California, Santa Cruz; [cited 2026 Aug 29].
+    Available from:
+    https://hgdownload.soe.ucsc.edu/gbdb/hg19/html/description.html
+
+41. UCSC Genome Browser Project. hg19 assembly download README [Internet].
+    Santa Cruz (CA): University of California, Santa Cruz; [cited 2026 Aug 29].
+    Available from:
+    https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/README.txt
 
 ### Validation-data note
 

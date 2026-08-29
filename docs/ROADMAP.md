@@ -801,13 +801,19 @@ M22 closure checks completed on 2026-08-28:
 The authoritative assembly-sequence metadata/preflight capability is now implemented end to end.
 Source-side UCSC `chromInfo`/optional `chromAlias` metadata provide canonical names, authoritative
 bounds, exact alias suggestions, cache/provenance identity, single-locus preflight, and one shared
-batch catalog. Target-side role/context now binds the UCSC Browser database to its exact versioned
-NCBI assembly accession through the UCSC assembly description, caches the matching NCBI sequence
-report by SHA-256, preserves provider-native `role` and `assemblyUnit`, joins only through exact
+batch catalog. Target-side role/context binds a UCSC Browser database to an exact versioned NCBI
+assembly accession only when the UCSC assembly description explicitly states that binding, then caches
+the matching NCBI sequence report by SHA-256, preserves provider-native `role` and `assemblyUnit`,
+joins only through exact
 UCSC-style names or verified accession aliases, verifies sequence lengths against `chromInfo`, permits
 partial role coverage, and reports explicit `UNAVAILABLE`/`NO_TARGET_PROJECTIONS` states without
-name-based inference. Online single-locus execution may acquire the small target metadata; offline and
-batch execution remain cache-only/provider-free for this optional context.
+name-based inference. Legacy Browser databases whose current description does not publish an exact
+versioned NCBI accession remain `UNAVAILABLE` rather than receiving an inferred binding. In particular,
+the current hg38 description states `GCA_000001405.29`, while the current hg19 description does not
+state a versioned accession; UCSC also documents hg19 as an original GRCh37 sequence set augmented by
+later GRCh37.p13 sequences and an additional mitochondrial sequence. Online single-locus execution may
+acquire the small target metadata; offline and batch execution remain cache-only/provider-free for this
+optional context.
 
 The remaining prerequisite is therefore in its implementation/validation phase. The initial UCSC
 segmental-duplication slice now uses the assembly-scoped `genomicSuperDups` table as typed contextual
