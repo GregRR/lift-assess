@@ -606,15 +606,21 @@ Progressive-disclosure human renderer
   point-context clipping uses the authoritative `chromInfo` length when preflight is available rather
   than promoting the chain index's conservative query bound into assembly authority. Target-role
   population remains separate follow-on work.
-- **Target-sequence role/context must come from a defined, version-matched metadata source.** The NCBI
-  genome sequence report exposes assembly accession, assembly unit, chromosome name, sequence
-  length, GenBank/RefSeq accessions, UCSC-style sequence name, and provider role. It is a candidate
-  source for richer target context only after the UCSC database is joined to an exact assembly
-  accession/version and the provider role vocabulary has explicit liftAssess semantics. Until then,
-  target role remains not assessed rather than being inferred from names such as `_alt`, `_random`,
-  or `chrUn`. Sequence role/context is descriptive evidence and must not silently become an
+- **Target-sequence role/context must come from a defined, version-matched metadata source.** The
+  UCSC assembly description/database metadata provides the exact versioned NCBI assembly accession
+  associated with a Browser database. The NCBI genome sequence report for that exact accession then
+  supplies assembly unit, provider-native sequence role, chromosome name, sequence length,
+  GenBank/RefSeq accessions, and UCSC-style sequence name. liftAssess preserves NCBI `role` and
+  `assemblyUnit` as separate factual fields rather than collapsing them into a synthetic
+  primary/alternate/unplaced score or category: NCBI's `Primary Assembly` assembly unit can itself
+  contain assembled chromosomes, unlocalized sequences, and unplaced sequences. Exact
+  `ucscStyleName` and already-verified accession aliases may join report rows to canonical UCSC
+  sequences, and the sequence length must agree with authoritative `chromInfo`. Partial role coverage
+  is representable when a UCSC database contains sequences absent from the matched NCBI assembly,
+  but a zero-match join is an error. No role is inferred from names such as `_alt`, `_random`, or
+  `chrUn`. Sequence role/context is descriptive evidence and must not silently become an
   error/quality rule or a claim that ambiguity was biologically caused by duplication or an
-  alternate sequence.
+  alternate sequence. Runtime acquisition/profile population remain separate follow-on wiring.
 - **Batch assessment must reuse resource work across loci.** A batch interface must not be a naive
   outer loop that reparses multi-gigabyte comparative resources once per locus. It should either
   evaluate many intervals during shared resource traversal or use an indexed/preprocessed local

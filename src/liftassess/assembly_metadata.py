@@ -9,9 +9,12 @@ suggestions, but they are not silently substituted for the submitted sequence na
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
+from html.parser import HTMLParser
 from types import MappingProxyType
 
 from .models import AssemblyIdentifier, GenomicInterval, ProvenanceSource
@@ -44,12 +47,38 @@ class AssemblySequenceAlias:
 
 
 @dataclass(frozen=True)
+class AssemblySequenceRoleContext:
+    """Provider-native role/context for one exact assembly sequence."""
+
+    assembly_accession: str
+    assembly_unit: str
+    provider_role: str
+    length: int
+    sequence_name: str | None = None
+    chromosome_name: str | None = None
+    ucsc_style_name: str | None = None
+    genbank_accession: str | None = None
+    refseq_accession: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.assembly_accession:
+            raise ValueError("sequence role context requires assembly accession")
+        if not self.assembly_unit:
+            raise ValueError("sequence role context requires assembly unit")
+        if not self.provider_role:
+            raise ValueError("sequence role context requires provider role")
+        if self.length <= 0:
+            raise ValueError("sequence role context length must be positive")
+
+
+@dataclass(frozen=True)
 class AssemblySequenceMetadata:
-    """Canonical sequence identity and authoritative assembly length."""
+    """Canonical sequence identity, authoritative length, and optional role context."""
 
     sequence_name: str
     length: int
     aliases: tuple[AssemblySequenceAlias, ...] = ()
+    role_context: AssemblySequenceRoleContext | None = None
 
     def __post_init__(self) -> None:
         if not self.sequence_name:
@@ -62,6 +91,10 @@ class AssemblySequenceMetadata:
             raise ValueError("assembly sequence aliases must be unique")
         if self.sequence_name in alias_names:
             raise ValueError("canonical sequence name must not be repeated as an alias")
+        if self.role_context is not None and self.role_context.length != self.length:
+            raise ValueError(
+                "sequence role-context length must match authoritative sequence length"
+            )
 
 
 @dataclass(frozen=True)
@@ -72,6 +105,7 @@ class AssemblySequenceCatalog:
     sequences: tuple[AssemblySequenceMetadata, ...]
     sequence_provenance: ProvenanceSource
     alias_provenance: ProvenanceSource | None = None
+    role_provenance: ProvenanceSource | None = None
     _sequences_by_name: Mapping[str, AssemblySequenceMetadata] = field(
         init=False,
         repr=False,
@@ -116,6 +150,13 @@ class AssemblySequenceCatalog:
 
         if aliases_by_name and self.alias_provenance is None:
             raise ValueError("assembly sequence aliases require alias provenance")
+        has_role_context = any(
+            sequence.role_context is not None for sequence in self.sequences
+        )
+        if has_role_context and self.role_provenance is None:
+            raise ValueError("assembly sequence role context requires role provenance")
+        if self.role_provenance is not None and not has_role_context:
+            raise ValueError("role provenance requires assembly sequence role context")
 
         object.__setattr__(
             self,
@@ -371,3 +412,216 @@ def build_ucsc_assembly_sequence_catalog(
         sequence_provenance=sequence_provenance,
         alias_provenance=alias_provenance,
     )
+
+
+class _AssemblyDescriptionTextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        text = data.strip()
+        if text:
+            self.parts.append(text)
+
+
+def parse_ucsc_assembly_description_accession(html_text: str) -> str:
+    """Extract the exact versioned NCBI assembly accession stated by UCSC."""
+
+    parser = _AssemblyDescriptionTextParser()
+    parser.feed(html_text)
+    text = " ".join(parser.parts)
+    match = re.search(
+        r"(?:Assembly accession|Accession ID)\s*:\s*(GC[AF]_[0-9]+\.[0-9]+)",
+        text,
+    )
+    if match is None:
+        raise ValueError(
+            "UCSC assembly description does not state a versioned NCBI "
+            "assembly accession"
+        )
+    return match.group(1)
+
+
+def parse_ncbi_genome_sequence_report(
+    lines: Iterable[str],
+    *,
+    expected_assembly_accession: str,
+) -> tuple[AssemblySequenceRoleContext, ...]:
+    """Parse NCBI Datasets sequence-report JSONL without interpreting role values."""
+
+    if not expected_assembly_accession:
+        raise ValueError("expected NCBI assembly accession must not be empty")
+
+    contexts: list[AssemblySequenceRoleContext] = []
+    for line_number, raw_line in enumerate(lines, start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "NCBI genome sequence report contains invalid JSON at line "
+                f"{line_number}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise TypeError(
+                "NCBI genome sequence report row must be a JSON object at line "
+                f"{line_number}"
+            )
+
+        assembly_accession = _required_report_string(
+            payload, "assemblyAccession", line_number
+        )
+        if assembly_accession != expected_assembly_accession:
+            raise ValueError(
+                "NCBI genome sequence report assembly accession mismatch at line "
+                f"{line_number}: expected {expected_assembly_accession}, "
+                f"observed {assembly_accession}"
+            )
+        assembly_unit = _required_report_string(payload, "assemblyUnit", line_number)
+        provider_role = _required_report_string(payload, "role", line_number)
+        length = payload.get("length")
+        if not isinstance(length, int) or isinstance(length, bool) or length <= 0:
+            raise ValueError(
+                "NCBI genome sequence report requires a positive integer length at "
+                f"line {line_number}"
+            )
+
+        contexts.append(
+            AssemblySequenceRoleContext(
+                assembly_accession=assembly_accession,
+                assembly_unit=assembly_unit,
+                provider_role=provider_role,
+                length=length,
+                sequence_name=_optional_report_string(
+                    payload, "sequenceName", line_number
+                ),
+                chromosome_name=_optional_report_string(
+                    payload, "chrName", line_number
+                ),
+                ucsc_style_name=_optional_report_string(
+                    payload, "ucscStyleName", line_number
+                ),
+                genbank_accession=_optional_report_string(
+                    payload, "genbankAccession", line_number
+                ),
+                refseq_accession=_optional_report_string(
+                    payload, "refseqAccession", line_number
+                ),
+            )
+        )
+
+    if not contexts:
+        raise ValueError("NCBI genome sequence report contains no sequence rows")
+    return tuple(contexts)
+
+
+def attach_ncbi_sequence_role_context(
+    catalog: AssemblySequenceCatalog,
+    sequence_report_lines: Iterable[str],
+    *,
+    expected_assembly_accession: str,
+    role_provenance: ProvenanceSource,
+) -> AssemblySequenceCatalog:
+    """Attach NCBI role/context to UCSC sequences using exact provider identifiers."""
+
+    contexts = parse_ncbi_genome_sequence_report(
+        sequence_report_lines,
+        expected_assembly_accession=expected_assembly_accession,
+    )
+    contexts_by_canonical: dict[str, AssemblySequenceRoleContext] = {}
+
+    for context in contexts:
+        matched_names: set[str] = set()
+        if context.ucsc_style_name is not None:
+            if catalog.sequence(context.ucsc_style_name) is not None:
+                matched_names.add(context.ucsc_style_name)
+            alias_match = catalog.alias_match(context.ucsc_style_name)
+            if alias_match is not None:
+                matched_names.add(alias_match[0])
+
+        for accession in (context.genbank_accession, context.refseq_accession):
+            if accession is None:
+                continue
+            if catalog.sequence(accession) is not None:
+                matched_names.add(accession)
+            alias_match = catalog.alias_match(accession)
+            if alias_match is not None:
+                matched_names.add(alias_match[0])
+
+        if not matched_names:
+            continue
+        if len(matched_names) != 1:
+            raise ValueError(
+                "NCBI sequence identifiers resolve to conflicting UCSC canonical "
+                f"names: {sorted(matched_names)}"
+            )
+        canonical_name = next(iter(matched_names))
+        sequence = catalog.sequence(canonical_name)
+        assert sequence is not None
+        if sequence.length != context.length:
+            raise ValueError(
+                "NCBI sequence length does not match authoritative UCSC chromInfo "
+                f"length for {canonical_name}: {context.length} != {sequence.length}"
+            )
+        if canonical_name in contexts_by_canonical:
+            raise ValueError(
+                "NCBI genome sequence report resolves more than one role row to UCSC "
+                f"sequence {canonical_name}"
+            )
+        contexts_by_canonical[canonical_name] = context
+
+    if not contexts_by_canonical:
+        raise ValueError(
+            "NCBI genome sequence report did not resolve any sequence to the UCSC "
+            "assembly catalog"
+        )
+
+    enriched_sequences = tuple(
+        AssemblySequenceMetadata(
+            sequence_name=sequence.sequence_name,
+            length=sequence.length,
+            aliases=sequence.aliases,
+            role_context=contexts_by_canonical.get(sequence.sequence_name),
+        )
+        for sequence in catalog.sequences
+    )
+    return AssemblySequenceCatalog(
+        assembly=catalog.assembly,
+        sequences=enriched_sequences,
+        sequence_provenance=catalog.sequence_provenance,
+        alias_provenance=catalog.alias_provenance,
+        role_provenance=role_provenance,
+    )
+
+
+def _required_report_string(
+    payload: Mapping[str, object],
+    key: str,
+    line_number: int,
+) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value:
+        raise ValueError(
+            f"NCBI genome sequence report requires non-empty {key} at line "
+            f"{line_number}"
+        )
+    return value
+
+
+def _optional_report_string(
+    payload: Mapping[str, object],
+    key: str,
+    line_number: int,
+) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError(
+            f"NCBI genome sequence report {key} must be a non-empty string when "
+            f"present at line {line_number}"
+        )
+    return value
