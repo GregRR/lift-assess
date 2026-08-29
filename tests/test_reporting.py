@@ -659,9 +659,18 @@ def test_comparative_summary_explains_why_one_placement_is_favored() -> None:
     )
 
     summary = render_assessment_summary(report)
+    details = render_assessment_details(report)
+    payload = json.loads(reporting.render_assessment_json(report))
 
     assert "all-chain reveals 1 additional placement" in summary
     assert "available categorical evidence favors one placement" in summary
+    expected_interpretation = (
+        "More than one chain projection exists; available categorical comparative "
+        "evidence favors one placement, but candidate encounter order is not a "
+        "scientific rank and this result does not establish a biological locus."
+    )
+    assert f"Interpretation: {expected_interpretation}" in details
+    assert payload["result_profile"]["interpretation"] == expected_interpretation
     assert "    Favored placement:\n        chrA:1001-1100" in summary
     assert (
         "only complete placement retained by the ordinary filtered liftOver chain"

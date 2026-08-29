@@ -459,6 +459,12 @@ def test_comparative_relationship_profile_preserves_b14_style_support() -> None:
         is FilteredAllChainInventoryState.ALL_CHAIN_REVEALS_ADDITIONAL_PLACEMENTS
     )
     assert comparative.favored_candidate_id == "favored"
+    assert (
+        profile.interpretation
+        == "More than one chain projection exists; available categorical comparative "
+        "evidence favors one placement, but candidate encounter order is not a "
+        "scientific rank and this result does not establish a biological locus."
+    )
     assert comparative.additional_all_chain_candidate_ids == ("competitor",)
     assert tuple(item.candidate_id for item in comparative.placement_support) == (
         "favored",

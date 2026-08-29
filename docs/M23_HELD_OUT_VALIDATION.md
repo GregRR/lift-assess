@@ -1,7 +1,8 @@
 # Milestone 23 held-out result-language validation
 
-**Status:** PRE-REGISTERED — cases selected before liftAssess execution
+**Status:** INTERNAL CASE EXECUTION COMPLETE — H04 influenced presentation; outside review pending
 **Selection date:** 2026-08-29
+**Execution date:** 2026-08-29
 **Purpose:** Milestone 23 held-out real-case and outside-user/domain gate
 
 ## Evidence boundary
@@ -130,6 +131,90 @@ For each case, record:
    remaining evidence gap explicit?
 7. Did optional enrichment failure, if any, preserve the already-valid primary coordinate assessment?
 
+## Internal execution record
+
+All five pre-registered baseline cases were executed without substitution on 2026-08-29. No blocking
+scientific-correctness or evidence-boundary failure remains from the internal pass. H04 did expose a
+release-worthy presentation gap: the shared interpretation string reported multiple projections but did
+not surface the already-computed `FAVORS_ONE_PLACEMENT` comparative relationship. That finding directly
+influenced implementation, so this five-case set is **not** described as untouched held-out validation.
+The interpretation was corrected without changing candidate generation or comparative classification,
+and H04 was rerun unchanged after the full native test/lint/type-check gate passed.
+
+### H01 result — coordinate-convention control
+
+- **Observed:** one complete hg19→hg38 projection to `chr22:15690406`, matching the historical coordinate.
+- **Local/reverse context:** the automatic 101-bp window mapped 101/101 bases contiguously through the
+  same chain; reverse mapping returned only to the original hg19 source point.
+- **Typed context:** source and target segmental-duplication overlaps were present, but remained
+  descriptive and did not alter the coordinate interpretation.
+- **Adjudication:** no blocker. The output distinguishes clean coordinate geometry from unassessed rsID
+  identity even when typed context is present.
+
+### H02 result — invalid source coordinate
+
+- **Observed:** authoritative hg38 `chr2` length was 242,193,529 while the requested point was
+  `chr2:242193706`.
+- **Behavior:** source preflight stopped the run before mapping, printed that mapping was not attempted,
+  and returned process exit status 1.
+- **Adjudication:** no blocker. Invalid input did not become a biological-looking no-projection result.
+
+### H03 result — telomeric interchromosomal projection
+
+- **Observed:** hg38 `chr10:10709` projected completely to hg19 `chr18:10905`; the 101-bp context also
+  mapped 101/101 bases contiguously and agreed with the point.
+- **Reverse/context evidence:** actual reverse mapping was `ELSEWHERE_ONLY`. The source point overlapped
+  three hg38 `genomicSuperDups` rows, including a chr10↔chr18 row with `fracMatch=0.979191`; target
+  overlap was also assessed. These observations were reported as descriptive context rather than a
+  causal explanation.
+- **Target role:** `UNAVAILABLE` because the hg19 assembly description does not provide the exact
+  versioned NCBI assembly binding required by the target-role model. The primary mapping continued.
+- **Adjudication:** no blocker. The output reproduces the surprising chromosome change while separating
+  clean local geometry, non-reciprocity, duplication context, and unverified mechanism.
+
+### H04 result — new canine COMPARATIVE case
+
+- **Observed:** the 3-bp CanFam3 locus produced seven complete all-chain projections. One canFam4 chr9
+  placement was retained by the ordinary filtered chain, represented by a depth-1 top-net fill, and had
+  full reciprocal-best membership; none of the six other complete placements had the same categorical
+  support pattern. The comparative relationship was therefore `FAVORS_ONE_PLACEMENT`.
+- **Evidence boundary:** filtered-chain, net, and reciprocal-best observations remained grouped as
+  provenance-dependent UCSC-derived evidence rather than independent votes. Variant and gene identity
+  remained unassessed, and the result did not establish a biological locus.
+- **Optional dimensions:** reverse mapping was `UNAVAILABLE` because no cached reverse-direction chain
+  with matching COMPARATIVE publication class was available and UCSC was not contacted. Typed
+  segmental-duplication context was also `UNAVAILABLE`; neither absence changed the primary comparative
+  assessment. The exact reverse-unavailability reason is currently present in run-status text while the
+  durable dossier/JSON carries only the `UNAVAILABLE` state; this is a non-blocking release UX follow-up.
+- **Implementation influence:** the first run's top-level interpretation said only that multiple chain
+  projections existed even though the detailed comparative section already reported
+  `FAVORS_ONE_PLACEMENT`. The interpretation was changed to state that available categorical comparative
+  evidence favors one placement while preserving the no-biological-locus boundary. Regression coverage
+  verifies the result profile, detailed dossier, and schema-v2 JSON.
+- **Rerun:** the unchanged H04 query produced the same seven placements and same categorical evidence
+  relationships after the presentation fix; the new top-level interpretation surfaced the comparative
+  conclusion.
+- **Adjudication:** the original presentation gap is resolved for the current candidate. Because H04
+  caused the change, this case is implementation-influencing evidence rather than untouched validation.
+
+### H05 result — rs138257042 asymmetric chr22/chr14 mapping
+
+- **Observed:** hg38 `chr22:15528888` projected completely to hg19 `chr14:19378323`; the 101-bp context
+  also mapped 101/101 bases contiguously and agreed with the point.
+- **Reverse/context evidence:** reverse mapping was `ELSEWHERE_ONLY`. The source point overlapped six hg38
+  segmental-duplication rows, including one with `fracMatch=0.996176`; the hg19 target point overlapped
+  four rows, including one with `fracMatch=0.996027`.
+- **Identity boundary:** target role was `UNAVAILABLE` under the strict hg19 assembly-binding rule, and
+  named-variant identity remained explicitly unassessed.
+- **Adjudication:** no blocker. The output exposes coordinate projection, local agreement, non-reciprocity,
+  and duplication context without resolving the historical rsID-aware placement conflict.
+
+### Internal gate disposition
+
+The internal five-case pass therefore has no unresolved blocker. It did produce one implementation-
+influencing H04 presentation correction and one non-blocking reverse-unavailability explanation follow-up.
+Milestone 23 remains open until the outside-user/domain packet is reviewed against the current candidate.
+
 ## Blocking failure criteria
 
 Milestone 23 does not pass until any observed blocker is resolved and the affected held-out case is rerun.
@@ -154,9 +239,11 @@ implementation rather than as untouched validation evidence.
 
 ## Outside-user/domain packet
 
-After the internal case review, send the **unchanged outputs** for H01, H03, H04, and H05 to at least one
-outside user or domain-informed reviewer who did not help derive the result language. Include H02 as well
-if its preflight behavior or wording is surprising.
+After the internal case review, send the outputs for H01, H03, H04, and H05 that represent the current
+release candidate to at least one outside user or domain-informed reviewer who did not help derive the
+result language. For H04, use the post-correction rerun and disclose that this case exposed and influenced
+the comparative-interpretation wording. Include H02 as well if its preflight behavior or wording is
+surprising. Do not present the packet as untouched held-out validation.
 
 Ask the reviewer, without first supplying our preferred interpretation:
 

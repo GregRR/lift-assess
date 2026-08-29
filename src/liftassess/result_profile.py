@@ -394,7 +394,7 @@ def build_result_profile(
         union_covered_source_bases=union_covered,
         candidate_profiles=candidate_profiles,
         headline=headline,
-        interpretation=_interpretation(headline),
+        interpretation=_interpretation(headline, comparative_relationship),
         evidence_tier=evidence_tier,
         consumed_resource_roles=consumed_resource_roles,
         query_context=query_context,
@@ -1095,7 +1095,20 @@ def _headline(
     return FactualHeadline.MULTIPLE_CHAIN_PROJECTIONS
 
 
-def _interpretation(headline: FactualHeadline) -> str:
+def _interpretation(
+    headline: FactualHeadline,
+    comparative_relationship: ComparativeRelationshipProfile,
+) -> str:
+    if (
+        headline is FactualHeadline.MULTIPLE_CHAIN_PROJECTIONS
+        and comparative_relationship.state
+        is ComparativeRelationshipState.FAVORS_ONE_PLACEMENT
+    ):
+        return (
+            "More than one chain projection exists; available categorical comparative "
+            "evidence favors one placement, but candidate encounter order is not a "
+            "scientific rank and this result does not establish a biological locus."
+        )
     if headline is FactualHeadline.NO_CHAIN_PROJECTION:
         return (
             "No consumed chain produced a projection for this source interval; "
