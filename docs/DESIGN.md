@@ -884,14 +884,15 @@ Those facts remain valid implementation history, not current target policy.
     absent cases. The production path SHA-256-verifies the consumed resource bytes and preserves
     one caller-declared shared upstream alignment ancestor across chain/net/reciprocal-best file
     provenance. The original completed fixture run verified extraction and provenance wiring only.
-    The reproducible verifier also contains a legacy-alpha cross-check that independently derives
-    the then-expected `CONTESTED` verdict from extracted candidate evidence without calling
-    `assess_candidates()`; the post-hardening real-data rerun on 2026-08-17 derived that legacy
-    result from 138 material candidates and matched the production alpha assessor. This remains
-    historical regression coverage for v0.1.0a1 semantics, not a target-model requirement. When
-    Milestone 17 replaces the aggregate verdict model, the same fixture should verify the new
-    factual-profile/comparative-relationship semantics instead. No biological ground-truth claim is
-    made. The verifier lives at `scripts/verify_canFam3_canFam4_mechanical_fixture.py`; the UCSC bulk
+    Earlier versions of the reproducible verifier also contained a legacy-alpha cross-check that
+    independently derived the then-expected `CONTESTED` verdict from extracted candidate evidence
+    without calling `assess_candidates()`; the post-hardening real-data rerun on 2026-08-17 derived
+    that legacy result from 138 material candidates and matched the production alpha assessor. That
+    remains historical regression coverage for v0.1.0a1 semantics, not a target-model requirement.
+    After Milestone 17 replaced the aggregate verdict model, the current verifier instead
+    cross-checks the factual result profile while retaining exact chain/net/reciprocal-best geometry
+    and provenance checks; it does not run the later filtered/all-chain comparative-relationship
+    classifier. No biological ground-truth claim is made. The verifier lives at `scripts/verify_canFam3_canFam4_mechanical_fixture.py`; the UCSC bulk
     files remain external.
 - **Historical-resolution fixture pedigree (not yet a concrete fixture)** — identifies the right
   assembly pair for proving the report behaves sensibly against a known resolution; the specific

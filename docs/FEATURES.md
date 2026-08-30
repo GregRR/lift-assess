@@ -191,7 +191,7 @@ The public `EvidenceKind` enum includes current and planned vocabulary. The exac
 | `RECIPROCAL_BEST_MEMBERSHIP` | Implemented for `COMPARATIVE` | Reported comparative relationship |
 | `FLANKING_GENE_SYNTENY` | Not yet emitted | None yet |
 
-`TARGET_PLACEMENT` refers to future interpretation of target-sequence role/context. It is distinct from the already implemented target coordinates and target bounding interval recorded for every candidate.
+`TARGET_PLACEMENT` remains a future evidence-kind interpretation and is not emitted by the current target-role implementation. Authoritative target sequence role/context is already reported as a separate typed result dimension; it is distinct from both `TARGET_PLACEMENT` evidence and the target coordinates/bounding interval recorded for every candidate.
 
 No evidence kind is converted into a numeric score or hidden weighted vote.
 
@@ -232,6 +232,7 @@ The active result path does **not** assign `WELL_SUPPORTED`, `CONTESTED`, or `IN
 
 A dedicated derived `ResultProfile` sits between scientific candidate/evidence data and both renderers. It deterministically records currently available dimensions including:
 
+- source input-validity/preflight state;
 - projection count;
 - source coverage with exact numerator/denominator;
 - mapped-segment count and uncovered source intervals;
@@ -239,8 +240,12 @@ A dedicated derived `ResultProfile` sits between scientific candidate/evidence d
 - orientation;
 - maximum candidate source coverage when multiple projections exist;
 - point-query local-context state, exact tested window, and factual point/context relationships;
+- actual reverse-mapping state and return relationships;
+- filtered/all-chain and comparative-relationship state;
+- target-role state and typed target sequence role/context where available;
+- typed external-context state and observations where available;
 - evidence tier and consumed resource roles; and
-- explicit not-yet-assessed/not-run boundaries for later result dimensions.
+- explicit not-assessed/not-run/unavailable boundaries for dimensions outside the current run.
 
 The profile also derives a factual headline such as `NO CHAIN PROJECTION`, `ONE COMPLETE CHAIN PROJECTION`, `PARTIAL SOURCE COVERAGE`, `COMPLETE BUT DISCONTINUOUS PROJECTION`, or `MULTIPLE CHAIN PROJECTIONS`, plus a bounded deterministic interpretation.
 
@@ -258,15 +263,18 @@ The default CLI output is a facts-first progressive summary containing:
 - relevant scope/identity boundaries; and
 - the unconditional biological-correctness caveat.
 
-Uncomplicated one-complete-projection cases stay compact. The current first slice expands automatically for partial source coverage, fragmented or target-discontinuous geometry, and multiple projections.
+Uncomplicated one-complete-projection cases stay compact. Material partial coverage, fragmented or target-discontinuous geometry, multiple projections, reverse relationships, comparative relationships, target-role context, and typed external context are surfaced according to the implemented progressive-disclosure rules.
 
 For `COMPARATIVE` results, the summary states that UCSC-derived comparative observations are conservatively treated as dependent and that exact shared processing-run provenance is not verified.
 
 For single-locus assessment, `--details` emits the complete currently available factual dossier, including:
 
 - every result-profile field and explicit scope boundary;
+- authoritative source-preflight metadata and provenance;
 - candidate IDs and UCSC chain IDs where applicable;
 - exact mapped segments, uncovered source intervals, target gaps, and orientation;
+- target sequence role/context when available;
+- typed external-context observations and provenance;
 - every evidence observation;
 - net hierarchy and reciprocal-best context;
 - resource URLs, cache paths, retrieval times, sizes, checksums, and terms context;
@@ -402,87 +410,44 @@ output therefore remains clean.
 ## Local-resource and programmatic APIs
 
 The public Python package exposes expert-level boundaries in addition to the CLI.
-Current capabilities include:
+Representative current capabilities include:
 
-- `iter_chain_file()` and `iter_net_file()` for plain-text or gzip-compressed local
-  UCSC resources; gzip is detected from the file bytes rather than the filename suffix,
-  so content-addressed/renamed cached artifacts still parse correctly;
-- `build_ucsc_candidates()` for parsed UCSC records;
-- `build_ucsc_candidates_from_files()` for explicitly supplied local resources and
-  provenance;
-- `build_ucsc_candidates_from_cached_bundle()` for verified cached bundles;
-- `build_result_profile()` for already-normalized candidates plus their evidence;
-- `assess_ucsc_cached_bundle()` for end-to-end assessment of an acquired bundle;
-- `discover_ucsc_resources()` for provider discovery;
-- transfer planning and metadata inspection APIs;
-- individual-resource and complete-bundle acquisition APIs;
-- cached-bundle loading and verification APIs; and
+- local UCSC chain/net parsing and candidate generation from explicit files or verified cached bundles;
+- exact-resource chain-index build/load/query boundaries;
+- authoritative assembly-metadata discovery, acquisition, parsing, caching, source preflight, and target-role attachment;
+- indexed BED/interval-table batch parsing, execution, and cross-record target relationships;
+- filtered/all-chain comparison and deterministic comparative-relationship derivation;
+- actual reverse-mapping and point-context builders/attachment helpers;
+- UCSC segmental-duplication discovery, acquisition, catalog, and typed-context builders;
+- result-profile derivation and end-to-end cached-bundle assessment;
+- UCSC mapping-resource discovery, transfer planning, acquisition, and cache verification; and
 - checksum, SHA-256 identity, and file-provenance helpers.
-
-The public model includes typed assembly, interval, mapping-segment, candidate, evidence,
-provenance, result-profile, resource, and report objects.
 
 ### Public package version
 
 `liftassess.__version__` exposes the installed package version from distribution
 metadata.
 
-### Public Python functions
+### Public Python API inventory
 
-The package currently exports these callable boundaries:
+`liftassess.__all__` is the exact exported-symbol inventory. The public surface includes
+representative groups for:
 
-- result/orchestration: `build_result_profile()`, `assess_ucsc_cached_bundle()`;
-- candidate/file handling: `build_ucsc_candidates()`,
-  `build_ucsc_candidates_from_files()`, `build_ucsc_candidates_from_cached_bundle()`,
-  `iter_chain_file()`, `iter_net_file()`;
-- resource discovery/planning/cache: `discover_ucsc_resources()`,
-  `plan_ucsc_bundle_acquisition()`, `inspect_ucsc_resource()`,
-  `inspect_ucsc_bundle_transfer_plan()`, `acquire_ucsc_resource()`,
-  `acquire_ucsc_resource_bundle()`, `load_cached_ucsc_resource_bundle()`, and
-  `ucsc_resource_terms()`; and
-- identity/provenance: `compute_resource_checksum()`, `verify_resource_checksum()`,
-  `sha256_identifier_for_file()`, and `provenance_source_for_file()`.
+- core assembly, interval, mapping, evidence, provenance, and result-profile models;
+- assembly-sequence metadata/preflight and target-role context;
+- chain indexing and indexed batch assessment;
+- filtered/all-chain and comparative relationships;
+- actual reverse mapping and point-query context;
+- typed UCSC segmental-duplication context;
+- resource discovery, planning, acquisition, cache, and identity/provenance; and
+- reporting/orchestration helpers.
 
-### Public Python types
+This documentation intentionally describes capability groups rather than duplicating every
+exported symbol, so `liftassess.__all__` remains authoritative if individual public names are
+added or retired during the alpha period.
 
-The package currently exports these model/resource types and errors:
-
-- core models: `AssemblyIdentifier`, `GenomicInterval`, `MappingSegment`,
-  `MappingOrientation`, `NormalizedCandidate`, and `EvidenceAvailabilityTier`;
-- result profile: `ResultProfile`, `CandidateResultProfile`,
-  `CandidateReverseMappingProfile`, `ResultScopeProfile`, `FactualHeadline`,
-  `ProjectionCountState`, `SourceCoverageState`, and explicit state enums for later
-  dimensions;
-- actual reverse mapping: `CandidateReverseMappingResult`, `ReverseSegmentResult`,
-  `ReverseCheckState`, `ReverseRelationshipState`,
-  `ReverseOriginalSourceCoverageState`,
-  `build_reverse_mapping_results_from_cached_bundle()`,
-  `build_reverse_mapping_results_from_cached_chain()`,
-  `attach_reverse_mapping_context()`, and `attach_reverse_mapping_results()`; the CLI
-  runs this automatically only when a matching reverse-direction chain and prepared
-  reverse chain index are already cached;
-- evidence: `EvidenceKind`, `EvidenceObservation`,
-  `MappingCoverageStatus`, `MappingCoverageSummary`, `ChainGap`, `ChainGapSummary`,
-  `NetHierarchySummary`, `ReciprocalBestMembershipStatus`,
-  `ReciprocalBestMembershipSummary`, and `ReciprocalBestResourceCompleteness`;
-- provenance/identity: `ProvenanceIdentifier`, `ProvenanceIdentifierKind`,
-  `ProvenanceSource`, `ResourceChecksumAlgorithm`, `ResourceChecksumMismatchError`,
-  and `ResourceIdentityMismatchError`;
-- acquired resources: `CachedResource`, `CachedUCSCChainResource`,
-  `CachedUCSCResourceBundle`,
-  `ProviderChecksum`, `UCSCResourceBundle`, `UCSCResourceClass`,
-  `UCSCBundleResourceRole`, `UCSCResourceTerms`, `UCSCRemoteResourceMetadata`,
-  `UCSCBundleAcquisitionItem`, `UCSCBundleAcquisitionPlan`,
-  `UCSCBundleTransferInspectionItem`, `UCSCBundleTransferInspection`,
-  `UCSCResourceDiscoveryError`, `UCSCResourceAcquisitionError`,
-  `UCSCResourceTermsAcknowledgementRequired`, and
-  `UCSCBundleAcquisitionPlanAcknowledgementRequired`; and
-- reporting/orchestration: `UCSCAssessmentResource`, `UCSCAssessmentReport`, and
-  `ResourceReadProgressCallback`.
-
-There is intentionally only one concrete candidate-generation engine in v1. The clean
-normalized-candidate boundary is **not** a plugin registry or engine auto-discovery
-system.
+There is intentionally only one concrete candidate-generation engine. The clean normalized-
+candidate boundary is **not** a plugin registry or engine auto-discovery system.
 
 ## Validation and auditability
 

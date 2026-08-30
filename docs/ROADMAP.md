@@ -102,7 +102,7 @@ Implemented and reviewed:
 - reverse-strand and split mappings regression-tested through the orchestration boundary;
 - no ranking, preferred-candidate selection, or verdict assignment in the engine.
 
-This is the current boundary between candidate/evidence generation and the still-unimplemented assessor logic.
+At that milestone, this was the boundary between candidate/evidence generation and the not-yet-implemented assessor logic; later milestones replaced the legacy assessor/result model with the factual result-profile path described below.
 
 ### 7. Local resource-file integration — complete
 
