@@ -93,7 +93,25 @@ and prefix the assessment commands below with `uv run`.
 
 ## 4. Your first assessment
 
-A known real mechanical-fixture command is:
+Start with the ordinary directional liftOver chain rather than the much larger
+comparative resource bundle:
+
+```bash
+assess-liftover \
+  canFam3 \
+  canFam4 \
+  chr1:10000001-10000100 \
+  --evidence-tier LIFTOVER-ONLY
+```
+
+`LIFTOVER-ONLY` is an evidence-availability class, **not a lower-confidence mode**.
+During the 2026-08-30 release-readiness check, UCSC advertised a 5.4 MiB
+`canFam3ToCanFam4.over.chain.gz` transfer for this exact example. Provider resources can
+change, so review the displayed transfer plan rather than treating that size as a
+permanent guarantee.
+
+After learning the basic workflow, the real comparative mechanical fixture exercises
+the complete comparative path:
 
 ```bash
 assess-liftover \
@@ -102,11 +120,9 @@ assess-liftover \
   chrUn_JH373233:1845736-1845835
 ```
 
-This example is useful for validating the complete comparative path, but it is **not a
-small first download**. The current `canFam3` → `canFam4` comparative bundle is about
-2.50 GiB compressed, and the current implementation streams large resources during
-single-locus assessment. See [`PERFORMANCE.md`](PERFORMANCE.md) before using this pair
-as a speed test.
+That comparative fixture currently requires an approximately 2.50 GiB compressed
+bundle and can require substantial runtime. See [`PERFORMANCE.md`](PERFORMANCE.md)
+before using it as a speed test.
 
 A first automatic single-locus run goes through these high-level stages:
 
@@ -127,8 +143,10 @@ A first automatic single-locus run goes through these high-level stages:
 8. **Prepare optional target-role context.** When an exact versioned UCSC/NCBI assembly
    binding is available, target sequence role/context is attached; inability to obtain
    this optional context does not invalidate the mapping assessment.
-9. **Assess the locus.** Candidate mappings and available chain/net/reciprocal-best
-   evidence are extracted and passed to deterministic result-profile derivation.
+9. **Assess the locus.** Candidate mappings and the evidence available for the selected
+   publication class are extracted and passed to deterministic result-profile derivation.
+   `LIFTOVER-ONLY` uses chain evidence; `COMPARATIVE` can additionally attach supported
+   net/reciprocal-best observations.
 10. **Attach available post-assessment context.** Depending on prepared/cached resources
     and run mode, liftAssess can attach the filtered-versus-all-chain comparison, point
     context, actual reverse mapping, and typed UCSC segmental-duplication observations.
@@ -141,28 +159,33 @@ operation.
 
 ## 5. How to read the default result
 
-A concise uncomplicated report has this general shape:
+The tested beginner example produces this compact result shape:
 
 ```text
 * ONE COMPLETE CHAIN PROJECTION *
 Source:
     chr1:10000001-10000100 (1-based inclusive)
 Source coverage:
-    100/100 bases
+    100/100 source bases
 Target:
     chr1:10027740-10027839 (1-based inclusive; same orientation)
 Reverse mapping:
-    exactly reconstructs the original aligned source geometry
+    unavailable from the current prepared reverse resources
+UCSC segmental-duplication context:
+    unavailable; no duplication overlap was inferred from sequence naming or mapping geometry.
 Evidence:
-    COMPARATIVE — ...
+    LIFTOVER-ONLY — consumed CHAIN; chain mapping evidence only
 Interpretation:
-    ...
+    One chain projects every requested source base; this describes coordinate geometry, not biological identity or correctness.
 Scope:
-    coordinate projection/structure assessed; variant/gene identity not assessed.
+    coordinate projection/structure assessed; named-variant and gene/transcript identity not assessed.
 Details:
     use --details for the full profile/evidence or --json for schema v2.
 This does not establish biological correctness.
 ```
+
+Optional context can differ with the prepared cache and available provider metadata,
+but the mapping and evidence statements retain the same factual boundaries.
 
 The default summary keeps each reported item label on its own line and indents the
 corresponding value by four spaces so the result remains easy to scan.
@@ -257,7 +280,9 @@ Use `--details` when you need to understand or audit the evidence behind the sum
 
 ```bash
 assess-liftover \
-  canFam3 canFam4 chrUn_JH373233:1845736-1845835 \
+  canFam3 canFam4 chr1:10000001-10000100 \
+  --evidence-tier LIFTOVER-ONLY \
+  --offline \
   --details
 ```
 
@@ -285,7 +310,9 @@ Use `--json` for the complete schema-v2 machine-readable report:
 
 ```bash
 assess-liftover \
-  canFam3 canFam4 chrUn_JH373233:1845736-1845835 \
+  canFam3 canFam4 chr1:10000001-10000100 \
+  --evidence-tier LIFTOVER-ONLY \
+  --offline \
   --json > assessment.json
 ```
 
@@ -319,6 +346,7 @@ To use another location:
 ```bash
 assess-liftover \
   canFam3 canFam4 chr1:10000001-10000100 \
+  --evidence-tier LIFTOVER-ONLY \
   --cache-dir /path/to/liftassess-cache
 ```
 
@@ -335,6 +363,7 @@ Once the needed resource bundle is cached, use `--offline`:
 ```bash
 assess-liftover \
   canFam3 canFam4 chr1:10000001-10000100 \
+  --evidence-tier LIFTOVER-ONLY \
   --offline
 ```
 
@@ -352,6 +381,7 @@ current resource bytes instead of accepting cache-first reuse:
 ```bash
 assess-liftover \
   canFam3 canFam4 chr1:10000001-10000100 \
+  --evidence-tier LIFTOVER-ONLY \
   --refresh
 ```
 
@@ -366,6 +396,7 @@ other non-interactive run, explicit flags can supply those acknowledgements:
 ```bash
 assess-liftover \
   canFam3 canFam4 chr1:10000001-10000100 \
+  --evidence-tier LIFTOVER-ONLY \
   --acknowledge-ucsc-terms \
   --accept-transfer-plan \
   --json > assessment.json
@@ -382,6 +413,7 @@ Use `--quiet` to suppress nonessential status and measured progress displays:
 ```bash
 assess-liftover \
   canFam3 canFam4 chr1:10000001-10000100 \
+  --evidence-tier LIFTOVER-ONLY \
   --quiet
 ```
 

@@ -157,10 +157,10 @@ For development from a source checkout, use `uv sync` as described under [Develo
 
 ## CLI workflow
 
-After installation, the common-case command is:
+After installation, a small first assessment is:
 
 ```text
-assess-liftover canFam3 canFam4 chrUn_JH373233:1845736-1845835
+assess-liftover canFam3 canFam4 chr1:10000001-10000100 --evidence-tier LIFTOVER-ONLY
 ```
 
 CLI loci use the familiar UCSC-style 1-based, inclusive display convention and are converted immediately to liftAssess's canonical 0-based, half-open internal representation.
@@ -169,7 +169,9 @@ Before mapping-evidence resource acquisition, the command displays the applicabl
 
 The default cache is the platform user cache (`~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` or `~/.cache/liftassess` on other platforms). Before a single-locus scientific assessment begins, liftAssess now validates the submitted source sequence and interval against the UCSC database's authoritative `chromInfo` metadata. When available, exact `chromAlias` correspondences are used only to suggest the canonical UCSC name; submitted aliases are not silently rewritten. These small database-table artifacts use the same content-addressed cache and exact SHA-256 provenance as other external resources but are not mapping evidence. UCSC's database download directories explicitly mark their files and tables as freely usable, so these metadata/context tables do not use the mapping-evidence acknowledgement gate. A normal online run discovers/acquires them when missing; `--offline` requires a verified cached `chromInfo` artifact before assessment can proceed. After the mapping bundle is resolved, an online single-locus run may also acquire version-matched target sequence role/context: the UCSC assembly description supplies the exact NCBI assembly accession and the matching NCBI Datasets sequence report supplies provider-native sequence `role` and `assemblyUnit`. This optional context is cached separately with exact SHA-256 provenance and never becomes a mapping-quality score. If it is unavailable, mapping continues and liftAssess explicitly infers no role from names such as `_alt`, `_random`, or `chrUn`; offline runs use it only when already cached.
 
-The documented `canFam3`→`canFam4` example is the real comparative mechanical fixture and requires a complete approximately 2.50 GiB UCSC comparative bundle; initial acquisition and an unindexed assessment can therefore take substantial time depending on storage and CPU performance. Once that bundle is cached, `--offline` reuses it without contacting UCSC. Unindexed runs re-verify the source chain directly; when a validated exact-resource chain index exists, liftAssess verifies its compact lookup-integrity catalog, the queried bin metadata, and selected compressed record blocks instead of rereading either the unused multi-gigabyte source chain or the complete SQLite lookup database, while the other cached bundle artifacts retain their normal direct integrity checks.
+The beginner command above explicitly selects the ordinary directional `LIFTOVER-ONLY` chain publication class. During the 2026-08-30 release-readiness check, UCSC advertised a 5.4 MiB `canFam3ToCanFam4.over.chain.gz` transfer for that exact example; provider resources can change, so always review the displayed transfer plan. `LIFTOVER-ONLY` describes evidence availability, not lower confidence.
+
+The real `canFam3`→`canFam4` comparative mechanical fixture remains `chrUn_JH373233:1845736-1845835` using the default COMPARATIVE-preferred resource selection. It requires a complete approximately 2.50 GiB UCSC comparative bundle and is an advanced validation example rather than the recommended first run. Once that bundle is cached, `--offline` reuses it without contacting UCSC. Unindexed runs re-verify the source chain directly; when a validated exact-resource chain index exists, liftAssess verifies its compact lookup-integrity catalog, the queried bin metadata, and selected compressed record blocks instead of rereading either the unused multi-gigabyte source chain or the complete SQLite lookup database, while the other cached bundle artifacts retain their normal direct integrity checks.
 
 For repeated work on a large assembly pair, an optional one-time preparation command builds a reusable chain index from the already verified local cache and **never contacts UCSC**:
 
@@ -210,7 +212,7 @@ The default command emits a concise facts-first summary headed by a deterministi
 For machine use, stdout remains the JSON document while status/progress stays on stderr, so normal shell redirection is safe:
 
 ```text
-assess-liftover canFam3 canFam4 chrUn_JH373233:1845736-1845835 --json > assessment.json
+assess-liftover canFam3 canFam4 chr1:10000001-10000100 --evidence-tier LIFTOVER-ONLY --json > assessment.json
 ```
 
 ## Validation strategy
