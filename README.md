@@ -84,7 +84,7 @@ The current development code includes:
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
 - a real `canFam3`→`canFam4` comparative mechanical fixture, replayed through the production cached-bundle path from exact externally cached UCSC resources without committing provider data to the repository.
 - a dedicated derived result-profile layer that validates durable candidate/evidence invariants and deterministically summarizes projection count, coverage, geometry, orientation, evidence availability, and scope boundaries without an aggregate verdict.
-- progressive human rendering that stays compact for uncomplicated results and expands for currently detectable partial, fragmented/discontinuous, or multiple-projection states.
+- progressive human rendering that stays compact for uncomplicated results and surfaces material geometry, reverse/query-context, comparative, target-role, and typed external-context states when relevant.
 - schema-v2 JSON reporting from the same result profile, retaining exact candidates, evidence, resources, and provenance while removing the legacy `verdict`, verdict-derived `decision_reason`, and preferred-candidate fields.
 - cached-bundle orchestration that connects acquired UCSC resources to candidate/evidence generation and result-profile derivation while preserving evidence tier, resource-consumption metadata, retrieval context, and shared provenance.
 
@@ -205,7 +205,7 @@ assess-liftover SOURCE_DB TARGET_DB --interval-table loci.tsv --json > batch.jso
 
 Both batch input forms support `-` for stdin. Batch output uses canonical 0-based, half-open intervals. Batch mode is cache-only and index-required in this milestone: it does not contact UCSC, refresh resources, build an index, or fall back to a whole-chain traversal. It also requires verified cached UCSC `chromInfo` source metadata; one catalog is reused across the batch, every row is checked for a canonical source sequence and authoritative bounds before chain lookup, and exact `chromAlias` matches are reported as suggestions rather than silently rewritten. If the preferred exact publication class lacks a prepared index, prepare it explicitly with `prepare-liftassess-index`. `LIFTOVER-ONLY` batches remain chain-only. When a complete cached `COMPARATIVE` bundle is available, submitted-row candidates use the prepared all-chain index and then receive ordinary-net and reciprocal-best-chain observations from one shared full pass over each of those two comparatively small resources; the all-chain itself is not rescanned. The current batch COMPARATIVE scope does not run the paired filtered-vs-all-chain inventory comparison or categorical comparative relationship classifier used by single-locus results; those dimensions are reported as not assessed. Exact target collisions remain separate from overlapping-but-offset projections using exact mapped target segments. One-base batch rows automatically receive the same 101-bp point-context check as single-locus points, using authoritative `chromInfo` bounds when preflight is present; those context candidates remain chain-only, exact context-scale collisions are reported separately as neighborhood-level target collisions, and `--context-bases` selects another odd-width point window. Ordinary interval rows are not widened. Reverse batch evidence is not yet assessed. Target role/context is cache-only in batch mode: when the target UCSC sequence catalog plus its version-matched NCBI sequence report are already cached, one catalog is reused across all projected target sequences; otherwise the batch reports the role dimension as unavailable and does not infer roles from sequence names. Use `--evidence-tier` when the filtered `LIFTOVER-ONLY` publication class is required.
 
-The default command emits a concise facts-first summary headed by a deterministic mapping headline. Uncomplicated results stay compact; currently detectable partial coverage, fragmented/discontinuous geometry, and multiple projections expand automatically with the material geometry. `COMPARATIVE` summaries also state that UCSC-derived observations are conservatively treated as dependent, not independent votes, and exact shared processing-run provenance is not verified. For single-locus runs, `--details` emits the complete currently available factual profile, exact mapped segments and gaps, evidence observations, resource URLs/checksums and consumed-vs-unconsumed status, scope boundaries, and the provenance dependency graph. `--json` emits schema version 2 using canonical 0-based, half-open interval objects; batch JSON uses the separate `liftassess.ucsc_batch_result` report type. Schema v2 intentionally omits the legacy aggregate `verdict`, verdict-derived `decision_reason`, and preferred-candidate fields. `--details` is not yet available with batch input; `--details` and `--json` remain mutually exclusive. All completed report modes retain the explicit caveat that coordinate/evidence observations do not establish biological correctness.
+The default command emits a concise facts-first summary headed by a deterministic mapping headline. Uncomplicated results stay compact; material partial/fragmented/discontinuous geometry, multiple projections, reverse/query-context relationships, comparative relationships, target-role context, and typed external context are surfaced under the current progressive-disclosure rules. `COMPARATIVE` summaries also state that UCSC-derived observations are conservatively treated as dependent, not independent votes, and exact shared processing-run provenance is not verified. For single-locus runs, `--details` emits the complete currently available factual profile, exact mapped segments and gaps, evidence observations, resource URLs/checksums and consumed-vs-unconsumed status, scope boundaries, and the provenance dependency graph. `--json` emits schema version 2 using canonical 0-based, half-open interval objects; batch JSON uses the separate `liftassess.ucsc_batch_result` report type. Schema v2 intentionally omits the legacy aggregate `verdict`, verdict-derived `decision_reason`, and preferred-candidate fields. `--details` is not yet available with batch input; `--details` and `--json` remain mutually exclusive. All completed report modes retain the explicit caveat that coordinate/evidence observations do not establish biological correctness.
 
 For machine use, stdout remains the JSON document while status/progress stays on stderr, so normal shell redirection is safe:
 
@@ -236,9 +236,9 @@ The project currently uses `uv` for environment and dependency management.
 ```bash
 uv sync
 uv run pytest
-uv run ruff check src tests
-uv run ruff format --check src tests
-uv run mypy --strict src tests
+uv run ruff check src tests scripts
+uv run ruff format --check src tests scripts
+uv run mypy --strict src tests scripts
 git diff --check
 ```
 
@@ -276,6 +276,8 @@ Automatic UCSC discovery is intended as a convenience, not a permanent hard depe
 - [`ROADMAP.md`](docs/ROADMAP.md) — implementation history, current review state, and planned milestones.
 - [`PERFORMANCE.md`](docs/PERFORMANCE.md) — measured runtime characteristics, profiling results, and current optimization priorities.
 - [`REFERENCES.md`](docs/REFERENCES.md) — literature, provider/format documentation, and technical evidence used by the project.
+- [`CHANGELOG.md`](CHANGELOG.md) — user-visible changes and release history.
+- [`RELEASING.md`](docs/RELEASING.md) — maintainer release-validation and publishing procedure.
 
 ## Citation
 

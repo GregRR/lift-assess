@@ -440,7 +440,7 @@ representative groups for:
 - actual reverse mapping and point-query context;
 - typed UCSC segmental-duplication context;
 - resource discovery, planning, acquisition, cache, and identity/provenance; and
-- reporting/orchestration helpers.
+- assessment-report, result-profile, and orchestration models/helpers.
 
 This documentation intentionally describes capability groups rather than duplicating every
 exported symbol, so `liftassess.__all__` remains authoritative if individual public names are

@@ -108,23 +108,33 @@ small first download**. The current `canFam3` → `canFam4` comparative bundle i
 single-locus assessment. See [`PERFORMANCE.md`](PERFORMANCE.md) before using this pair
 as a speed test.
 
-A first automatic run goes through these stages:
+A first automatic single-locus run goes through these high-level stages:
 
-1. **Check the local cache.** If a complete verified bundle already exists, liftAssess
-   can use it without contacting UCSC.
-2. **Discover UCSC resources** if no reusable cache bundle is available.
-3. **Show the applicable UCSC terms.** You must explicitly acknowledge them before
-   provider metadata inspection or acquisition.
-4. **Inspect transfer metadata.** liftAssess uses body-free HTTP HEAD requests to show
+1. **Preflight the source interval.** Authoritative UCSC `chromInfo` metadata validates
+   the submitted source sequence and bounds before mapping is attempted; exact
+   `chromAlias` matches may be suggested but are never silently rewritten.
+2. **Check the local mapping-resource cache.** If a complete verified bundle already
+   exists, liftAssess can use it without contacting UCSC for mapping resources.
+3. **Discover UCSC mapping resources** if no reusable mapping bundle is available.
+4. **Show the applicable UCSC mapping-resource terms.** You must explicitly acknowledge
+   them before provider metadata inspection or acquisition for those resources.
+5. **Inspect transfer metadata.** liftAssess uses body-free HTTP HEAD requests to show
    provider-advertised sizes and other transfer information when available.
-5. **Show the transfer plan.** You separately accept the exact resource plan before
-   acquisition begins.
-6. **Acquire and verify resources.** Verified artifacts are stored outside the source
-   tree in the liftAssess cache.
-7. **Assess the locus.** Candidate mappings and evidence are extracted and passed to
-   deterministic result-profile derivation.
-8. **Check prepared reverse-direction resources.** If the query produced candidates and a reverse-direction chain of the same publication class plus its prepared index are already cached, liftAssess runs an actual chain-only reverse assessment. No matching reverse chain is `UNAVAILABLE`; a matching chain without a usable prepared index is `NOT_RUN`. Normal assessment does not trigger an implicit provider request, index build, or exhaustive reverse-chain scan.
-9. **Print the report.** The default is the concise human-readable summary.
+6. **Show the transfer plan.** You separately accept the exact mapping-resource plan
+   before acquisition begins.
+7. **Acquire and verify mapping resources.** Verified artifacts are stored outside the
+   source tree in the liftAssess cache.
+8. **Prepare optional target-role context.** When an exact versioned UCSC/NCBI assembly
+   binding is available, target sequence role/context is attached; inability to obtain
+   this optional context does not invalidate the mapping assessment.
+9. **Assess the locus.** Candidate mappings and available chain/net/reciprocal-best
+   evidence are extracted and passed to deterministic result-profile derivation.
+10. **Attach available post-assessment context.** Depending on prepared/cached resources
+    and run mode, liftAssess can attach the filtered-versus-all-chain comparison, point
+    context, actual reverse mapping, and typed UCSC segmental-duplication observations.
+    These dimensions have explicit `NOT_RUN`/`UNAVAILABLE` boundaries and do not become
+    confidence votes or biological-mechanism claims.
+11. **Print the report.** The default is the concise human-readable summary.
 
 Cancelling either acknowledgement stops before the corresponding network/resource
 operation.
@@ -226,11 +236,16 @@ States important evidence boundaries so an untested identity question is not imp
 
 ## 6. Progressive disclosure
 
-Routine one-complete-projection results stay compact. The current first result-profile slice expands automatically when it can already detect:
+Routine one-complete-projection results stay compact. The current progressive renderer surfaces material facts when present, including:
 
 - partial source coverage;
-- fragmented or target-discontinuous projection geometry; or
-- multiple chain projections.
+- fragmented or target-discontinuous projection geometry;
+- multiple chain projections;
+- actual reverse-mapping relationships;
+- point-versus-local-context relationships;
+- comparative placement relationships;
+- target sequence role/context; and
+- typed external-context observations.
 
 For large intervals and multiple projections, source coverage leads the story. The report gives actual measured coverage; it does not apply a built-in 90% or other quality threshold.
 
@@ -249,10 +264,13 @@ assess-liftover \
 The detailed report includes:
 
 - the complete currently available factual result profile;
+- authoritative source-preflight metadata and provenance;
 - explicit states for result dimensions that were not run or are not yet assessed;
 - every candidate and exact mapped segment;
 - exact uncovered source intervals and target gaps;
 - mapping orientation;
+- target sequence role/context when available;
+- typed external-context observations and provenance when available;
 - every evidence observation;
 - chain/net/reciprocal-best detail;
 - resource URLs, cache paths, retrieval metadata, and checksums;
@@ -377,6 +395,7 @@ flags.
 | --- | --- | --- |
 | `-h`, `--help` | Shows the command syntax and option help | Quick command reference |
 | `--cache-dir PATH` | Uses a specific resource cache | Shared storage, testing, or keeping large resources on another disk |
+| `--evidence-tier {COMPARATIVE,LIFTOVER-ONLY}` | Requires one exact UCSC mapping-resource publication class instead of the default COMPARATIVE-preferred selection | Reproducible tier selection or preparing the filtered-chain side of a comparison |
 | `--offline` | Guarantees zero provider access and requires a complete verified cache | Reproducible offline analysis or restricted network environments |
 | `--refresh` | Contacts UCSC and reacquires current resources instead of cache-first reuse | Explicit freshness checks |
 | `--acknowledge-ucsc-terms` | Supplies the explicit terms acknowledgement without a prompt | Non-interactive workflows after terms review |
@@ -386,6 +405,7 @@ flags.
 | `--details` | Prints the full single-locus human-readable evidence/resource/provenance dossier; not yet available with batch input | Scientific inspection and debugging |
 | `--json` | Prints schema-v2 machine-readable output | Scripts, archives, downstream analysis |
 | `--quiet` | Suppresses nonessential terminal progress/status | Logs, scripts, or less terminal output |
+| `--context-bases N` | Uses another odd-width local-context window for 1-bp point queries, including one-base batch rows | Explicitly testing a point at a scale other than the automatic 101-bp default |
 
 `--offline` and `--refresh` are mutually exclusive. `--details` and `--json` are also
 mutually exclusive.
