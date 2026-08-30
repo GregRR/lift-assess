@@ -882,7 +882,8 @@ Release requirements:
   through the documented external install path.
 
 If Milestone 23 does not pass, `v0.2.0a1` remains blocked rather than weakening the held-out
-validation gate to meet a release target.
+validation gate to meet a release target. Maintainer release mechanics are documented in
+[`RELEASING.md`](RELEASING.md).
 
 ### Parallel / non-blocking research items
 

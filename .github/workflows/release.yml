@@ -25,25 +25,11 @@ jobs:
           python-version: "3.13"
           enable-cache: true
 
-      - name: Verify tag matches package version
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
+      - name: Verify release metadata
         run: |
-          uv run --no-project python - <<'PY'
-          import os
-          import tomllib
-          from pathlib import Path
-
-          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
-          expected_tag = f"v{version}"
-          actual_tag = os.environ["RELEASE_TAG"]
-          if actual_tag != expected_tag:
-              raise SystemExit(
-                  f"release tag {actual_tag!r} does not match project version {version!r}; "
-                  f"expected {expected_tag!r}"
-              )
-          print(f"Release tag matches project version: {actual_tag}")
-          PY
+          uv run --no-project python scripts/check_release_metadata.py \
+            --expected-version "${GITHUB_REF_NAME#v}" \
+            --expected-tag "$GITHUB_REF_NAME"
 
       - name: Verify lockfile
         run: uv lock --check
