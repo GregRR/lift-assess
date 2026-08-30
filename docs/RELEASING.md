@@ -102,6 +102,19 @@ Review the contents and metadata of both artifacts before tagging. The tag workf
 publishes to PyPI after its release gate passes, so the tag should not be pushed until
 these local artifacts and the release-preparation diff have been reviewed.
 
+## Verify publishing configuration
+
+Before pushing the release tag, verify the external publishing settings that are not
+stored in the repository:
+
+- the GitHub environment used by the PyPI job is still named `pypi`, with any intended
+  environment protections still enabled; and
+- the PyPI Trusted Publisher for `liftassess` still identifies repository owner
+  `GregRR`, repository `lift-assess`, workflow `release.yml`, and environment `pypi`.
+
+The repository workflow deliberately grants `id-token: write` only to the PyPI publish
+job. No long-lived PyPI token is required or expected.
+
 ## Commit and tag
 
 After the release-preparation commit is pushed and normal CI is green, create and push
@@ -123,7 +136,10 @@ release metadata, rebuilds and smoke-tests both distributions, publishes them to
 through trusted publishing, and creates a draft GitHub release containing the artifacts.
 
 Review the workflow in GitHub Actions. Do not create a second tag to work around a
-failed release; diagnose the failure first.
+failed release; diagnose the failure first. If PyPI publication succeeded but a later
+job failed, use GitHub's web interface to rerun only the failed job(s) or the specific
+failed job. Do not rerun the already-successful PyPI publish job: PyPI distribution
+filenames are immutable, and a repeated upload of the same release should fail loudly.
 
 ## Smoke-test the published package
 
