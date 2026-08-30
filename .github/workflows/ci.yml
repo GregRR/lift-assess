@@ -51,13 +51,13 @@ jobs:
         run: uv lock --check
 
       - name: Run Ruff checks
-        run: uv run --locked ruff check src tests
+        run: uv run --locked ruff check src tests scripts
 
       - name: Check formatting
-        run: uv run --locked ruff format --check src tests
+        run: uv run --locked ruff format --check src tests scripts
 
       - name: Run strict mypy
-        run: uv run --locked mypy --strict src tests
+        run: uv run --locked mypy --strict src tests scripts
 
       - name: Build distributions
         run: uv build

@@ -343,7 +343,12 @@ def main() -> None:
     # constructed bundle. This verifier relies on the previously completed UCSC
     # acquisition for completeness; it independently checks exact byte size here,
     # while the production file-backed path checks SHA-256 over each consumed stream.
-    direct_rbest_counts = _direct_rbest_pair_counts(bundle.reciprocal_best_chain.path)
+    reciprocal_best_chain = bundle.reciprocal_best_chain
+    if reciprocal_best_chain is None:
+        raise VerificationError(
+            "mechanical fixture requires the reciprocal-best chain resource"
+        )
+    direct_rbest_counts = _direct_rbest_pair_counts(reciprocal_best_chain.path)
 
     source = AssemblyIdentifier(name=SOURCE_DB, provider="UCSC")
     target = AssemblyIdentifier(name=TARGET_DB, provider="UCSC")

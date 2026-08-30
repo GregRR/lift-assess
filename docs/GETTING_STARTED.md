@@ -16,7 +16,7 @@ liftAssess asks a different follow-up question:
 
 > What physically happened to this interval in the consumed mapping resources, what evidence was examined, and what does that evidence not establish?
 
-The current result is a factual profile rather than a single quality verdict. It reports dimensions such as projection count, exact source coverage, split/discontinuous geometry, orientation, actual reverse-mapping context when cached reverse resources are available, evidence availability, resource consumption, and provenance.
+The current result is a factual profile rather than a single quality verdict. It reports dimensions such as source-input validity, projection count, exact source coverage, split/discontinuous geometry, orientation, actual reverse-mapping context when cached reverse resources are available, target sequence role/context, typed external context, evidence availability, resource consumption, and provenance.
 
 The default human report begins with a deterministic factual headline such as `ONE COMPLETE CHAIN PROJECTION`, `PARTIAL SOURCE COVERAGE`, or `MULTIPLE CHAIN PROJECTIONS`. It then gives the few facts needed to understand that headline and a bounded interpretation.
 
@@ -208,6 +208,14 @@ assess-liftover hg19 hg38 chr1:120904787-120904787 --context-bases 1001
 Ordinary interval queries are not widened automatically, and liftAssess never recursively expands a
 point from 101 bp to 1 kb or 10 kb because the first context result looks unusual.
 
+### `Target role and typed external context`
+
+When UCSC's assembly description provides an exact versioned NCBI assembly accession, liftAssess can attach provider-native target sequence role/context from the matching NCBI Datasets sequence report. If the exact binding cannot be established, the role stays `UNAVAILABLE`; liftAssess does not guess from names such as `_alt`, `_random`, or `chrUn`.
+
+Single-locus runs can also report exact source and projected-target overlap with UCSC's assembly-specific `genomicSuperDups` table. Those observations are descriptive context only. They do not penalize a projection, prove that duplication caused the mapping behavior, or establish which locus is biologically correct.
+
+Both context families preserve exact resource provenance. If optional context is missing or unusable, the already-valid primary coordinate assessment continues and the unavailable dimension is reported explicitly.
+
 ### `Interpretation`
 
 A deterministic sentence that stays close to the measured geometry/evidence. It does not choose a biologically correct locus.
@@ -226,7 +234,7 @@ Routine one-complete-projection results stay compact. The current first result-p
 
 For large intervals and multiple projections, source coverage leads the story. The report gives actual measured coverage; it does not apply a built-in 90% or other quality threshold.
 
-Actual reverse-mapping context is reported when the matching prepared reverse index is available. For 1-bp point queries, liftAssess also requests automatic 101-bp local chain context when the prepared forward chain index is available. Batch mode reports cross-record exact target collisions and overlapping-but-offset projections from indexed chain candidates, and one-base rows from either supported batch format receive the same automatic point context from that index. Context-scale exact collisions are reported separately as neighborhood-level target collisions. COMPARATIVE batches now attach shared net/reciprocal-best evidence to submitted rows; reverse batch evidence, target-role metadata, and typed contextual evidence remain later roadmap capabilities. Those later checks are not silently implied by the current output.
+Actual reverse-mapping context is reported when the matching prepared reverse index is available. For 1-bp point queries, liftAssess also requests automatic 101-bp local chain context when the prepared forward chain index is available. Batch mode reports cross-record exact target collisions and overlapping-but-offset projections from indexed chain candidates, and one-base rows from either supported batch format receive the same automatic point context from that index. Context-scale exact collisions are reported separately as neighborhood-level target collisions. COMPARATIVE batches now attach shared net/reciprocal-best evidence to submitted rows. Target-role metadata is cache-only in batch mode; reverse batch evidence and typed external context are not currently assessed there and are not silently implied by the output.
 
 ## 7. Ask for the full human-readable dossier
 

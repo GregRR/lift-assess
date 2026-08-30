@@ -8,16 +8,18 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
 
-The post-alpha redesign is now implemented through Milestone 22. The development code uses the facts-first orthogonal result profile and schema-v2 reporting model, scalable exact-resource chain indexing, actual reverse-mapping context, automatic 101-bp point context, paired filtered/all-chain comparative relationships, and indexed batch assessment with both BED and simple interval-table intake. The required M22 batch scope is complete.
+The post-alpha redesign is implemented through Milestone 22 plus the prerequisite assembly/context work for Milestone 23. The development code uses the facts-first orthogonal result profile and schema-v2 reporting model, scalable exact-resource chain indexing, actual reverse-mapping context, automatic 101-bp point context, paired filtered/all-chain comparative relationships, indexed batch assessment with both BED and simple interval-table intake, authoritative source preflight, version-bound target-role context, and typed UCSC segmental-duplication context. The required M22 batch scope is complete.
 
 The M22 closure gate contained **506 tests** and passed pytest, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`. Subsequent assembly-metadata/context work has continued to expand the development suite beyond that checkpoint. M22 also has real-data regression coverage against the established B12-B14 COMPARATIVE cases and B15-B18 batch-collision cases. The M22 external review reproduced its checkpoint gate, found no scientific-correctness defect in the reviewed batch core, and its demonstrated reciprocal-best batch-scaling concern was remediated before milestone closure.
 
 The earlier parallel prerequisite before the held-out Milestone 23 gate is now complete. The authoritative assembly-sequence metadata/preflight capability is implemented for source validation and version-matched target-role/context reporting, and the initial typed UCSC segmental-duplication pilot has completed focused internal review, external review/remediation, and its planned motivating-case A03/A04 real-data exercise. The external review found optional-context failure-boundary defects that were remediated and independently re-verified before the real-data runs. This work does not reopen M22; it closes the earlier parallel workstream that Milestone 23 assumes.
 
-The next development sequence is therefore:
+Milestone 23's five pre-registered baseline cases have now been executed. The internal pass found no unresolved blocker, but H04 exposed a presentation gap in the shared comparative interpretation; that presentation was corrected and H04 was rerun unchanged. Because the held-out case influenced implementation, the five-case set is not described as untouched validation. Outside-user/domain review of the current candidate is pending, so Milestone 23 remains open.
 
-1. run Milestone 23's held-out real-case and outside-user/domain language/usability gate; and
-2. if that gate passes, prepare the `v0.2.0a1` release candidate in Milestone 24.
+The next release sequence is therefore:
+
+1. adjudicate the outside-user/domain feedback and resolve any blocking M23 finding; and
+2. only after M23 passes, prepare the `v0.2.0a1` release candidate in Milestone 24.
 
 ## Implementation history
 

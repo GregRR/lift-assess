@@ -154,9 +154,12 @@ def _shard_path(
     if not isinstance(raw_shards, dict):
         raise SystemExit("sequence-shard manifest has invalid shard metadata")
     item = raw_shards.get(sequence_name)
-    if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+    if not isinstance(item, dict):
         raise SystemExit(f"sequence-shard manifest lacks sequence {sequence_name}")
-    path = shard_dir / item["path"]
+    raw_path = item.get("path")
+    if not isinstance(raw_path, str):
+        raise SystemExit(f"sequence-shard manifest lacks sequence {sequence_name}")
+    path = shard_dir / raw_path
     if not path.is_file():
         raise SystemExit(f"sequence shard is missing: {path}")
     return path

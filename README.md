@@ -26,7 +26,7 @@ A deterministic factual headline summarizes the dominant mapping event, for exam
 
 The result profile also carries actual reverse-mapping context when a matching reverse-direction chain and its prepared index are already available in the local cache. Reverse mapping is chain-only, is reported separately from reciprocal-best membership, and preserves exact original-source return geometry. The automatic CLI uses the same chain publication class as the forward assessment. If no matching reverse chain is cached, the check is `UNAVAILABLE`; if the chain exists but scalable indexed access is not prepared or is unusable, the check is `NOT_RUN`. An explicit forward `--refresh` also leaves reverse mapping `NOT_RUN` rather than mixing freshly reacquired forward resources with an unrefreshed reverse chain. Normal assessment does not silently contact UCSC, refresh reverse resources, build a reverse index, or start another exhaustive reverse-chain scan.
 
-For 1-bp point queries, the profile additionally carries automatic local-context chain evidence when the prepared forward chain index is available. The default window is centered at 101 bp (boundary-clipped when needed), its exact tested interval is reported, and factual states distinguish mapped agreement, no projection at either tested scale, newly revealed partial coverage, fragmentation, target discontinuity, or other query-scale change. `--context-bases N` requests another odd-width point window explicitly. This context reuses the same forward chain publication class and does not re-run net/reciprocal-best evidence or fall back to another full chain scan. BED3+ batch input is also available through prepared chain indexes; COMPARATIVE batches attach ordinary-net and reciprocal-best-chain observations to submitted rows with one shared pass over each resource, while point-context remains chain-only. Target sequence role and typed external context remain later dimensions.
+For 1-bp point queries, the profile additionally carries automatic local-context chain evidence when the prepared forward chain index is available. The default window is centered at 101 bp (boundary-clipped when needed), its exact tested interval is reported, and factual states distinguish mapped agreement, no projection at either tested scale, newly revealed partial coverage, fragmentation, target discontinuity, or other query-scale change. `--context-bases N` requests another odd-width point window explicitly. This context reuses the same forward chain publication class and does not re-run net/reciprocal-best evidence or fall back to another full chain scan. BED3+ batch input is also available through prepared chain indexes; COMPARATIVE batches attach ordinary-net and reciprocal-best-chain observations to submitted rows with one shared pass over each resource, while point-context remains chain-only. Authoritative UCSC source metadata now preflights source names and bounds before mapping. Version-matched UCSC/NCBI metadata can report target sequence role/context, and single-locus runs can attach typed UCSC `genomicSuperDups` overlap context. These dimensions remain separate from mapping quality and biological correctness.
 
 ## Scientific principles
 
@@ -47,6 +47,9 @@ The current development code includes:
 - a minimal streaming UCSC chain reader;
 - forward- and reverse-strand chain geometry with 0-based half-open internal coordinates;
 - chain-backed candidate projection, including split mappings;
+- authoritative source-sequence name/alias/bounds preflight before mapping;
+- version-bound target sequence role/context when exact UCSC/NCBI metadata supports it;
+- typed source/target UCSC segmental-duplication overlap context with exact provenance;
 - actual chain-only reverse-mapping context from an exact-class cached reverse chain, with explicit `RUN`, `UNAVAILABLE`, and `NOT_RUN` states and no implicit reverse acquisition or index build;
 - automatic indexed 101-bp local chain context for 1-bp queries, with exact tested geometry, explicit query-scale findings, and `--context-bases` for a different odd-width window;
 - mapping-coverage and chain-gap evidence;
@@ -91,7 +94,7 @@ The project now implements the common-case CLI, concise summary, human-readable 
 
 - a future truth-bearing historical-resolution locus for the planned `canFam3.1`→`canFam6` sanity-check pedigree;
 - optional flanking-gene orthology/synteny evidence;
-- defensible candidate-rank and target-sequence context backed by explicit evidence/metadata sources rather than naming heuristics;
+- defensible candidate-rank evidence with explicit locus-scoped semantics;
 - reverse context across batch loci;
 - reproducible case manifests and, where redistribution terms permit, portable resource packets.
 

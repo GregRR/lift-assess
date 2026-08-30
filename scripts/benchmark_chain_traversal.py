@@ -125,8 +125,11 @@ def _time_call(
 
 
 def _resolve_chain_path(args: argparse.Namespace) -> Path:
-    if args.chain is not None:
-        return args.chain
+    chain_path = args.chain
+    if chain_path is not None:
+        if not isinstance(chain_path, Path):
+            raise SystemExit("--chain must resolve to a filesystem path")
+        return chain_path
     assert args.cache_root is not None
     bundle = load_cached_ucsc_resource_bundle(
         args.cache_root,

@@ -215,6 +215,21 @@ The internal five-case pass therefore has no unresolved blocker. It did produce 
 influencing H04 presentation correction and one non-blocking reverse-unavailability explanation follow-up.
 Milestone 23 remains open until the outside-user/domain packet is reviewed against the current candidate.
 
+### Pending UX observations from independent AI review
+
+A separate AI review of the H01/H03/H04/H05 dossiers produced the following potential release UX improvements. These are **advisory observations, not adopted requirements or design decisions**. Keep the M23 outside-review candidate frozen and adjudicate the outside-user/domain feedback before deciding which, if any, to implement:
+
+1. surface the actual reverse-mapping relationship more prominently near the top of detailed output, especially `ELSEWHERE_ONLY`, without folding it into the factual headline or turning it into a confidence verdict;
+2. report same-sequence versus interchromosomal projection explicitly as a neutral geometric relationship;
+3. preserve the structured reason for reverse-mapping `UNAVAILABLE` in the durable result/JSON rather than only in run-status text;
+4. reconsider the human-facing word `categorical` in comparative interpretation because ordinary-language readers may hear it as “absolute” rather than “discrete relationship class”;
+5. make scope-versus-result grammar consistent so availability states such as `ASSESSED`/`UNAVAILABLE` are not mixed ad hoc with conclusions such as `FAVORS_ONE_PLACEMENT`;
+6. consider rendering point-context agreement as the point and tested 101-bp context mapping through the same forward chain, avoiding language that could sound like independent corroboration;
+7. make the distinction between actual reverse mapping and precomputed UCSC reciprocal-best membership visually and terminologically unmistakable; and
+8. consider a bounded reverse-orientation note for downstream strand-dependent sequence/allele use that explicitly says liftAssess did not transform or validate that downstream data.
+
+The same review also proposed stronger interpretations that are **not** carried forward: chain-score-based confidence/ranking, claims that UCSC-derived observations are independent corroboration, causal duplication/mechanism conclusions from contextual overlap, or a replacement aggregate confidence/verdict layer. Those suggestions conflict with the current scientific model and previously reviewed invariants.
+
 ## Blocking failure criteria
 
 Milestone 23 does not pass until any observed blocker is resolved and the affected held-out case is rerun.

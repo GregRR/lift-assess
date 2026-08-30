@@ -90,6 +90,16 @@ liftAssess can assess BED3-or-later or simple interval-table record sets through
 
 `LIFTOVER-ONLY` batches remain chain-only. The current COMPARATIVE batch scope does not run the paired filtered-vs-all-chain inventory comparison or categorical comparative relationship classifier used by single-locus results; those dimensions are explicitly reported as not assessed. COMPARATIVE point-context candidates also remain chain-only in this milestone; net/reciprocal-best evidence is attached only to submitted rows rather than silently being inferred at the neighborhood scale. Batch input now receives authoritative cached source-name/bounds/alias preflight before chain assessment; a zero-candidate row therefore means that a valid source interval had no candidate in the selected chain index. One cached source metadata catalog is shared across the batch, and authoritative source sequence length bounds point-context clipping. Target sequence role/context is also cache-only in batch mode: when matching version-bound UCSC/NCBI role metadata is cached it is shared across records, and when it is absent the role dimension is explicitly `UNAVAILABLE` with no inference from sequence naming. Actual reverse mapping is still not re-run per batch row.
 
+## Authoritative assembly metadata and typed context
+
+Before single-locus mapping, liftAssess validates the submitted source sequence and interval against authoritative UCSC assembly metadata. `chromInfo` supplies canonical source names and lengths; exact `chromAlias` correspondences may support a suggestion but are never silently rewritten. Unrecognized sequences and out-of-bounds intervals fail preflight before mapping rather than becoming biological-looking no-projection results.
+
+For target sequence role/context, liftAssess requires an exact versioned assembly binding from the UCSC assembly description before attaching an NCBI Datasets sequence report. Provider-native assembly unit, role, chromosome name, GenBank accession, RefSeq accession, and exact provenance are reported when available. If that binding cannot be established, the role dimension remains `UNAVAILABLE`; names such as `_alt`, `_random`, or `chrUn` are not used as role heuristics.
+
+Single-locus assessment can also attach typed UCSC `genomicSuperDups` context. It checks exact source-query overlap and overlap against exact mapped target segments while preserving the paired interval, strand, provider UID, aligned-base count, fraction matching, resource identity, and provenance. Segmental-duplication overlap is descriptive context only: it does not penalize a projection, establish a mechanism, or prove biological correctness. Missing or unusable optional context degrades to `UNAVAILABLE` without destroying an already-valid primary mapping assessment.
+
+Target-role metadata is cache-only in batch mode. Typed segmental-duplication context is currently a single-locus capability and is not silently implied for batch rows.
+
 ## Actual reverse-mapping context
 
 liftAssess can attach actual reverse-direction mapping facts to each forward candidate.
@@ -501,8 +511,6 @@ The following are **not currently implemented**, even when related concepts appe
 the design or model vocabulary:
 
 - candidate-rank evidence with defined locus-scoped semantics;
-- target-sequence role/placement interpretation such as primary versus alternative or
-  unplaced sequence;
 - flanking-gene orthology/synteny evidence;
 - freshly computed sequence identity from raw bases;
 - a new alignment run such as minimap2 or lastz;
