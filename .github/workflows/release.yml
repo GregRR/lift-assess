@@ -70,13 +70,17 @@ jobs:
 
       - name: Smoke-test built wheel in a clean environment
         run: |
-          uv venv --python 3.13 /tmp/liftassess-release-smoke
-          uv pip install --python /tmp/liftassess-release-smoke/bin/python dist/*.whl
-          /tmp/liftassess-release-smoke/bin/python - <<'PY'
-          import liftassess
-          print(f"Installed liftAssess version: {liftassess.__version__}")
-          PY
-          /tmp/liftassess-release-smoke/bin/assess-liftover --help >/dev/null
+          uv venv --python 3.13 /tmp/liftassess-release-smoke-wheel
+          uv pip install --python /tmp/liftassess-release-smoke-wheel/bin/python dist/*.whl
+          /tmp/liftassess-release-smoke-wheel/bin/python scripts/release_smoke.py \
+            --expected-version "${GITHUB_REF_NAME#v}"
+
+      - name: Smoke-test source distribution in a clean environment
+        run: |
+          uv venv --python 3.13 /tmp/liftassess-release-smoke-sdist
+          uv pip install --python /tmp/liftassess-release-smoke-sdist/bin/python dist/*.tar.gz
+          /tmp/liftassess-release-smoke-sdist/bin/python scripts/release_smoke.py \
+            --expected-version "${GITHUB_REF_NAME#v}"
 
       - name: Upload release distributions
         uses: actions/upload-artifact@v7.0.1

@@ -1,4 +1,5 @@
 include README.md
+include CHANGELOG.md
 include LICENSE
 include CITATION.cff
 recursive-include docs *.md
