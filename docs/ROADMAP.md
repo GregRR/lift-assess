@@ -18,8 +18,15 @@ Milestone 23's five pre-registered baseline cases have now been executed. The in
 
 The next release sequence is therefore:
 
-1. adjudicate the outside-user/domain feedback and resolve any blocking M23 finding; and
-2. only after M23 passes, prepare the `v0.2.0a1` release candidate in Milestone 24.
+1. adjudicate the outside-user/domain feedback and resolve any blocking M23 finding;
+2. only after M23 passes, prepare the `v0.2.0a1` release candidate in Milestone 24;
+3. follow `v0.2.0a1` with a `v0.3.0a1` contextual-evidence release; and
+4. follow that with a `v0.4.0a1` navigation/export and workflow-usability release.
+
+The post-`v0.2.0a1` release assignments below group related work deliberately. Milestone 25 adds
+new contextual evidence or new deterministic context derived from mapping geometry. Milestone 26
+then exposes already established mapping facts more usefully through navigation, export,
+identifier-aware guidance, and worked workflow examples.
 
 ## Implementation history
 
@@ -885,6 +892,86 @@ If Milestone 23 does not pass, `v0.2.0a1` remains blocked rather than weakening 
 validation gate to meet a release target. Maintainer release mechanics are documented in
 [`RELEASING.md`](RELEASING.md).
 
+### 25. Contextual-evidence expansion — `v0.3.0a1`
+
+**Goal:** add the next coherent set of locus-context evidence without turning contextual
+observations into a confidence score, a biological-correctness judgment, or an automatic resolver.
+
+Planned scope:
+
+- **UCSC self-chain context:** evaluate and consume the assembly's precomputed self-chain alignments
+  as typed, provenance-bearing context where the provider source, terms, assembly scope, and
+  resource semantics are verified. Report relevant same-assembly alignments for the submitted locus
+  and, where useful, exact mapped target segments. Self-chain evidence may expose duplicated or
+  paralogous sequence context, but it must not be described as proof that a projection is wrong, as
+  proof of a biological predecessor, or as an orthology call. Corpus A Case 10 is the initial
+  historical motivating case because UCSC used a strong self-chain match to explain why novel hg38
+  sequence could project to an older-assembly locus.
+- **Additional difficult-region resources:** evaluate GIAB stratifications and relevant
+  `excluderanges` categories independently, then implement only the resources/categories whose
+  assembly coverage, semantics, provenance, and redistribution/licensing constraints are suitable.
+  Keep each evidence family distinct from UCSC segmental duplications and from every other context
+  source.
+- **Point/gap-boundary context:** for point queries, report when the queried base lies directly next
+  to a source- or target-side alignment gap/block boundary in the relevant chain geometry. This is a
+  literal alignment-context observation; do not infer an allele change, assembly-history mechanism,
+  or mapping error from the boundary alone.
+- **Flanking-gene synteny/orthology context:** select and verify a real source, define explicit
+  provenance/dependence and fallback behavior, and add it only as optional context. The feature may
+  report the relationship supported by the selected source but must not automatically declare the
+  projected locus to be the biologically correct ortholog.
+
+Implementation constraints:
+
+- reuse region-addressable/indexed access where resource scale would otherwise reintroduce repeated
+  whole-resource scans;
+- keep every context family optional so unavailable context does not block coordinate assessment;
+- preserve exact source/resource versions and SHA-256-addressed provenance where local resource
+  bytes are consumed; and
+- validate new context families with motivating difficult cases plus clean negative controls so an
+  ordinary mapping does not acquire a warning merely because more context was requested.
+
+Release gate: `v0.3.0a1` ships only after the new context families exercised in the release have
+source-specific semantics, failure-boundary tests, provenance coverage, and representative real-data
+checks. A resource that cannot meet those requirements remains deferred rather than being collapsed
+into a generic difficult-region flag.
+
+### 26. Navigation, export, and workflow usability — `v0.4.0a1`
+
+**Goal:** make established liftAssess facts easier to inspect and act on without adding hidden
+scientific interpretation.
+
+Planned scope:
+
+- **Genome Browser links:** emit UCSC Genome Browser/locus links when the assembly and coordinates
+  are known. Links remain navigation aids, not additional evidence.
+- **BED12/custom-track export:** export one candidate's mapped blocks when they can be represented
+  legally on one target sequence. Never collapse multiple candidates or multiple target sequences
+  into one BED12 feature, and never replace exact source-coverage/uncovered-source reporting with a
+  target bounding span.
+- **Named-variant guidance/navigation:** when rsID or equivalent identifier metadata is explicitly
+  available, provide an actionable target-assembly dbSNP/identifier-aware next step or navigation
+  link. Do not infer an rsID from coordinates, and do not present database identity as evidence that
+  the coordinate projection itself is correct.
+- **UCSC `unMapped` terminology crosswalk:** document the familiar UCSC liftOver failure categories
+  such as `Deleted in new`, `Partially deleted in new`, `Split in new`, `Duplicated in new`, and
+  `Boundary problem` alongside the exact liftAssess observations that can explain similar geometry.
+  The crosswalk must state where the concepts are not one-to-one or depend on liftOver filtering
+  thresholds/options; liftAssess must not manufacture a UCSC reason code that it did not actually
+  compute.
+- **CNV/large-segment presentation:** add a workflow-oriented view for copy-number and other large
+  genomic intervals that leads with exact source coverage, mapped-block count, uncovered source
+  spans, target gaps/discontinuity, and exportability. Do not smooth fragmented mappings into an
+  invented continuous target interval.
+- **Worked-examples gallery:** publish a curated gallery from the 50-case corpus covering clean
+  mappings, fragmented intervals, non-reciprocal mappings, duplicated/paralogous sequence, rsID
+  identity boundaries, CNV/large-segment cases, and invalid input. Label these as onboarding
+  examples, not independent validation evidence.
+
+Release gate: `v0.4.0a1` should include CLI/documentation examples for each shipped workflow surface,
+round-trip tests for machine/export formats where applicable, and explicit checks that navigation or
+identity guidance cannot be mistaken for newly consumed scientific evidence.
+
 ### Parallel / non-blocking research items
 
 These remain useful but should not disrupt the sequence above:
@@ -893,12 +980,12 @@ These remain useful but should not disrupt the sequence above:
   turn the historical-resolution pedigree into a truth-bearing sanity fixture;
 - define portable case manifests and any later byte-containing packets under provenance and
   redistribution-term constraints;
-- select and verify a real optional flanking-gene synteny/orthology source;
-- build a curated worked-examples gallery from the 50 cases for onboarding, clearly labeled as
-  examples rather than independent validation;
 - revisit candidate-rank evidence only when a defensible locus-scoped semantics exists.
 
-## Deliberately deferred beyond the current redesign
+The source-selection work for flanking-gene synteny/orthology now belongs to Milestone 25, and the
+worked-examples gallery now belongs to Milestone 26 rather than remaining unassigned research work.
+
+## Deliberately deferred beyond the planned post-`v0.2.0a1` sequence
 
 The following should not distract from making the first version scientifically useful:
 
