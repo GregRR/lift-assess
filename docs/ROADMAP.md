@@ -14,16 +14,15 @@ The M22 closure gate contained **506 tests** and passed pytest, Ruff lint, Ruff 
 
 The earlier parallel prerequisite before the held-out Milestone 23 gate is now complete. The authoritative assembly-sequence metadata/preflight capability is implemented for source validation and version-matched target-role/context reporting, and the initial typed UCSC segmental-duplication pilot has completed focused internal review, external review/remediation, and its planned motivating-case A03/A04 real-data exercise. The external review found optional-context failure-boundary defects that were remediated and independently re-verified before the real-data runs. This work does not reopen M22; it closes the earlier parallel workstream that Milestone 23 assumes.
 
-Milestone 23's five pre-registered cases have now been rechecked against the current default human renderer. H01 outside-user feedback exposed a genuine comprehension failure in the older default output and drove the first renderer slice. H04 then drove a second renderer slice for compact multiple-mapping and comparative UCSC evidence. The current H01-H05 output has no unresolved internal blocker, and H05 required no additional code change. Because H01 and H04 influenced implementation, the five-case set is not described as untouched validation.
+Milestone 23 is complete. All five pre-registered cases were rechecked against the current default human renderer. H01 outside-user feedback exposed a genuine comprehension failure in the older default output and drove the first renderer slice; H04 drove the compact multiple-mapping/comparative slice. The final H03/H04/H05 outside spot-check found the complex outputs understandable and scientifically bounded, while identifying one H04 prominence gap and one bounded follow-up-navigation improvement. Both were corrected and the affected cases were rerun successfully. Because held-out cases influenced presentation, the five-case set is explicitly not described as untouched validation.
 
-Outside review is partially complete: the revised H01 output was understood without terminology explanation, and the reviewer independently raised Segmental Duplications/Self Chain context and asked for more complex cases. Under the frozen M23 completion rule, one final compact outside spot-check of the current H03/H04/H05 complex-case output remains before Milestone 23 can close. The reviewer is not being used as an implementation-approval gate.
+The final M23 reviewer-feedback renderer patch passed 582 tests, Ruff lint, and strict mypy; after formatter-only normalization, Ruff lint/formatting and `git diff --check` were clean. No unresolved M23 scientific-correctness, evidence-boundary, or usability blocker remains.
 
 The next release sequence is therefore:
 
-1. complete the final H03/H04/H05 outside comprehension/scope spot-check and resolve any blocking M23 finding;
-2. only after M23 passes, prepare the `v0.2.0a1` release candidate in Milestone 24;
-3. follow `v0.2.0a1` with a `v0.3.0a1` contextual-evidence release; and
-4. follow that with a `v0.4.0a1` navigation/export and workflow-usability release.
+1. prepare the `v0.2.0a1` release candidate in Milestone 24;
+2. follow `v0.2.0a1` with a `v0.3.0a1` contextual-evidence release; and
+3. follow that with a `v0.4.0a1` navigation/export and workflow-usability release.
 
 The post-`v0.2.0a1` release assignments below group related work deliberately. Milestone 25 adds
 new contextual evidence or new deterministic context derived from mapping geometry. Milestone 26
@@ -852,7 +851,7 @@ This closes the earlier parallel prerequisite without changing the Milestone 23 
 50-case corpus and A03/A04 remain same-corpus/motivating evidence; held-out real cases and outside-user/domain
 feedback are still required before the redesigned language is described as validated or release-ready.
 
-### 23. Held-out result-language and outside-user gate
+### 23. Held-out result-language and outside-user gate — complete
 
 Before describing the redesigned language as validated or release-ready:
 
@@ -862,6 +861,12 @@ Before describing the redesigned language as validated or release-ready:
 - obtain outside-user/domain feedback on whether the factual headline, expanded unusual-case output,
   comparative explanations, and scope boundaries answer the practical question without implying
   biological certainty.
+
+Completed 2026-09-06. The five pre-registered cases were all executed and adjudicated. Outside review of
+the current H03/H04/H05 complex outputs found no unresolved scientific overclaim, identified one missing
+prominent reverse-unavailable callout in H04 and one bounded COMPARATIVE follow-up-navigation opportunity
+for non-reciprocal LIFTOVER_ONLY results, and both presentation findings were corrected and rerun. The
+held-out set influenced renderer language and is therefore not represented as untouched validation.
 
 This gate tests communication/usefulness, not a numeric confidence model. The existing 50 cases
 remain same-corpus design evidence.

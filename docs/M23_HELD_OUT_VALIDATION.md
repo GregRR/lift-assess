@@ -1,9 +1,10 @@
 # Milestone 23 held-out result-language validation
 
-**Status:** CURRENT HUMAN OUTPUT VERIFIED INTERNALLY — outside complex-case spot-check pending
+**Status:** COMPLETE — Milestone 23 gate passed
 **Selection date:** 2026-08-29
 **Initial execution date:** 2026-08-29
 **Current-renderer verification:** 2026-09-06
+**Outside complex-case review and final rerun:** 2026-09-06
 **Purpose:** Milestone 23 held-out real-case and outside-user/domain gate
 
 ## Evidence boundary
@@ -142,9 +143,10 @@ scientific evidence semantics were not changed by those renderer corrections. Th
 therefore **not** described as untouched held-out validation.
 
 The current default renderer was verified across H01-H05 on 2026-09-06 using real reruns where material
-output changed plus regression coverage for wording-only changes. The native gate before the latest
-H04/H05 checks passed 582 tests, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`; the later
-Slice-2 cleanup changed formatting only. No unresolved internal scientific-correctness or evidence-boundary
+output changed plus regression coverage for wording-only changes. The final reviewer-feedback renderer
+patch passed 582 tests, Ruff lint, and strict mypy; after formatter-only normalization, Ruff lint/formatting
+and `git diff --check` were clean. H03, H04, and H05 were then rerun from the real cached resources and
+showed the intended final output. No unresolved scientific-correctness, evidence-boundary, or usability
 blocker remains.
 
 ### H01 result — coordinate-convention control
@@ -179,7 +181,9 @@ blocker remains.
 - **Assembly metadata:** exact version-bound NCBI metadata for the hg19 target assembly was unavailable;
   mapping continued without inferring a target sequence role.
 - **Current human output:** `INTERCHROMOSOMAL LIFTOVER MAPPING`, with reverse liftOver, flanking-interval
-  behavior, and Segmental Duplications context stated separately.
+  behavior, and Segmental Duplications context stated separately. Because reverse liftOver returns
+  elsewhere under `LIFTOVER_ONLY`, the footer also points to `--evidence-tier COMPARATIVE` as optional
+  broader all-chain context, explicitly qualified as available only when the assembly pair supports it.
 - **Adjudication:** no blocker. The chromosome change is explicit without being labeled erroneous or
   biologically correct.
 
@@ -195,7 +199,8 @@ blocker remains.
   described as related UCSC alignment evidence rather than independent confirmations.
 - **Optional dimensions:** reverse liftOver was unavailable from the cached resources used for this run;
   UCSC Segmental Duplications context was also unavailable. Neither absence changed the comparative
-  mapping facts.
+  mapping facts. After outside review, reverse-liftOver unavailability was elevated into `KEY FINDINGS`
+  so a skimming user does not have to infer that the round-trip check was missing.
 - **Implementation influence:** H04 drove the compact multiple-mapping/comparative renderer. The default
   output now reports the seven complete mappings, shows the one mapping distinguished by the consumed
   UCSC comparative resources, and leaves the other six coordinates to `--details` rather than dumping
@@ -217,22 +222,27 @@ blocker remains.
 - **Identity boundary:** the limitations state that the coordinate result does not establish uniqueness
   or preservation of the same variant, gene, transcript, or other biological feature. Variant identity
   was not assessed.
-- **Adjudication:** no blocker and no additional renderer change required. H05 demonstrates the intended
-  boundary between chain-based coordinate conversion and identifier-aware variant evidence.
+- **Current follow-up guidance:** because reverse liftOver returns elsewhere under `LIFTOVER_ONLY`, the
+  footer points to `--evidence-tier COMPARATIVE` for optional standard-chain/all-chain comparison when
+  that evidence tier is available for the assembly pair.
+- **Adjudication:** no blocker. H05 demonstrates the intended boundary between chain-based coordinate
+  conversion and identifier-aware variant evidence.
 
 ### Internal gate disposition
 
-The current renderer has no unresolved internal M23 blocker across H01-H05. H01 and H04 both influenced
-presentation, so the set remains implementation-influencing evidence rather than untouched validation.
-H05 required no additional code change.
+The current renderer has no unresolved M23 blocker across H01-H05. H01 and H04 influenced presentation,
+and the final outside review caused one H04 prominence fix plus conditional H03/H05 navigation guidance.
+The set therefore remains implementation-influencing evidence rather than untouched validation. None of
+these corrections changed candidate generation, comparative classification, or scientific evidence
+semantics.
 
 One non-blocking structured-output follow-up remains: when reverse liftOver is unavailable, the live
 status text can explain why while the durable dossier/JSON may retain only the unavailable state. This
 does not prevent the primary mapping assessment from completing and is not an M23 release blocker.
 
-## Outside-user/domain feedback to date
+## Outside-user/domain feedback and final adjudication
 
-Outside feedback has already influenced the current renderer. The reviewer is an experienced
+Outside feedback directly influenced the current renderer. The reviewer is an experienced
 bioinformatician and frequent liftOver user with UCSC Genome Browser/annotation experience; the record
 does not treat that feedback as an endorsement.
 
@@ -240,38 +250,35 @@ does not treat that feedback as an endorsement.
   as human-readable. That feedback directly motivated the first default-output renderer slice.
 - On the revised H01 output, the reviewer no longer needed terminology explained and immediately reasoned
   about the Segmental Duplications context. The reviewer independently suggested evaluating UCSC Self
-  Chain and asked to see more complex cases.
-- Self Chain was recorded as a plausible contextual-evidence candidate but deliberately deferred to
-  Milestone 25 / `v0.3.0a1`; it was not pulled into the M23 renderer gate.
-- The request for more complex cases was addressed internally with H03, H04, and H05. H04 in particular
-  drove the second renderer slice for multiple mappings and comparative UCSC evidence.
+  Chain and asked to see more complex cases. Self Chain remains deliberately deferred to Milestone 25 /
+  `v0.3.0a1`; it was not pulled into the M23 renderer gate.
+- The final outside packet contained the current H03, H04, and H05 default outputs without supplying a
+  preferred interpretation first. The reviewer found H03 and H05 immediately understandable: the
+  interchromosomal headline, prominent reverse-liftOver result, complete flanking-interval mapping, and
+  descriptive-only Segmental Duplications context conveyed the structural facts without implying that the
+  mapped coordinate preserved variant, gene, transcript, or other biological identity. The reviewer
+  specifically found that H05 maintained the coordinate-versus-variant-identity boundary.
+- For H04, the reviewer found the seven complete all-chain mappings and the one standard-chain mapping with
+  top-level net and reciprocal-best membership clear and appropriately neutral. The explicit statement that
+  chain, net, and reciprocal-best evidence are related rather than independent confirmations also satisfied
+  the intended provenance boundary.
+- The reviewer identified one material usability gap in H04: reverse liftOver was unavailable, but that fact
+  appeared only in run-status text and `CHECKS PERFORMED`, not in the prominent result narrative. The
+  renderer was corrected so unavailable reverse liftOver is now a `KEY FINDINGS` item for the multiple-
+  mapping case.
+- The reviewer also suggested that non-reciprocal H03/H05 `LIFTOVER_ONLY` results should point users toward
+  broader all-chain comparison. The renderer now adds a bounded `--evidence-tier COMPARATIVE` suggestion
+  only for relevant LIFTOVER_ONLY reverse results and explicitly says `when available`; ordinary clean
+  reciprocal mappings do not receive the extra guidance.
 
-This outside feedback is sufficient to establish that the old default output had a real comprehension
-problem and that the revised simple-case grammar materially improved it. It does **not** satisfy the
-frozen M23 completion rule by itself, because the current complex-case output has not yet received the
-planned outside-user/domain spot-check.
+After those two reviewer-driven changes, H03, H04, and H05 were rerun against the real cached resources.
+H04 now states reverse-liftOver unavailability under `KEY FINDINGS`, while H03/H05 show the conditional
+COMPARATIVE follow-up guidance. The reruns exposed no new overclaim, scope error, or practical explanation
+failure.
 
-## Remaining outside spot-check
-
-Do not ask the reviewer to approve implementation decisions or to review every case iteratively. H01 has
-already been reviewed in revised form. To satisfy the pre-registered outside-user/domain criterion, send
-one final compact packet containing the current H03, H04, and H05 default outputs, explicitly noting that
-H04 influenced the comparative presentation. H02 remains optional unless its invalid-input wording is of
-interest.
-
-Ask the reviewer, without first supplying our preferred interpretation:
-
-1. What do you think physically happened to the queried interval?
-2. What evidence in the output makes you think that?
-3. What, if anything, would you do next before using the mapped coordinate?
-4. Does any wording sound like a stronger claim than the evidence supports?
-5. Is it clear which questions liftAssess did **not** assess, especially variant/gene identity and
-   biological correctness?
-6. In H04, is it clear that the standard liftOver chain, net, and reciprocal-best chain are related UCSC
-   alignment evidence rather than three independent votes?
-
-Record only enough reviewer background to interpret the feedback. The goal is a comprehension/scope
-spot-check, not an endorsement request.
+**Outside-review adjudication:** the frozen outside-user/domain criterion is satisfied. The feedback found
+no unresolved scientific overclaim and no remaining explanation failure that would make the current output
+unsafe or substantially misleading.
 
 ## Blocking failure criteria
 
@@ -297,10 +304,10 @@ implementation rather than as untouched validation evidence.
 
 ## Outside-user/domain packet
 
-The current outside-user/domain procedure is recorded above under **Remaining outside spot-check**. H01
-has already been reviewed in revised form; the remaining packet is H03/H04/H05 as one final comprehension
-and scope-boundary check. Do not present the packet as untouched held-out validation, because H01 and H04
-influenced renderer implementation.
+The final packet consisted of H03, H04, and H05 as one comprehension and scope-boundary check. It was
+reviewed on 2026-09-06, produced the two presentation findings recorded above, and was followed by real
+reruns of all three affected cases. H01 and H04 had already influenced renderer implementation before the
+final packet, so this milestone is explicitly **not** described as untouched held-out validation.
 
 ## Gate completion rule
 
@@ -312,3 +319,8 @@ Milestone 23 passes when:
 - any blocking outside feedback has been resolved and the affected cases rerun; and
 - the final record explicitly states whether the held-out cases remained untouched or influenced any
   implementation/language changes.
+
+**Final disposition:** all completion conditions are met. Milestone 23 passes. The five pre-registered cases
+were all executed and adjudicated; the outside complex-case packet was reviewed; the resulting H04 and
+H03/H05 presentation findings were resolved and rerun; no blocking failure remains; and this record
+explicitly preserves the implementation influence of the held-out set.

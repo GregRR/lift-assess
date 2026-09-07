@@ -25,7 +25,7 @@ The project is still alpha scientific software. Pre-release compatibility may ch
 
 ### Validation
 
-- Rechecked all five Milestone 23 cases against the current default human renderer. Outside-user feedback on H01 and the H04 comparative case both influenced presentation; the current H01-H05 output has no unresolved internal blocker. One final outside complex-case comprehension/scope spot-check remains before M23 can close.
+- Completed the Milestone 23 held-out language/usability gate across all five pre-registered cases. Outside review of the current H03/H04/H05 complex outputs identified a missing prominent reverse-unavailable callout and a bounded COMPARATIVE follow-up-navigation opportunity; both renderer findings were corrected and rerun with no unresolved blocker.
 
 ## 0.1.0a1 - 2026-08-17
 

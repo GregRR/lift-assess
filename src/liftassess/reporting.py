@@ -143,6 +143,10 @@ def _render_multiple_mapping_summary(report: UCSCAssessmentReport) -> str:
         *_multiple_mapping_overview_lines(report),
     ]
 
+    reverse_lines = _multiple_reverse_liftover_lines(report)
+    if reverse_lines:
+        lines.extend(("", *reverse_lines))
+
     comparative_lines = _multiple_comparative_finding_lines(report)
     if comparative_lines:
         lines.extend(("", *comparative_lines))
@@ -255,6 +259,18 @@ def _multiple_mapping_overview_lines(report: UCSCAssessmentReport) -> list[str]:
     else:
         lines.append(f"    Use --details to view all {count} mappings.")
     return lines
+
+
+def _multiple_reverse_liftover_lines(
+    report: UCSCAssessmentReport,
+) -> list[str]:
+    state = report.result_profile.scope.reverse_result
+    if state is ReverseCheckState.UNAVAILABLE:
+        return [
+            "Reverse liftOver:",
+            "    Reverse liftOver was unavailable for this assessment.",
+        ]
+    return []
 
 
 def _multiple_comparative_finding_lines(
@@ -555,7 +571,32 @@ def _render_single_mapping_summary(report: UCSCAssessmentReport) -> str:
             "    or --json for machine-readable output.",
         )
     )
+    follow_up_lines = _single_comparative_follow_up_lines(report, candidate_profile)
+    if follow_up_lines:
+        lines.extend(("", *follow_up_lines))
     return "\n".join(lines)
+
+
+def _single_comparative_follow_up_lines(
+    report: UCSCAssessmentReport,
+    profile: CandidateResultProfile,
+) -> list[str]:
+    reverse = profile.reverse_mapping
+    if report.evidence_tier is not EvidenceAvailabilityTier.LIFTOVER_ONLY:
+        return []
+    if reverse.check_state is not ReverseCheckState.RUN:
+        return []
+    if reverse.relationship not in {
+        ReverseRelationshipState.ELSEWHERE_ONLY,
+        ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE,
+        ReverseRelationshipState.NO_PROJECTION,
+    }:
+        return []
+    return [
+        "Additional alignment context:",
+        ("    Use --evidence-tier COMPARATIVE to compare the standard liftOver chain"),
+        "    with UCSC all-chain alignments, when available.",
+    ]
 
 
 def _single_mapping_target_label(

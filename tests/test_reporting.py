@@ -52,6 +52,7 @@ from liftassess import (
     build_filtered_all_chain_comparison,
     build_result_profile,
     reporting,
+    reverse_mapping_unavailable,
     ucsc_resource_terms,
 )
 from liftassess.chain import chain_candidate_id
@@ -635,6 +636,8 @@ def test_interchromosomal_summary_surfaces_reverse_liftover_elsewhere() -> None:
     assert "It does not return to the original source coordinate" in summary
     assert "101-bp interval centered on the input coordinate" in summary
     assert "101/101 bases mapped" in summary
+    assert "--evidence-tier COMPARATIVE" in summary
+    assert "with UCSC all-chain alignments, when available." in summary
 
 
 def test_partial_fragmented_summary_expands_with_exact_coverage_and_gaps() -> None:
@@ -957,6 +960,10 @@ def test_h04_style_comparative_summary_keeps_seven_mappings_readable() -> None:
         ),
         (_filtered_candidate(favored),),
     )
+    reverse_results = tuple(
+        reverse_mapping_unavailable(candidate) for candidate in report.candidates
+    )
+    report = attach_reverse_mapping_results(report, reverse_results)
 
     summary = render_assessment_summary(report)
 
@@ -964,6 +971,8 @@ def test_h04_style_comparative_summary_keeps_seven_mappings_readable() -> None:
     assert "The UCSC all-chain alignments contain 7 complete mappings." in summary
     assert "The mappings span 4 targetAsm chromosomes." in summary
     assert "Use --details to view all 7 mappings." in summary
+    assert "Reverse liftOver:" in summary
+    assert "Reverse liftOver was unavailable for this assessment." in summary
     assert (
         "standard sourceAsm→targetAsm liftOver chain retains one of the 7 mappings"
         in summary
