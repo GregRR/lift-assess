@@ -25,7 +25,7 @@ from .models import (
     ReciprocalBestMembershipSummary,
 )
 from .orchestration import UCSCAssessmentReport, UCSCAssessmentResource
-from .query_context import QueryContextNotRunReason, QueryContextState
+from .query_context import QueryContextState
 from .resource_cache import CachedResource
 from .result_profile import (
     CandidateResultProfile,
@@ -39,7 +39,6 @@ from .result_profile import (
     QueryContextFinding,
     QueryContextProfile,
     ResultProfile,
-    SourceCoverageState,
     TargetRoleState,
     TargetSequenceRoleProfile,
 )
@@ -125,28 +124,362 @@ def render_assessment_summary(report: UCSCAssessmentReport) -> str:
     profile = report.result_profile
     if len(profile.candidate_profiles) <= 1:
         return _render_single_mapping_summary(report)
+    return _render_multiple_mapping_summary(report)
 
+
+def _render_multiple_mapping_summary(report: UCSCAssessmentReport) -> str:
+    """Render multiple mappings using standard liftOver terminology."""
+
+    profile = report.result_profile
     lines = [
         f"* {_summary_headline_text(report)} *",
-        f"Source: {_human_interval_text(report.source_db, profile.source_interval)}",
+        "",
+        "Source:",
+        f"    {_human_interval_text(report.source_db, profile.source_interval)}",
+        "",
+        "= KEY FINDINGS =",
+        "",
+        "Mapping:",
+        *_multiple_mapping_overview_lines(report),
     ]
-    lines.extend(_multiple_candidate_summary_lines(report, profile))
-    lines.extend(_query_context_summary_lines(profile.query_context))
-    lines.extend(_comparative_summary_lines(report, profile.comparative_relationship))
-    lines.extend(_target_role_summary_lines(profile))
-    lines.extend(_external_context_summary_lines(profile.external_context))
 
-    lines.append(f"Evidence: {_evidence_summary(profile)}")
-    lines.append(f"Interpretation: {profile.interpretation}")
-    lines.append(
-        "Scope: coordinate mapping/structure assessed; named-variant and "
-        "gene/transcript identity not assessed."
+    comparative_lines = _multiple_comparative_finding_lines(report)
+    if comparative_lines:
+        lines.extend(("", *comparative_lines))
+
+    context_lines = _single_flanking_interval_lines(report)
+    if context_lines:
+        lines.extend(("", *context_lines))
+
+    duplication_lines = _multiple_segmental_duplication_lines(report)
+    if duplication_lines:
+        lines.extend(("", *duplication_lines))
+
+    target_metadata_lines = _single_target_sequence_metadata_lines(report)
+    if target_metadata_lines:
+        lines.extend(("", *target_metadata_lines))
+
+    limitation_lines = _multiple_mapping_limitation_lines(report)
+    if limitation_lines:
+        lines.extend(("", "= LIMITATIONS =", "", *limitation_lines))
+
+    lines.extend(("", "= CHECKS PERFORMED =", ""))
+    lines.extend(_summary_check_lines(report, include_forward=True))
+    lines.extend(
+        (
+            "",
+            "Details:",
+            "    Use --details for every mapping, alignment blocks, evidence,",
+            "    and provenance, or --json for machine-readable output.",
+        )
     )
-    lines.append(
-        "Details: use --details for the full profile/evidence or --json for schema v2."
+    return "\n".join(lines)
+
+
+def _multiple_mapping_overview_lines(report: UCSCAssessmentReport) -> list[str]:
+    profile = report.result_profile
+    count = len(profile.candidate_profiles)
+    complete_count = sum(
+        candidate.covered_source_bases == candidate.source_bases
+        for candidate in profile.candidate_profiles
     )
-    lines.append(_BIOLOGICAL_CORRECTNESS_CAVEAT)
-    return "\n".join(_format_summary_lines(lines))
+    source_bases = profile.source_bases
+
+    lines: list[str] = []
+    if complete_count == count:
+        if report.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
+            lines.append(
+                f"    The UCSC all-chain alignments contain {count} complete mappings."
+            )
+        else:
+            lines.append(f"    {count} complete liftOver mappings were found.")
+        lines.append(f"    Each maps {source_bases}/{source_bases} input bases.")
+    else:
+        lines.append(
+            "    Best single mapping: "
+            f"{profile.maximum_candidate_covered_source_bases}/{source_bases} "
+            "input bases mapped."
+        )
+        lines.append(f"    {count} liftOver mappings were found.")
+        if complete_count:
+            noun = "mapping" if complete_count == 1 else "mappings"
+            lines.append(
+                f"    {complete_count} {noun} cover the entire source interval."
+            )
+        if (
+            profile.union_covered_source_bases
+            != profile.maximum_candidate_covered_source_bases
+        ):
+            lines.append(
+                "    Across all mappings, "
+                f"{profile.union_covered_source_bases}/{source_bases} source bases "
+                "are represented."
+            )
+
+    target_sequences = {
+        candidate.target_interval.sequence_name for candidate in report.candidates
+    }
+    if len(target_sequences) > 1:
+        if all(_is_standard_ucsc_chromosome_name(name) for name in target_sequences):
+            noun = "chromosomes"
+        else:
+            noun = "target sequences"
+        lines.append(
+            f"    The mappings span {len(target_sequences)} {report.target_db} {noun}."
+        )
+
+    if count <= _DEFAULT_INLINE_PROJECTION_LIMIT:
+        lines.extend(("", "Mappings:"))
+        for candidate, candidate_profile in zip(
+            report.candidates,
+            profile.candidate_profiles,
+            strict=True,
+        ):
+            lines.extend(
+                (
+                    (
+                        "    "
+                        + _human_interval_text(
+                            report.target_db, candidate.target_interval
+                        )
+                    ),
+                    (
+                        "        Input bases mapped: "
+                        f"{candidate_profile.covered_source_bases}/"
+                        f"{candidate_profile.source_bases}"
+                    ),
+                    "        Orientation:",
+                    f"            {candidate.orientation.value.lower()}",
+                )
+            )
+    else:
+        lines.append(f"    Use --details to view all {count} mappings.")
+    return lines
+
+
+def _multiple_comparative_finding_lines(
+    report: UCSCAssessmentReport,
+) -> list[str]:
+    profile = report.result_profile.comparative_relationship
+    if profile.state is ComparativeRelationshipState.NOT_ASSESSED:
+        return []
+    comparison = report.filtered_all_chain_comparison
+    if comparison is None:
+        raise ValueError("comparative summary requires filtered/all-chain comparison")
+
+    all_chain_count = len(comparison.all_chain_candidates)
+    lines = ["Comparative UCSC evidence:"]
+
+    if profile.state is ComparativeRelationshipState.FAVORS_ONE_PLACEMENT:
+        favored_id = profile.favored_candidate_id
+        if favored_id is None:
+            raise ValueError("favored comparative relationship requires candidate ID")
+        favored = _report_candidate_for_id(report, favored_id)
+        additional = len(profile.additional_all_chain_candidate_ids)
+        lines.extend(
+            (
+                (
+                    f"    The standard {report.source_db}→{report.target_db} liftOver "
+                    f"chain retains one of the {all_chain_count} mappings:"
+                ),
+                (
+                    "        "
+                    + _human_interval_text(report.target_db, favored.target_interval)
+                ),
+                "        Orientation:",
+                f"            {favored.orientation.value.lower()}",
+            )
+        )
+        if additional:
+            lines.extend(
+                (
+                    (
+                        f"    The other {additional} complete "
+                        f"{'mapping is' if additional == 1 else 'mappings are'} present in"
+                    ),
+                    (
+                        "    the all-chain alignments but not in the standard "
+                        "liftOver chain."
+                    ),
+                )
+            )
+        lines.extend(
+            (
+                "    The retained mapping is represented by a top-level net fill.",
+                (
+                    f"    All {report.source_interval.length}/"
+                    f"{report.source_interval.length} input bases are present in the "
+                    "reciprocal-best chain."
+                ),
+                (
+                    f"    None of the other {all_chain_count - 1} complete "
+                    f"{'mapping has' if all_chain_count - 1 == 1 else 'mappings have'} "
+                    "that same combination."
+                ),
+            )
+        )
+        return lines
+
+    if (
+        profile.inventory_state
+        is FilteredAllChainInventoryState.FILTERED_AND_ALL_CHAIN_AGREE
+    ):
+        lines.append(
+            "    The standard liftOver chain and all-chain alignments contain the "
+            "same mappings."
+        )
+    else:
+        additional = len(profile.additional_all_chain_candidate_ids)
+        lines.extend(
+            (
+                (
+                    f"    The all-chain alignments contain {additional} additional "
+                    f"{'mapping' if additional == 1 else 'mappings'} not retained by"
+                ),
+                "    the standard liftOver chain.",
+            )
+        )
+
+    if profile.state is ComparativeRelationshipState.NO_COMPETING_FULL_PLACEMENTS:
+        lines.append(
+            "    There are not two competing complete mappings for the comparative "
+            "resources to distinguish."
+        )
+        return lines
+
+    if profile.state is ComparativeRelationshipState.DOES_NOT_SEPARATE_PLACEMENTS:
+        lines.append(
+            "    The assessed UCSC chain/net relationships do not distinguish among "
+            "the complete mappings."
+        )
+    elif profile.state is ComparativeRelationshipState.MIXED_CONFLICTING:
+        lines.append(
+            "    The standard liftOver chain, net, and reciprocal-best chain "
+            "distinguish different complete mappings."
+        )
+    else:
+        raise ValueError(
+            f"unsupported comparative relationship state: {profile.state!r}"
+        )
+
+    lines.extend(_multiple_comparative_support_lines(report, profile))
+    return lines
+
+
+def _multiple_comparative_support_lines(
+    report: UCSCAssessmentReport,
+    profile: ComparativeRelationshipProfile,
+) -> list[str]:
+    complete = tuple(
+        item for item in profile.placement_support if item.complete_source_coverage
+    )
+    return [
+        "    Standard liftOver chain:",
+        "        "
+        + _summary_comparative_support_set_text(
+            report, tuple(item for item in complete if item.retained_by_filtered_chain)
+        ),
+        "    Top-level net fill:",
+        "        "
+        + _summary_comparative_support_set_text(
+            report, tuple(item for item in complete if item.depth1_top_net)
+        ),
+        "    Reciprocal-best chain:",
+        "        "
+        + _summary_comparative_support_set_text(
+            report, tuple(item for item in complete if item.full_reciprocal_best)
+        ),
+    ]
+
+
+def _summary_comparative_support_set_text(
+    report: UCSCAssessmentReport,
+    support: tuple[ComparativePlacementProfile, ...],
+) -> str:
+    if not support:
+        return "none"
+    if len(support) > _DEFAULT_INLINE_PROJECTION_LIMIT:
+        return f"{len(support)} complete mappings; use --details for coordinates"
+    return ", ".join(
+        _human_interval_text(
+            report.target_db,
+            _report_candidate_for_id(report, item.candidate_id).target_interval,
+        )
+        for item in support
+    )
+
+
+def _report_candidate_for_id(
+    report: UCSCAssessmentReport,
+    candidate_id: str,
+) -> NormalizedCandidate:
+    matches = tuple(
+        candidate
+        for candidate in report.candidates
+        if candidate.candidate_id == candidate_id
+    )
+    if len(matches) != 1:
+        raise ValueError(
+            "comparative placement support must identify exactly one report candidate"
+        )
+    return matches[0]
+
+
+def _multiple_segmental_duplication_lines(
+    report: UCSCAssessmentReport,
+) -> list[str]:
+    context = report.segmental_duplication_context_result
+    if context is None:
+        return []
+    source_overlap = bool(context.source_overlaps)
+    target_overlap = bool(context.target_overlaps)
+    if not source_overlap and not target_overlap:
+        return []
+
+    lines = ["Segmental Duplications:"]
+    if source_overlap:
+        lines.append(
+            "    The source interval overlaps the UCSC Segmental Duplications track."
+        )
+    if target_overlap:
+        candidate_count = len({item.candidate_id for item in context.target_overlaps})
+        noun = "mapping" if candidate_count == 1 else "mappings"
+        lines.append(
+            f"    {candidate_count} target {noun} overlap the UCSC Segmental "
+            "Duplications track."
+        )
+    return lines
+
+
+def _multiple_mapping_limitation_lines(
+    report: UCSCAssessmentReport,
+) -> list[str]:
+    comparative = report.result_profile.comparative_relationship
+    if comparative.state is ComparativeRelationshipState.FAVORS_ONE_PLACEMENT:
+        lines = [
+            "The UCSC comparative evidence distinguishes one mapping within the",
+            "assessed alignment resources, but it does not establish that mapping as",
+            "biologically correct or show that it represents the same variant, gene,",
+            "transcript, or other biological feature.",
+        ]
+    else:
+        lines = [
+            "Multiple liftOver mappings do not by themselves establish which mapping,",
+            "if any, represents the same biological feature.",
+        ]
+
+    if comparative.state is not ComparativeRelationshipState.NOT_ASSESSED:
+        lines.extend(
+            (
+                "",
+                (
+                    "The standard liftOver chain, net, and reciprocal-best chain "
+                    "are related"
+                ),
+                "UCSC alignment evidence and are not independent confirmations.",
+            )
+        )
+    return lines
 
 
 def _render_single_mapping_summary(report: UCSCAssessmentReport) -> str:
@@ -483,15 +816,15 @@ def _single_comparative_lines(report: UCSCAssessmentReport) -> list[str]:
         is FilteredAllChainInventoryState.FILTERED_AND_ALL_CHAIN_AGREE
     ):
         lines.append(
-            "    The ordinary filtered liftOver chain and the all-chain alignments "
+            "    The standard liftOver chain and the UCSC all-chain alignments "
             "contain the same mapping."
         )
     else:
         additional = len(profile.additional_all_chain_candidate_ids)
         lines.append(
-            "    The all-chain alignments contain "
+            "    The UCSC all-chain alignments contain "
             f"{additional} additional {'mapping' if additional == 1 else 'mappings'} "
-            "not retained by the ordinary filtered liftOver chain."
+            "not retained by the standard liftOver chain."
         )
 
     if profile.state is ComparativeRelationshipState.NO_COMPETING_FULL_PLACEMENTS:
@@ -649,7 +982,9 @@ def _summary_check_lines(
         if "RECIPROCAL_BEST_CHAIN" in consumed_roles:
             lines.append("    UCSC reciprocal-best chain")
         if report.filtered_all_chain_comparison is not None:
-            lines.append("    UCSC filtered liftOver chain / all-chain comparison")
+            lines.append(
+                "    Standard liftOver chain compared with UCSC all-chain alignments"
+            )
 
     external = report.result_profile.scope.external_context
     if external is ExternalContextState.ASSESSED:
@@ -706,336 +1041,6 @@ def _human_interval_text(database: str, interval: GenomicInterval) -> str:
     return f"{database} {coordinate}"
 
 
-def _format_summary_lines(lines: list[str]) -> list[str]:
-    formatted: list[str] = []
-    for line in lines:
-        stripped = line.lstrip(" ")
-        source_indent = len(line) - len(stripped)
-
-        if stripped.startswith("- "):
-            formatted.append("    " + stripped)
-            continue
-
-        if ": " not in stripped:
-            formatted.append(line)
-            continue
-
-        label, value = stripped.split(": ", maxsplit=1)
-        label_indent = 4 if source_indent else 0
-        prefix = " " * label_indent
-        formatted.append(f"{prefix}{label}:")
-        formatted.append(f"{prefix}    {value}")
-
-    return formatted
-
-
-def _single_candidate_summary_lines(
-    candidate: NormalizedCandidate,
-    profile: CandidateResultProfile,
-) -> list[str]:
-    lines = [
-        f"Source coverage: {profile.covered_source_bases}/{profile.source_bases} source bases",
-        f"Target: {_candidate_text(candidate, profile)}",
-    ]
-    if profile.fragmented or profile.coverage_state is SourceCoverageState.PARTIAL:
-        lines.append(f"Geometric mapped segments: {profile.geometric_segment_count}")
-    if profile.uncovered_source_intervals:
-        lines.append(
-            "Uncovered source: "
-            + ", ".join(
-                format_display_interval(interval)
-                for interval in profile.uncovered_source_intervals
-            )
-        )
-    if profile.target_gap_intervals:
-        lines.append(
-            "Target gaps: "
-            + ", ".join(
-                format_display_interval(interval)
-                for interval in profile.target_gap_intervals
-            )
-        )
-    lines.append(f"Reverse mapping: {_reverse_summary_text(profile.reverse_mapping)}")
-    return lines
-
-
-def _target_role_summary_lines(profile: ResultProfile) -> list[str]:
-    state = profile.scope.target_role
-    if state is TargetRoleState.UNAVAILABLE:
-        return [
-            (
-                "Target sequence role: unavailable; no role was inferred from sequence "
-                "naming."
-            )
-        ]
-    if state in {TargetRoleState.NOT_ASSESSED, TargetRoleState.NO_TARGET_PROJECTIONS}:
-        return []
-    if state is not TargetRoleState.ASSESSED:
-        raise ValueError(f"unsupported target-role state: {state!r}")
-
-    unusual = tuple(
-        item
-        for item in profile.target_sequence_roles
-        if item.context is None
-        or item.context.provider_role != "assembled-molecule"
-        or item.context.assembly_unit != "Primary Assembly"
-    )
-    if not unusual:
-        return []
-    rendered: list[str] = []
-    for item in unusual[:_DEFAULT_INLINE_PROJECTION_LIMIT]:
-        if item.context is None:
-            rendered.append(
-                f"Target sequence role: {item.sequence_name}: no matching provider "
-                "role row in the version-matched NCBI sequence report."
-            )
-            continue
-        rendered.append(
-            f"Target sequence role: {item.sequence_name}: "
-            f"role={item.context.provider_role}; "
-            f"assembly unit={item.context.assembly_unit}."
-        )
-    omitted = len(unusual) - len(rendered)
-    if omitted > 0:
-        rendered.append(
-            f"Target sequence role: {omitted} additional unusual target sequence(s); "
-            "use --details or --json."
-        )
-    return rendered
-
-
-def _external_context_summary_lines(profile: ExternalContextProfile) -> list[str]:
-    if profile.state is ExternalContextState.NOT_ASSESSED:
-        return []
-    result = profile.ucsc_segmental_duplication
-    if result is None:
-        raise ValueError("assessed external context requires its typed result")
-    if profile.state is ExternalContextState.UNAVAILABLE:
-        return [
-            (
-                "UCSC segmental-duplication context: unavailable; no duplication "
-                "overlap was inferred from sequence naming or mapping geometry."
-            )
-        ]
-
-    source_count = len(result.source_overlaps)
-    target_observation_count = len(result.target_overlaps)
-    target_row_count = len({item.record for item in result.target_overlaps})
-    if source_count == 0 and target_observation_count == 0:
-        if profile.state is ExternalContextState.PARTIALLY_ASSESSED:
-            return [
-                (
-                    "UCSC segmental-duplication context: partially assessed; no "
-                    "overlap was observed on the available assembly side."
-                )
-            ]
-        return []
-
-    parts: list[str] = []
-    if source_count:
-        parts.append(
-            f"source query overlaps {source_count} putative duplication row(s)"
-        )
-    if target_observation_count:
-        candidate_count = len({item.candidate_id for item in result.target_overlaps})
-        parts.append(
-            f"{candidate_count} target projection(s) overlap "
-            f"{target_row_count} distinct putative duplication row(s)"
-        )
-    suffix = "; ".join(parts)
-    if profile.state is ExternalContextState.PARTIALLY_ASSESSED:
-        suffix += "; one assembly-side track was unavailable"
-    return [f"UCSC segmental-duplication context: {suffix}."]
-
-
-def _query_context_summary_lines(profile: QueryContextProfile) -> list[str]:
-    if profile.check_state is QueryContextState.NOT_RUN:
-        if profile.requested_window_bases is None:
-            return []
-        reason = _query_context_not_run_text(profile.not_run_reason)
-        return [
-            (
-                "Local context: not run "
-                f"for the requested {profile.requested_window_bases}-bp window; {reason}."
-            )
-        ]
-
-    tested = profile.tested_source_interval
-    if tested is None or profile.actual_window_bases is None:
-        raise ValueError("completed query context requires an exact tested window")
-    prefix = (
-        "Local context (forward chain only): "
-        f"{format_display_interval(tested)}; {profile.actual_window_bases} bp tested"
-    )
-    if profile.actual_window_bases != profile.requested_window_bases:
-        prefix += f" from requested {profile.requested_window_bases} bp"
-
-    if profile.point_and_local_context_map_together:
-        return [prefix + "; point and local context map together."]
-    findings = set(profile.findings)
-    revealed_facts: list[str] = []
-    if QueryContextFinding.REVEALS_PARTIAL_COVERAGE in findings:
-        revealed_facts.append("partial source coverage")
-    if QueryContextFinding.REVEALS_FRAGMENTATION in findings:
-        revealed_facts.append("fragmented mapping geometry")
-    if QueryContextFinding.REVEALS_TARGET_DISCONTINUITY in findings:
-        revealed_facts.append("target discontinuity")
-    if revealed_facts:
-        return [prefix + "; local context reveals " + ", ".join(revealed_facts) + "."]
-    if QueryContextFinding.CHANGES_WITH_QUERY_SCALE in findings:
-        return [prefix + "; the chain-projection result changes with query scale."]
-    if QueryContextFinding.NO_PROJECTION_AT_EITHER_SCALE in findings:
-        return [
-            prefix + "; no chain projection was found for the point or anywhere in "
-            "the tested local context."
-        ]
-    if QueryContextFinding.AGREES_WITH_POINT in findings:
-        return [prefix + "; local context agrees with the point-level chain result."]
-    raise ValueError("completed query context requires at least one factual finding")
-
-
-def _query_context_not_run_text(
-    reason: QueryContextNotRunReason | None,
-) -> str:
-    if reason is QueryContextNotRunReason.INDEX_UNAVAILABLE:
-        return "prepared forward chain index unavailable"
-    if reason is QueryContextNotRunReason.INDEX_UNUSABLE:
-        return "prepared forward chain index unusable"
-    if reason is QueryContextNotRunReason.SOURCE_BOUNDS_UNAVAILABLE:
-        return "source-sequence bounds unavailable from the prepared chain index"
-    if reason is None:
-        return "no context execution reason recorded"
-    raise ValueError(f"unsupported query-context not-run reason: {reason!r}")
-
-
-def _comparative_summary_lines(
-    report: UCSCAssessmentReport,
-    profile: ComparativeRelationshipProfile,
-) -> list[str]:
-    if profile.state is ComparativeRelationshipState.NOT_ASSESSED:
-        return []
-    if profile.inventory_state is None:
-        raise ValueError("assessed comparative relationship requires inventory state")
-    if report.filtered_all_chain_comparison is None:
-        raise ValueError("assessed comparative relationship requires paired inventory")
-    if report.filtered_chain_comparison_resource is None:
-        raise ValueError("assessed comparative relationship requires filtered chain")
-
-    all_chain_count = len(report.filtered_all_chain_comparison.all_chain_candidates)
-    filtered_count = len(report.filtered_all_chain_comparison.filtered_candidates)
-    lines: list[str] = []
-    if (
-        profile.inventory_state
-        is FilteredAllChainInventoryState.FILTERED_AND_ALL_CHAIN_AGREE
-    ):
-        lines.append(
-            "Filtered/all-chain comparison: inventories agree "
-            f"({_placement_count_text(filtered_count)} filtered; "
-            f"{_placement_count_text(all_chain_count)} all-chain)."
-        )
-    else:
-        additional = len(profile.additional_all_chain_candidate_ids)
-        lines.append(
-            "Filtered/all-chain comparison: all-chain reveals "
-            f"{additional} additional "
-            f"{'placement' if additional == 1 else 'placements'} beyond the ordinary "
-            "filtered liftOver chain."
-        )
-
-    if profile.state is ComparativeRelationshipState.NO_COMPETING_FULL_PLACEMENTS:
-        lines.append(
-            "Comparative relationship: no competing complete all-chain placements; "
-            "fewer than two complete placements are available to separate."
-        )
-        return lines
-
-    if profile.state is ComparativeRelationshipState.FAVORS_ONE_PLACEMENT:
-        favored_id = profile.favored_candidate_id
-        if favored_id is None:
-            raise ValueError("favored comparative relationship requires candidate ID")
-        lines.extend(
-            (
-                (
-                    "Comparative relationship: available categorical evidence favors "
-                    "one placement."
-                ),
-                "  Favored placement: "
-                + _comparative_candidate_label(report, favored_id),
-                (
-                    "  Why: it is the only complete placement retained by the "
-                    "ordinary filtered liftOver chain, and it has depth-1 top-net "
-                    "support plus full reciprocal-best membership; no competing "
-                    "complete placement has that same joint support."
-                ),
-            )
-        )
-        return lines
-
-    support_lines = _comparative_support_summary_lines(report, profile)
-    if profile.state is ComparativeRelationshipState.DOES_NOT_SEPARATE_PLACEMENTS:
-        lines.append(
-            "Comparative relationship: available categorical evidence does not "
-            "separate the complete placements."
-        )
-        lines.extend(support_lines)
-        return lines
-    if profile.state is ComparativeRelationshipState.MIXED_CONFLICTING:
-        lines.append(
-            "Comparative relationship: available categorical evidence is "
-            "mixed/conflicting."
-        )
-        lines.extend(support_lines)
-        return lines
-    raise ValueError(f"unsupported comparative relationship state: {profile.state!r}")
-
-
-def _placement_count_text(count: int) -> str:
-    noun = "placement" if count == 1 else "placements"
-    return f"{count} {noun}"
-
-
-def _comparative_support_summary_lines(
-    report: UCSCAssessmentReport,
-    profile: ComparativeRelationshipProfile,
-) -> list[str]:
-    complete = tuple(
-        item for item in profile.placement_support if item.complete_source_coverage
-    )
-    return [
-        "  Complete placements retained by filtered chain: "
-        + _comparative_support_set_text(
-            report,
-            tuple(item for item in complete if item.retained_by_filtered_chain),
-        ),
-        "  Complete placements with depth-1 top-net support: "
-        + _comparative_support_set_text(
-            report,
-            tuple(item for item in complete if item.depth1_top_net),
-        ),
-        "  Complete placements with full reciprocal-best membership: "
-        + _comparative_support_set_text(
-            report,
-            tuple(item for item in complete if item.full_reciprocal_best),
-        ),
-    ]
-
-
-def _comparative_support_set_text(
-    report: UCSCAssessmentReport,
-    support: tuple[ComparativePlacementProfile, ...],
-) -> str:
-    if not support:
-        return "none"
-    if len(support) > _DEFAULT_INLINE_PROJECTION_LIMIT:
-        return (
-            f"{len(support)} placements; use --details or --json for exact placement "
-            "identities"
-        )
-    return ", ".join(
-        _comparative_candidate_label(report, item.candidate_id) for item in support
-    )
-
-
 def _comparative_candidate_label(
     report: UCSCAssessmentReport,
     candidate_id: str,
@@ -1054,139 +1059,6 @@ def _comparative_candidate_label(
     return (
         f"{interval.sequence_name}:{interval.start + 1}-{interval.end} "
         f"({candidate.orientation.value.lower()} orientation; {candidate_id})"
-    )
-
-
-def _multiple_candidate_summary_lines(
-    report: UCSCAssessmentReport,
-    profile: ResultProfile,
-) -> list[str]:
-    lines = [
-        (
-            "Maximum candidate source coverage: "
-            f"{profile.maximum_candidate_covered_source_bases}/"
-            f"{profile.source_bases} bases"
-        ),
-        f"Chain projections: {len(profile.candidate_profiles)}",
-        "Projection order: reproducibility only; not rank.",
-    ]
-    if (
-        profile.union_covered_source_bases
-        != profile.maximum_candidate_covered_source_bases
-    ):
-        lines.append(
-            "Source bases represented across all projections: "
-            f"{profile.union_covered_source_bases}/{profile.source_bases}"
-        )
-    if len(profile.candidate_profiles) <= _DEFAULT_INLINE_PROJECTION_LIMIT:
-        lines.append("Projection details:")
-        for candidate, candidate_profile in zip(
-            report.candidates,
-            profile.candidate_profiles,
-            strict=True,
-        ):
-            lines.append(
-                "  - "
-                f"{_candidate_text(candidate, candidate_profile)}; "
-                f"coverage {candidate_profile.covered_source_bases}/"
-                f"{candidate_profile.source_bases}; "
-                f"geometric segments {candidate_profile.geometric_segment_count}; "
-                f"reverse {_reverse_summary_text(candidate_profile.reverse_mapping)}"
-            )
-        return lines
-
-    segment_counts = [
-        candidate.geometric_segment_count for candidate in profile.candidate_profiles
-    ]
-    target_sequence_count = len(
-        {candidate.target_interval.sequence_name for candidate in report.candidates}
-    )
-    lines.extend(
-        (
-            f"Target sequences represented: {target_sequence_count}",
-            f"Projection orientations: {profile.orientation.value}",
-            _segment_count_summary(segment_counts),
-            (
-                "Projections at maximum source coverage: "
-                f"{len(profile.maximum_coverage_candidate_ids)}"
-            ),
-            _reverse_set_summary(profile),
-            (
-                "Projection details: omitted from default output for this candidate "
-                "set; use --details or --json for every projection."
-            ),
-        )
-    )
-    return lines
-
-
-def _segment_count_summary(segment_counts: list[int]) -> str:
-    minimum = min(segment_counts)
-    maximum = max(segment_counts)
-    if minimum == maximum:
-        return f"Geometric mapped segments per projection: {minimum}"
-    return f"Geometric mapped segments per projection: {minimum}-{maximum}"
-
-
-def _reverse_summary_text(profile: CandidateReverseMappingProfile) -> str:
-    if profile.check_state is ReverseCheckState.NOT_RUN:
-        return "not run"
-    if profile.check_state is ReverseCheckState.UNAVAILABLE:
-        return "unavailable from the current prepared reverse resources"
-
-    relationship = profile.relationship
-    if relationship is ReverseRelationshipState.NO_PROJECTION:
-        return "completed; no reverse chain projection"
-    if relationship is ReverseRelationshipState.ELSEWHERE_ONLY:
-        return "returns only to a different source locus"
-    if relationship is ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE:
-        return "returns to the original source locus and elsewhere"
-    if relationship is ReverseRelationshipState.ORIGINAL_SOURCE_ONLY:
-        if profile.exact_original_geometry_return:
-            return "exactly reconstructs the original aligned source geometry"
-        assert profile.original_source_covered_bases is not None
-        return (
-            "returns only to the original source locus; recovered "
-            f"{profile.original_source_covered_bases}/{profile.original_source_bases} "
-            "aligned source bases"
-        )
-    raise ValueError("completed reverse mapping requires a relationship state")
-
-
-def _reverse_set_summary(profile: ResultProfile) -> str:
-    states = [candidate.reverse_mapping for candidate in profile.candidate_profiles]
-    if not states:
-        return "Reverse mapping: not run"
-    check_state = states[0].check_state
-    if check_state is ReverseCheckState.NOT_RUN:
-        return "Reverse mapping: not run"
-    if check_state is ReverseCheckState.UNAVAILABLE:
-        return (
-            "Reverse mapping: unavailable from the current prepared reverse resources"
-        )
-
-    exact = sum(bool(item.exact_original_geometry_return) for item in states)
-    original_only_nonexact = sum(
-        item.relationship is ReverseRelationshipState.ORIGINAL_SOURCE_ONLY
-        and not item.exact_original_geometry_return
-        for item in states
-    )
-    elsewhere_only = sum(
-        item.relationship is ReverseRelationshipState.ELSEWHERE_ONLY for item in states
-    )
-    mixed = sum(
-        item.relationship is ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE
-        for item in states
-    )
-    no_projection = sum(
-        item.relationship is ReverseRelationshipState.NO_PROJECTION for item in states
-    )
-    return (
-        "Reverse mapping: "
-        f"{exact} exact original-geometry return(s); "
-        f"{original_only_nonexact} other original-only return(s); "
-        f"{elsewhere_only} elsewhere-only; {mixed} original+elsewhere; "
-        f"{no_projection} no-projection"
     )
 
 
@@ -1261,21 +1133,6 @@ def _yes_no(value: bool) -> str:
 
 def _headline_text(headline: FactualHeadline) -> str:
     return headline.value.replace("_", " ")
-
-
-def _evidence_summary(profile: ResultProfile) -> str:
-    roles = ", ".join(profile.consumed_resource_roles) or "none"
-    if profile.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
-        return f"LIFTOVER-ONLY — consumed {roles}; chain mapping evidence only"
-    if profile.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
-        return (
-            f"COMPARATIVE — consumed {roles}; UCSC-derived observations are "
-            "conservatively treated as dependent, not independent votes; exact shared "
-            "processing-run provenance is not verified"
-        )
-    raise ValueError(
-        f"unsupported evidence availability tier: {profile.evidence_tier!r}"
-    )
 
 
 def _candidate_text(

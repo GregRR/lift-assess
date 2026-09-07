@@ -106,6 +106,7 @@ def _candidate(
     source_spans: tuple[tuple[int, int], ...] = ((100, 200),),
     target_spans: tuple[tuple[int, int], ...] = ((1000, 1100),),
     orientation: MappingOrientation = MappingOrientation.SAME,
+    target_sequence_name: str = "chrA",
     target_gaps: tuple[tuple[int, int], ...] = (),
     reciprocal_best: ReciprocalBestMembershipStatus | None = None,
     extra_evidence: tuple[EvidenceObservation, ...] = (),
@@ -114,7 +115,9 @@ def _candidate(
     segments = tuple(
         MappingSegment(
             GenomicInterval(SOURCE_ASSEMBLY, "chr1", source_start, source_end),
-            GenomicInterval(TARGET_ASSEMBLY, "chrA", target_start, target_end),
+            GenomicInterval(
+                TARGET_ASSEMBLY, target_sequence_name, target_start, target_end
+            ),
         )
         for (source_start, source_end), (target_start, target_end) in zip(
             source_spans, target_spans, strict=True
@@ -156,7 +159,7 @@ def _candidate(
                             min(index + 1, len(source_spans) - 1)
                         ][0],
                         target_gap_interval=GenomicInterval(
-                            TARGET_ASSEMBLY, "chrA", gap_start, gap_end
+                            TARGET_ASSEMBLY, target_sequence_name, gap_start, gap_end
                         ),
                     )
                     for index, (gap_start, gap_end) in enumerate(target_gaps)
@@ -205,7 +208,7 @@ def _candidate(
         candidate_id=candidate_id,
         target_interval=GenomicInterval(
             TARGET_ASSEMBLY,
-            "chrA",
+            target_sequence_name,
             min(start for start, _ in target_spans),
             max(end for _, end in target_spans),
         ),
@@ -657,7 +660,7 @@ def test_partial_fragmented_summary_expands_with_exact_coverage_and_gaps() -> No
     assert "targetAsm chrA:1051-1060" in summary
 
 
-def test_multiple_projection_summary_leads_with_coverage_before_count() -> None:
+def test_multiple_mapping_summary_leads_with_coverage_before_count() -> None:
     report = _report(
         (
             _candidate(
@@ -676,19 +679,17 @@ def test_multiple_projection_summary_leads_with_coverage_before_count() -> None:
     lines = render_assessment_summary(report).splitlines()
 
     assert lines[0] == "* SOURCE INTERVAL MAPS TO MULTIPLE LOCATIONS *"
-    assert lines.index("Maximum candidate source coverage:") < lines.index(
-        "Chain projections:"
+    assert lines.index("    Best single mapping: 60/100 input bases mapped.") < (
+        lines.index("    2 liftOver mappings were found.")
     )
-    assert "    60/100 bases" in lines
-    assert "Source bases represented across all projections:" in lines
-    assert "    100/100" in lines
-    assert "Projection order:" in lines
-    assert "    reproducibility only; not rank." in lines
+    assert "    Across all mappings, 100/100 source bases are represented." in lines
+    assert "Mappings:" in lines
+    assert "    targetAsm chrA:1001-1060" in lines
+    assert "    targetAsm chrA:3001-3040" in lines
+    assert "Projection order" not in "\n".join(lines)
 
 
-def test_large_multiple_projection_summary_is_bounded_without_candidate_sampling() -> (
-    None
-):
+def test_large_multiple_mapping_summary_is_bounded_without_mapping_sampling() -> None:
     report = _report(
         tuple(
             _candidate(
@@ -702,19 +703,12 @@ def test_large_multiple_projection_summary_is_bounded_without_candidate_sampling
     summary = render_assessment_summary(report)
     lines = summary.splitlines()
 
-    assert "Chain projections:" in lines
-    assert "    5" in lines
-    assert "Target sequences represented:" in lines
-    assert "    1" in lines
-    assert "Projection orientations:" in lines
-    assert "    SAME" in lines
-    assert "Geometric mapped segments per projection:" in lines
-    assert "Projections at maximum source coverage:" in lines
-    assert not any(line.startswith("    - ") for line in lines)
-    assert (
-        "    omitted from default output for this candidate set; use --details or "
-        "--json for every projection." in lines
-    )
+    assert "    5 complete liftOver mappings were found." in lines
+    assert "    Each maps 100/100 input bases." in lines
+    assert "    Use --details to view all 5 mappings." in lines
+    assert "Mappings:" not in lines
+    assert "Projection orientations" not in summary
+    assert "Geometric mapped segments per projection" not in summary
 
 
 def test_summary_distinguishes_exact_blocks_from_geometric_fragmentation() -> None:
@@ -885,8 +879,11 @@ def test_comparative_summary_explains_why_one_placement_is_favored() -> None:
     details = render_assessment_details(report)
     payload = json.loads(reporting.render_assessment_json(report))
 
-    assert "all-chain reveals 1 additional placement" in summary
-    assert "available categorical evidence favors one placement" in summary
+    assert "The UCSC all-chain alignments contain 2 complete mappings." in summary
+    assert (
+        "The standard sourceAsm→targetAsm liftOver chain retains one of the 2 mappings"
+        in summary
+    )
     expected_interpretation = (
         "More than one chain projection exists; available categorical comparative "
         "evidence favors one placement, but candidate encounter order is not a "
@@ -894,14 +891,96 @@ def test_comparative_summary_explains_why_one_placement_is_favored() -> None:
     )
     assert f"Interpretation: {expected_interpretation}" in details
     assert payload["result_profile"]["interpretation"] == expected_interpretation
-    assert "    Favored placement:\n        chrA:1001-1100" in summary
+    assert "targetAsm chrA:1001-1100" in summary
+    assert "The other 1 complete mapping is present in" in summary
+    assert "The retained mapping is represented by a top-level net fill." in summary
     assert (
-        "only complete placement retained by the ordinary filtered liftOver chain"
+        "All 100/100 input bases are present in the reciprocal-best chain." in summary
+    )
+    assert "None of the other 1 complete mapping has that same combination." in summary
+    assert "not independent confirmations" in summary
+    assert "FAVORS_ONE_PLACEMENT" not in summary
+    assert favored.candidate_id not in summary
+
+
+def test_h04_style_comparative_summary_keeps_seven_mappings_readable() -> None:
+    favored = _with_depth1_top_net(
+        _candidate(
+            24,
+            target_sequence_name="chr9",
+            target_spans=((1000, 1100),),
+            reciprocal_best=ReciprocalBestMembershipStatus.FULL,
+        )
+    )
+    alternatives = (
+        _candidate(
+            25,
+            target_sequence_name="chr26",
+            target_spans=((2000, 2100),),
+            reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+        ),
+        _candidate(
+            26,
+            target_sequence_name="chr7",
+            target_spans=((3000, 3100),),
+            reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+        ),
+        _candidate(
+            27,
+            target_sequence_name="chr30",
+            target_spans=((4000, 4100),),
+            reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+        ),
+        _candidate(
+            28,
+            target_sequence_name="chr9",
+            target_spans=((5000, 5100),),
+            reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+        ),
+        _candidate(
+            29,
+            target_sequence_name="chr9",
+            target_spans=((6000, 6100),),
+            reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+        ),
+        _candidate(
+            30,
+            target_sequence_name="chr9",
+            target_spans=((7000, 7100),),
+            reciprocal_best=ReciprocalBestMembershipStatus.NONE,
+        ),
+    )
+    report = _with_filtered_all_chain_comparison(
+        _report(
+            (favored, *alternatives),
+            tier=EvidenceAvailabilityTier.COMPARATIVE,
+        ),
+        (_filtered_candidate(favored),),
+    )
+
+    summary = render_assessment_summary(report)
+
+    assert summary.startswith("* MULTIPLE LIFTOVER MAPPINGS *")
+    assert "The UCSC all-chain alignments contain 7 complete mappings." in summary
+    assert "The mappings span 4 targetAsm chromosomes." in summary
+    assert "Use --details to view all 7 mappings." in summary
+    assert (
+        "standard sourceAsm→targetAsm liftOver chain retains one of the 7 mappings"
         in summary
     )
-    assert "depth-1 top-net support plus full reciprocal-best membership" in summary
-    assert "no competing complete placement has that same joint support" in summary
-    assert "not independent votes" in summary
+    assert "targetAsm chr9:1001-1100" in summary
+    assert "The other 6 complete mappings are present in" in summary
+    assert "represented by a top-level net fill" in summary
+    assert "present in the reciprocal-best chain" in summary
+    assert (
+        "None of the other 6 complete mappings have that same combination." in summary
+    )
+    assert "are related\nUCSC alignment evidence" in summary
+    assert "not independent confirmations" in summary
+    assert "FAVORS_ONE_PLACEMENT" not in summary
+    assert favored.candidate_id not in summary
+    for candidate in alternatives:
+        assert candidate.candidate_id not in summary
 
 
 def test_mixed_comparative_summary_names_the_conflicting_placements() -> None:
@@ -929,19 +1008,14 @@ def test_mixed_comparative_summary_names_the_conflicting_placements() -> None:
         and report.comparative_evidence_relationship.relationship
         is ComparativeEvidenceRelationship.MIXED_CONFLICTING
     )
-    assert "available categorical evidence is mixed/conflicting" in summary
     assert (
-        "    Complete placements retained by filtered chain:\n        chrA:1001-1100"
-        in summary
+        "standard liftOver chain, net, and reciprocal-best chain distinguish "
+        "different complete mappings" in summary
     )
-    assert (
-        "    Complete placements with depth-1 top-net support:\n        chrA:3001-3100"
-        in summary
-    )
-    assert (
-        "    Complete placements with full reciprocal-best membership:\n"
-        "        chrA:3001-3100" in summary
-    )
+    assert "Standard liftOver chain:\n        targetAsm chrA:1001-1100" in summary
+    assert "Top-level net fill:\n        targetAsm chrA:3001-3100" in summary
+    assert "Reciprocal-best chain:\n        targetAsm chrA:3001-3100" in summary
+    assert "MIXED_CONFLICTING" not in summary
 
 
 def test_nonseparating_comparative_summary_exposes_missing_category_support() -> None:
@@ -967,18 +1041,11 @@ def test_nonseparating_comparative_summary_exposes_missing_category_support() ->
         and report.comparative_evidence_relationship.relationship
         is ComparativeEvidenceRelationship.DOES_NOT_SEPARATE_PLACEMENTS
     )
-    assert "does not separate the complete placements" in summary
-    assert (
-        "    Complete placements retained by filtered chain:\n        chrA:1001-1100"
-        in summary
-    )
-    assert (
-        "    Complete placements with depth-1 top-net support:\n        none" in summary
-    )
-    assert (
-        "    Complete placements with full reciprocal-best membership:\n"
-        "        chrA:1001-1100" in summary
-    )
+    assert "do not distinguish among the complete mappings" in summary
+    assert "Standard liftOver chain:\n        targetAsm chrA:1001-1100" in summary
+    assert "Top-level net fill:\n        none" in summary
+    assert "Reciprocal-best chain:\n        targetAsm chrA:1001-1100" in summary
+    assert "DOES_NOT_SEPARATE_PLACEMENTS" not in summary
 
 
 def test_comparative_details_and_json_expose_inventory_support_and_provenance() -> None:
@@ -1356,58 +1423,75 @@ def test_segmental_duplication_context_is_typed_and_does_not_change_mapping_resu
         )
 
 
-def test_external_context_summary_counts_distinct_target_rows() -> None:
+def test_multiple_segmental_duplication_summary_counts_target_mappings() -> None:
     from liftassess import (
         CandidateSegmentalDuplicationOverlap,
-        ExternalContextProfile,
-        ExternalContextState,
         SegmentalDuplicationCheckState,
         UCSCSegmentalDuplicationContextResult,
         UCSCSegmentalDuplicationRecord,
     )
 
+    first = _candidate(81)
+    second = _candidate(82, target_spans=((1200, 1300),))
     record = UCSCSegmentalDuplicationRecord(
-        interval=GenomicInterval(TARGET_ASSEMBLY, "chrA", 1000, 1100),
-        paired_interval=GenomicInterval(TARGET_ASSEMBLY, "chrB", 2000, 2100),
+        interval=GenomicInterval(TARGET_ASSEMBLY, "chrA", 1000, 1400),
+        paired_interval=GenomicInterval(TARGET_ASSEMBLY, "chrB", 2000, 2400),
         strand="+",
         uid=7,
-        aligned_bases=100,
+        aligned_bases=400,
         fraction_matching_bases=0.99,
+    )
+    target_resource = _cached_resource(
+        UCSCBundleResourceRole.CHAIN,
+        digest_char="8",
     )
     target_provenance = ProvenanceSource(
         "target-segmental-duplication",
         "target segmental-duplication fixture",
+        identifiers=(
+            ProvenanceIdentifier(
+                ProvenanceIdentifierKind.SHA256,
+                target_resource.sha256,
+            ),
+        ),
     )
     result = UCSCSegmentalDuplicationContextResult(
         source_state=SegmentalDuplicationCheckState.UNAVAILABLE,
         target_state=SegmentalDuplicationCheckState.ASSESSED,
         target_overlaps=(
             CandidateSegmentalDuplicationOverlap(
-                candidate_id="candidate-a",
+                candidate_id=first.candidate_id,
                 record=record,
                 overlap_intervals=(
                     GenomicInterval(TARGET_ASSEMBLY, "chrA", 1010, 1020),
                 ),
             ),
             CandidateSegmentalDuplicationOverlap(
-                candidate_id="candidate-b",
+                candidate_id=second.candidate_id,
                 record=record,
                 overlap_intervals=(
-                    GenomicInterval(TARGET_ASSEMBLY, "chrA", 1030, 1040),
+                    GenomicInterval(TARGET_ASSEMBLY, "chrA", 1210, 1220),
                 ),
             ),
         ),
         target_provenance=target_provenance,
     )
-    profile = ExternalContextProfile(
-        state=ExternalContextState.PARTIALLY_ASSESSED,
-        ucsc_segmental_duplication=result,
+    base_report = _report((first, second))
+    profile = build_result_profile(
+        SOURCE,
+        (first, second),
+        evidence_tier=base_report.evidence_tier,
+        consumed_resource_roles=base_report.result_profile.consumed_resource_roles,
+        segmental_duplication_context_result=result,
+    )
+    report = replace(
+        base_report,
+        result_profile=profile,
+        segmental_duplication_context_result=result,
+        target_segmental_duplication_resource=target_resource,
     )
 
-    assert reporting._external_context_summary_lines(profile) == [
-        (
-            "UCSC segmental-duplication context: 2 target projection(s) overlap "
-            "1 distinct putative duplication row(s); one assembly-side track was "
-            "unavailable."
-        )
+    assert reporting._multiple_segmental_duplication_lines(report) == [
+        "Segmental Duplications:",
+        "    2 target mappings overlap the UCSC Segmental Duplications track.",
     ]

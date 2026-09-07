@@ -654,7 +654,7 @@ def test_reverse_cache_resolution_requires_matching_publication_class(
     )
 
     assert enriched.result_profile.scope.reverse_result is ReverseCheckState.UNAVAILABLE
-    assert "matching COMPARATIVE publication class" in stderr.getvalue()
+    assert "compatible with the current evidence resources" in stderr.getvalue()
 
 
 def test_reverse_index_load_corruption_marks_not_run_before_chain_load(
@@ -1293,7 +1293,7 @@ def test_comparative_cli_attaches_filtered_all_chain_from_prepared_index(
         enriched.result_profile.scope.comparative_relationship
         is ComparativeRelationshipState.NO_COMPETING_FULL_PLACEMENTS
     )
-    assert "Comparing ordinary filtered liftOver and all-chain placements" in (
+    assert "Comparing the standard liftOver chain with UCSC all-chain alignments" in (
         stderr.getvalue()
     )
 
@@ -1393,11 +1393,11 @@ def test_comparative_cli_run_renders_paired_filtered_all_chain_result(
     assert exit_code == 0
     assert "Comparative UCSC evidence:" in stdout.getvalue()
     assert (
-        "ordinary filtered liftOver chain and the all-chain alignments "
+        "standard liftOver chain and the UCSC all-chain alignments "
         "contain the same mapping." in stdout.getvalue()
     )
     assert (
-        "\n    Comparing ordinary filtered liftOver and all-chain placements"
+        "\n    Comparing the standard liftOver chain with UCSC all-chain alignments"
         in stderr.getvalue()
     )
 

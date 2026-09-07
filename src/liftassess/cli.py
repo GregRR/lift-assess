@@ -1556,8 +1556,8 @@ def _attach_cached_filtered_all_chain_comparison(
         return report
 
     _status(
-        "Comparing ordinary filtered liftOver and all-chain placements using the "
-        "prepared filtered-chain index...",
+        "Comparing the standard liftOver chain with UCSC all-chain alignments "
+        "using the prepared chain index...",
         quiet=args.quiet,
         stderr=stderr,
         indent=4,
@@ -1723,9 +1723,8 @@ def _attach_cached_reverse_mapping_context(
     )
     if structural is None:
         _status(
-            "Reverse liftOver unavailable: no cached reverse-direction chain with "
-            f"matching {report.evidence_tier.value.replace('_', '-')} publication "
-            "class; UCSC was not contacted.",
+            "Reverse liftOver unavailable: no cached reverse-direction chain "
+            "compatible with the current evidence resources; UCSC was not contacted.",
             quiet=args.quiet,
             stderr=stderr,
             indent=4,
