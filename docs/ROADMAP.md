@@ -4,15 +4,15 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 [`DESIGN.md`](DESIGN.md) remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, result-model semantics, current scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
 
-## Current status — 2026-09-06
+## Current status — 2026-09-07
 
 liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
 
-The post-alpha redesign is implemented through Milestone 22 plus the prerequisite assembly/context work for Milestone 23. The development code uses the facts-first orthogonal result profile and schema-v2 reporting model, scalable exact-resource chain indexing, actual reverse-mapping context, automatic 101-bp point context, paired filtered/all-chain comparative relationships, indexed batch assessment with both BED and simple interval-table intake, authoritative source preflight, version-bound target-role context, and typed UCSC segmental-duplication context. The required M22 batch scope is complete.
+The post-alpha redesign through Milestone 23 is complete. The development code now reports liftOver mappings through a facts-first schema-v2 result model, uses chain indexes for scalable exact interval lookup, performs reverse liftOver and automatic assessment of a 101-bp flanking interval for point queries, compares ordinary filtered liftOver chains with all-chain alignments when comparative resources are available, supports indexed batch assessment from BED and simple interval tables, validates source sequence names and bounds against authoritative assembly metadata, reports target sequence roles from version-matched metadata, and reports UCSC segmental-duplication overlap as contextual evidence.
 
-The M22 closure gate contained **506 tests** and passed pytest, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`. Subsequent assembly-metadata/context work has continued to expand the development suite beyond that checkpoint. M22 also has real-data regression coverage against the established B12-B14 COMPARATIVE cases and B15-B18 batch-collision cases. The M22 external review reproduced its checkpoint gate, found no scientific-correctness defect in the reviewed batch core, and its demonstrated reciprocal-best batch-scaling concern was remediated before milestone closure.
+The M22 closure gate contained **506 tests** and passed pytest, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`. Subsequent assembly-metadata and genomic-context work has continued to expand the development suite beyond that checkpoint. M22 also has real-data regression coverage against the established B12-B14 COMPARATIVE cases and B15-B18 batch-collision cases. The M22 external review reproduced its checkpoint gate, found no scientific-correctness defect in the reviewed batch core, and its demonstrated reciprocal-best batch-scaling concern was remediated before milestone closure.
 
-The earlier parallel prerequisite before the held-out Milestone 23 gate is now complete. The authoritative assembly-sequence metadata/preflight capability is implemented for source validation and version-matched target-role/context reporting, and the initial typed UCSC segmental-duplication pilot has completed focused internal review, external review/remediation, and its planned motivating-case A03/A04 real-data exercise. The external review found optional-context failure-boundary defects that were remediated and independently re-verified before the real-data runs. This work does not reopen M22; it closes the earlier parallel workstream that Milestone 23 assumes.
+The assembly-metadata and segmental-duplication work required before Milestone 23 is also complete. Source sequence names and bounds are validated against authoritative assembly metadata; target sequence roles are reported from version-matched metadata; and the initial UCSC segmental-duplication overlap check completed focused internal review, external review/remediation, and its planned A03/A04 real-data exercise. External review found defects in the handling of optional contextual evidence that were remediated and independently re-verified before the real-data runs. This work does not reopen M22; it closes the earlier parallel workstream required by Milestone 23.
 
 Milestone 23 is complete. All five pre-registered cases were rechecked against the current default human renderer. H01 outside-user feedback exposed a genuine comprehension failure in the older default output and drove the first renderer slice; H04 drove the compact multiple-mapping/comparative slice. The final H03/H04/H05 outside spot-check found the complex outputs understandable and scientifically bounded, while identifying one H04 prominence gap and one bounded follow-up-navigation improvement. Both were corrected and the affected cases were rerun successfully. Because held-out cases influenced presentation, the five-case set is explicitly not described as untouched validation.
 
@@ -848,16 +848,17 @@ results were intentionally treated as implementation/design checks, not held-out
   correctness.
 
 This closes the earlier parallel prerequisite without changing the Milestone 23 validation boundary. The
-50-case corpus and A03/A04 remain same-corpus/motivating evidence; held-out real cases and outside-user/domain
-feedback are still required before the redesigned language is described as validated or release-ready.
+50-case corpus and A03/A04 remain same-corpus/motivating evidence; the separate Milestone 23 held-out
+real-case and outside-user gate described below supplied the release-readiness check.
 
 ### 23. Held-out result-language and outside-user gate — complete
 
-Before describing the redesigned language as validated or release-ready:
+The Milestone 23 gate required:
 
 - run a small set of real cases not used to derive the language;
 - include uncomplicated controls and difficult/ambiguous examples;
-- exercise the 101-bp point-context default and typed contextual observations;
+- exercise the automatic 101-bp flanking-interval assessment and UCSC segmental-duplication
+  context;
 - obtain outside-user/domain feedback on whether the factual headline, expanded unusual-case output,
   comparative explanations, and scope boundaries answer the practical question without implying
   biological certainty.
@@ -873,7 +874,7 @@ remain same-corpus design evidence.
 
 ### 24. Second public alpha release — `v0.2.0a1`
 
-Publish the redesigned second public alpha only after Milestone 23 passes.
+Milestone 23 passed on 2026-09-06. Milestone 24 prepares the redesigned second public alpha for release.
 
 Milestone 24 is a release milestone, not another scientific-feature milestone. Its scope is the
 implementation and validated result language completed through Milestones 17–23; new analysis
@@ -892,12 +893,17 @@ Release requirements:
   test exercises the documented CLI and machine-readable output;
 - README, user documentation, release notes/changelog, package metadata, and examples describe the
   behavior actually shipped in `v0.2.0a1`;
+- a dedicated public-language audit confirms that README, GitHub About text, CLI help, release notes,
+  current-facing DESIGN/ROADMAP prose, examples, and command descriptions use standard
+  bioinformatics/genomics and UCSC liftOver terminology, preserve the M23 facts-first evidence
+  boundaries, and do not expose obsolete aggregate-verdict language or unnecessary internal
+  implementation vocabulary in normal user-facing text;
 - release artifacts are reviewed before tag/publication, and the published package is smoke-tested
   through the documented external install path.
 
-If Milestone 23 does not pass, `v0.2.0a1` remains blocked rather than weakening the held-out
-validation gate to meet a release target. Maintainer release mechanics are documented in
-[`RELEASING.md`](RELEASING.md).
+The Milestone 23 prerequisite was satisfied on 2026-09-06; Milestone 24 remains open until the
+release-candidate gate, artifact review, publication, and published-package smoke test are complete.
+Maintainer release mechanics are documented in [`RELEASING.md`](RELEASING.md).
 
 ### 25. Contextual-evidence expansion — `v0.3.0a1`
 

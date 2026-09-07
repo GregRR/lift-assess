@@ -788,8 +788,8 @@ verdict schema. Schema v1 remains historical v0.1.0a1 behavior and may be broken
 redesign. Do not retain `verdict`, verdict-derived `decision_reason`, or preferred-candidate semantics
 merely for compatibility with the obsolete aggregate model.
 
-The new schema is built around the derived result profile plus exact candidates/evidence/resources/
-provenance. Exact field names are implementation work, but the structure must preserve:
+Schema v2 is implemented around the derived result profile plus exact candidates/evidence/resources/
+provenance. The released structure must preserve:
 
 - schema version and report type;
 - source/target assembly identifiers and exact source interval;
@@ -938,12 +938,13 @@ population prevalence estimates.
 
 ### Held-out language/usability gate
 
-Before the redesigned result language is described as validated or release-ready, test the actual
-implemented output on a small set of real cases that were not used to derive the language. Include
-both uncomplicated controls and difficult/ambiguous cases. Outside-user/domain feedback should
-also exercise representative problem cases, including the automatic 101-bp point context and typed
-context observations. This gate evaluates whether the result is understandable and appropriately
-bounded; it is not a requirement to calibrate a numeric confidence score.
+Completed 2026-09-06 for the `v0.2.0a1` release candidate. Five pre-registered real cases exercised
+both uncomplicated and difficult mapping results, including automatic assessment of a 101-bp flanking
+interval and UCSC segmental-duplication context. Outside review of the final complex outputs found no
+unresolved scientific overclaim; its actionable presentation findings were incorporated and the affected
+cases were rerun.
+Because the held-out cases influenced presentation during the gate, they are not described as untouched
+validation. This gate evaluates understandability and evidence boundaries, not numeric confidence.
 
 ## 11. Three-gate status (as of this baseline)
 
@@ -951,13 +952,13 @@ bounded; it is not a requirement to calibrate a numeric confidence score.
 |---|---|---|
 | 1 | Is this needed? | **Yes.** Two independent peer-reviewed benchmarks + a dedicated tool (Liftoff) exist because this class of problem is real and unresolved by conversion accuracy alone. |
 | 2 | Are people asking questions it answers? | **Yes.** Recurring across years, species (human, dog), and use cases (variant, annotation, epigenomic interval), in both Q&A forums and tool support threads. |
-| 3 | Can it be extremely helpful and easy to use? | **Plausibly yes, with a measured redesign need.** The alpha works end to end and the 50-case corpus identified concrete interpretation/UX failures that the current redesign addresses. Held-out cases and outside-user/domain feedback remain required before calling the redesigned language validated. |
+| 3 | Can it be extremely helpful and easy to use? | **Supported for the `v0.2.0a1` release candidate within the tested scope.** The 50-case corpus identified concrete interpretation/UX failures, and the completed Milestone 23 real-case/outside-user gate found no unresolved usability or scientific-boundary blocker after its actionable presentation findings were incorporated. This is release-readiness evidence, not a population accuracy or prevalence claim. |
 
 ## 12. Sequencing
 
 The first public alpha proved the end-to-end UCSC workflow, but the 50-case program showed that the
 legacy aggregate-verdict interface is too easy to overread and omits important explanatory context.
-The post-alpha redesign therefore proceeds in this order:
+The post-alpha redesign was implemented in this order:
 
 1. **Factual result profile + renderer.** Replace the target aggregate-verdict model with the
    orthogonal profile in §4, define the new schema version, add deterministic headlines,
@@ -982,8 +983,9 @@ The post-alpha redesign therefore proceeds in this order:
    The initial typed UCSC segmental-duplication pilot completed focused review/remediation and motivating-
    case A03/A04 real-data exercise without changing mapping interpretation. Those motivating cases are
    implementation/design evidence, not the held-out validation gate.
-8. **Held-out language/usability gate.** Exercise the implemented redesign on unseen real cases and
-   outside users/domain reviewers before describing it as validated/release-ready.
+8. **Held-out language/usability gate — completed.** The Milestone 23 real-case and outside-user
+   review closed on 2026-09-06 with no unresolved release blocker after the actionable presentation
+   findings were incorporated and rerun.
 
 Reverse, neighborhood, filtered/all-chain expansion, and batch must not ship by multiplying the
 current exhaustive whole-resource scan. The exact indexing/preprocessing implementation remains a
@@ -998,8 +1000,6 @@ implementation/evidence questions or deliberately deferred domains:
   material need. Chain-index preparation is now an explicit cache-only user action via
   `prepare-liftassess-index`; normal assessment never incurs an implicit first-query build and retains
   full traversal when no usable derived index is present.
-- Finalize exact result-profile field/API names and the new JSON schema layout; the dedicated derived
-  profile boundary and deliberate alpha compatibility break are already decided.
 - Extend the accepted initial comparative classifier only with explicit deterministic semantics and
   tests. Do not introduce hidden weighting of `ali`, `qDup`, chain score, or related observations.
 - Browser-link UX and optional BED12/export remain optional navigation/visualization work within the

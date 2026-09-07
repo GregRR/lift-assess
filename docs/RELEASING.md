@@ -12,6 +12,28 @@ feedback resolved.
 
 Begin from a clean `main` branch that is up to date with `origin/main`.
 
+## Audit public terminology
+
+Before changing release metadata, review the shipped human-facing language against the
+current renderer and established bioinformatics/genomics terminology. At minimum, inspect:
+
+- README and user documentation;
+- GitHub About text;
+- CLI help and human-readable report labels;
+- changelog/release-note wording;
+- current-facing DESIGN/ROADMAP prose; and
+- examples and command descriptions.
+
+Prefer established UCSC/liftOver and genomics terms such as mapping, alignment block,
+source interval, target sequence, reverse mapping, and segmental duplication. Internal
+model/schema vocabulary may remain where an API or machine-readable field is being
+documented, but normal user-facing text should not expose implementation terms when a
+standard community term exists. Historical documentation may retain obsolete result
+terminology when it is explicitly describing an older release.
+
+Confirm that the audited wording remains facts-first, states evidence boundaries clearly,
+and does not imply biological identity or correctness beyond the evidence assessed.
+
 ## Synchronize release metadata
 
 For the release-preparation commit:
