@@ -25,7 +25,7 @@ The project is still alpha scientific software. Pre-release compatibility may ch
 
 ### Validation
 
-- Added held-out Milestone 23 real-case execution. One case exposed a presentation gap in the shared comparative interpretation; the presentation was corrected and the affected case rerun unchanged. Outside-user/domain review remains pending before the redesigned result language is considered release-ready.
+- Rechecked all five Milestone 23 cases against the current default human renderer. Outside-user feedback on H01 and the H04 comparative case both influenced presentation; the current H01-H05 output has no unresolved internal blocker. One final outside complex-case comprehension/scope spot-check remains before M23 can close.
 
 ## 0.1.0a1 - 2026-08-17
 

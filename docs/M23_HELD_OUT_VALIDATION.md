@@ -1,8 +1,9 @@
 # Milestone 23 held-out result-language validation
 
-**Status:** INTERNAL CASE EXECUTION COMPLETE — H04 influenced presentation; outside review pending
+**Status:** CURRENT HUMAN OUTPUT VERIFIED INTERNALLY — outside complex-case spot-check pending
 **Selection date:** 2026-08-29
-**Execution date:** 2026-08-29
+**Initial execution date:** 2026-08-29
+**Current-renderer verification:** 2026-09-06
 **Purpose:** Milestone 23 held-out real-case and outside-user/domain gate
 
 ## Evidence boundary
@@ -133,102 +134,144 @@ For each case, record:
 
 ## Internal execution record
 
-All five pre-registered baseline cases were executed without substitution on 2026-08-29. No blocking
-scientific-correctness or evidence-boundary failure remains from the internal pass. H04 did expose a
-release-worthy presentation gap: the shared interpretation string reported multiple projections but did
-not surface the already-computed `FAVORS_ONE_PLACEMENT` comparative relationship. That finding directly
-influenced implementation, so this five-case set is **not** described as untouched held-out validation.
-The interpretation was corrected without changing candidate generation or comparative classification,
-and H04 was rerun unchanged after the full native test/lint/type-check gate passed.
+All five pre-registered baseline cases were executed without substitution on 2026-08-29. The held-out
+set subsequently influenced implementation in two presentation-only ways: outside-user feedback on H01
+showed that the original default output was not understandable enough, and H04 exposed the need for a
+compact multiple-mapping/comparative explanation. Candidate generation, comparative classification, and
+scientific evidence semantics were not changed by those renderer corrections. The five-case set is
+therefore **not** described as untouched held-out validation.
+
+The current default renderer was verified across H01-H05 on 2026-09-06 using real reruns where material
+output changed plus regression coverage for wording-only changes. The native gate before the latest
+H04/H05 checks passed 582 tests, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`; the later
+Slice-2 cleanup changed formatting only. No unresolved internal scientific-correctness or evidence-boundary
+blocker remains.
 
 ### H01 result — coordinate-convention control
 
-- **Observed:** one complete hg19→hg38 projection to `chr22:15690406`, matching the historical coordinate.
-- **Local/reverse context:** the automatic 101-bp window mapped 101/101 bases contiguously through the
-  same chain; reverse mapping returned only to the original hg19 source point.
-- **Typed context:** source and target segmental-duplication overlaps were present, but remained
-  descriptive and did not alter the coordinate interpretation.
-- **Adjudication:** no blocker. The output distinguishes clean coordinate geometry from unassessed rsID
-  identity even when typed context is present.
+- **Observed:** one hg19→hg38 liftOver mapping to `chr22:15690406`, matching the historical coordinate.
+- **Reverse/flanking interval:** the centered 101-bp interval mapped 101/101 bases through the same chain,
+  and reverse liftOver returned exactly to the original hg19 point.
+- **Typed context:** both source and mapped coordinates overlapped the UCSC Segmental Duplications track.
+  The overlap was presented descriptively and did not alter the mapping result.
+- **Current human output:** `ONE LIFTOVER MAPPING`; ordinary primary-assembly metadata is not promoted into
+  key findings, while the completed metadata check remains visible under `CHECKS PERFORMED`.
+- **Adjudication:** no blocker. The output distinguishes coordinate conversion from unassessed variant,
+  gene, transcript, uniqueness, or other biological identity.
 
 ### H02 result — invalid source coordinate
 
-- **Observed:** authoritative hg38 `chr2` length was 242,193,529 while the requested point was
-  `chr2:242193706`.
-- **Behavior:** source preflight stopped the run before mapping, printed that mapping was not attempted,
-  and returned process exit status 1.
-- **Adjudication:** no blocker. Invalid input did not become a biological-looking no-projection result.
+- **Observed:** UCSC hg38 chr2 has 242,193,529 bases; the requested point was 177 bp beyond the sequence
+  end.
+- **Behavior:** source preflight stopped before liftOver, reported `INVALID SOURCE COORDINATE`, stated that
+  liftOver was not attempted, and returned process exit status 1.
+- **Adjudication:** no blocker. Invalid input does not become a biological-looking no-mapping result.
 
-### H03 result — telomeric interchromosomal projection
+### H03 result — telomeric interchromosomal mapping
 
-- **Observed:** hg38 `chr10:10709` projected completely to hg19 `chr18:10905`; the 101-bp context also
-  mapped 101/101 bases contiguously and agreed with the point.
-- **Reverse/context evidence:** actual reverse mapping was `ELSEWHERE_ONLY`. The source point overlapped
-  three hg38 `genomicSuperDups` rows, including a chr10↔chr18 row with `fracMatch=0.979191`; target
-  overlap was also assessed. These observations were reported as descriptive context rather than a
-  causal explanation.
-- **Target role:** `UNAVAILABLE` because the hg19 assembly description does not provide the exact
-  versioned NCBI assembly binding required by the target-role model. The primary mapping continued.
-- **Adjudication:** no blocker. The output reproduces the surprising chromosome change while separating
-  clean local geometry, non-reciprocity, duplication context, and unverified mechanism.
+- **Observed:** hg38 `chr10:10709` mapped completely to hg19 `chr18:10905`; the centered 101-bp interval
+  also mapped 101/101 bases through the same forward chain.
+- **Reverse liftOver:** hg19 `chr18:10905` mapped to hg38 `chr18:10905`, not to the original hg38 chr10
+  coordinate.
+- **Typed context:** both source and mapped coordinates overlapped the UCSC Segmental Duplications track.
+  One overlapping hg38 record pairs the source chr10 region with an hg38 chr18 region. The renderer does
+  not claim that this annotation explains the liftOver relationship.
+- **Assembly metadata:** exact version-bound NCBI metadata for the hg19 target assembly was unavailable;
+  mapping continued without inferring a target sequence role.
+- **Current human output:** `INTERCHROMOSOMAL LIFTOVER MAPPING`, with reverse liftOver, flanking-interval
+  behavior, and Segmental Duplications context stated separately.
+- **Adjudication:** no blocker. The chromosome change is explicit without being labeled erroneous or
+  biologically correct.
 
 ### H04 result — new canine COMPARATIVE case
 
-- **Observed:** the 3-bp CanFam3 locus produced seven complete all-chain projections. One canFam4 chr9
-  placement was retained by the ordinary filtered chain, represented by a depth-1 top-net fill, and had
-  full reciprocal-best membership; none of the six other complete placements had the same categorical
-  support pattern. The comparative relationship was therefore `FAVORS_ONE_PLACEMENT`.
-- **Evidence boundary:** filtered-chain, net, and reciprocal-best observations remained grouped as
-  provenance-dependent UCSC-derived evidence rather than independent votes. Variant and gene identity
-  remained unassessed, and the result did not establish a biological locus.
-- **Optional dimensions:** reverse mapping was `UNAVAILABLE` because no cached reverse-direction chain
-  with matching COMPARATIVE publication class was available and UCSC was not contacted. Typed
-  segmental-duplication context was also `UNAVAILABLE`; neither absence changed the primary comparative
-  assessment. The exact reverse-unavailability reason is currently present in run-status text while the
-  durable dossier/JSON carries only the `UNAVAILABLE` state; this is a non-blocking release UX follow-up.
-- **Implementation influence:** the first run's top-level interpretation said only that multiple chain
-  projections existed even though the detailed comparative section already reported
-  `FAVORS_ONE_PLACEMENT`. The interpretation was changed to state that available categorical comparative
-  evidence favors one placement while preserving the no-biological-locus boundary. Regression coverage
-  verifies the result profile, detailed dossier, and schema-v2 JSON.
-- **Rerun:** the unchanged H04 query produced the same seven placements and same categorical evidence
-  relationships after the presentation fix; the new top-level interpretation surfaced the comparative
-  conclusion.
-- **Adjudication:** the original presentation gap is resolved for the current candidate. Because H04
-  caused the change, this case is implementation-influencing evidence rather than untouched validation.
+- **Observed:** the 3-bp CanFam3 locus has seven complete mappings in the UCSC all-chain alignments; every
+  mapping covers 3/3 input bases and the mappings span four canFam4 chromosomes.
+- **Comparative UCSC evidence:** the standard canFam3→canFam4 liftOver chain retains one of those seven
+  mappings, `canFam4 chr9:49251380-49251382`. That mapping is also represented by a top-level net fill
+  and all 3/3 input bases are present in the reciprocal-best chain. None of the other six complete
+  mappings have the same combination.
+- **Evidence dependence:** the standard liftOver chain, net, and reciprocal-best chain are explicitly
+  described as related UCSC alignment evidence rather than independent confirmations.
+- **Optional dimensions:** reverse liftOver was unavailable from the cached resources used for this run;
+  UCSC Segmental Duplications context was also unavailable. Neither absence changed the comparative
+  mapping facts.
+- **Implementation influence:** H04 drove the compact multiple-mapping/comparative renderer. The default
+  output now reports the seven complete mappings, shows the one mapping distinguished by the consumed
+  UCSC comparative resources, and leaves the other six coordinates to `--details` rather than dumping
+  them into ordinary terminal output.
+- **Adjudication:** no blocker. The output says that the comparative evidence distinguishes one mapping
+  within the assessed alignment resources; it does not declare that mapping biologically correct.
 
 ### H05 result — rs138257042 asymmetric chr22/chr14 mapping
 
-- **Observed:** hg38 `chr22:15528888` projected completely to hg19 `chr14:19378323`; the 101-bp context
-  also mapped 101/101 bases contiguously and agreed with the point.
-- **Reverse/context evidence:** reverse mapping was `ELSEWHERE_ONLY`. The source point overlapped six hg38
-  segmental-duplication rows, including one with `fracMatch=0.996176`; the hg19 target point overlapped
-  four rows, including one with `fracMatch=0.996027`.
-- **Identity boundary:** target role was `UNAVAILABLE` under the strict hg19 assembly-binding rule, and
-  named-variant identity remained explicitly unassessed.
-- **Adjudication:** no blocker. The output exposes coordinate projection, local agreement, non-reciprocity,
-  and duplication context without resolving the historical rsID-aware placement conflict.
+- **Observed:** hg38 `chr22:15528888` mapped completely to hg19 `chr14:19378323`; the centered 101-bp
+  interval mapped 101/101 bases through the same chain.
+- **Reverse liftOver:** hg19 `chr14:19378323` mapped to hg38 `chr14:18601846`, not to the original hg38
+  chr22 coordinate.
+- **Typed context:** both source and mapped coordinates overlapped the UCSC Segmental Duplications track.
+  One overlapping hg38 record pairs the source chr22 region with an hg38 chr14 region. The renderer does
+  not infer a causal mechanism from that annotation.
+- **Assembly metadata:** exact version-bound NCBI metadata for the hg19 target assembly was unavailable;
+  mapping continued without inferring a target sequence role.
+- **Identity boundary:** the limitations state that the coordinate result does not establish uniqueness
+  or preservation of the same variant, gene, transcript, or other biological feature. Variant identity
+  was not assessed.
+- **Adjudication:** no blocker and no additional renderer change required. H05 demonstrates the intended
+  boundary between chain-based coordinate conversion and identifier-aware variant evidence.
 
 ### Internal gate disposition
 
-The internal five-case pass therefore has no unresolved blocker. It did produce one implementation-
-influencing H04 presentation correction and one non-blocking reverse-unavailability explanation follow-up.
-Milestone 23 remains open until the outside-user/domain packet is reviewed against the current candidate.
+The current renderer has no unresolved internal M23 blocker across H01-H05. H01 and H04 both influenced
+presentation, so the set remains implementation-influencing evidence rather than untouched validation.
+H05 required no additional code change.
 
-### Pending UX observations from independent AI review
+One non-blocking structured-output follow-up remains: when reverse liftOver is unavailable, the live
+status text can explain why while the durable dossier/JSON may retain only the unavailable state. This
+does not prevent the primary mapping assessment from completing and is not an M23 release blocker.
 
-A separate AI review of the H01/H03/H04/H05 dossiers produced the following potential release UX improvements. These are **advisory observations, not adopted requirements or design decisions**. Keep the M23 outside-review candidate frozen and adjudicate the outside-user/domain feedback before deciding which, if any, to implement:
+## Outside-user/domain feedback to date
 
-1. surface the actual reverse-mapping relationship more prominently near the top of detailed output, especially `ELSEWHERE_ONLY`, without folding it into the factual headline or turning it into a confidence verdict;
-2. report same-sequence versus interchromosomal projection explicitly as a neutral geometric relationship;
-3. preserve the structured reason for reverse-mapping `UNAVAILABLE` in the durable result/JSON rather than only in run-status text;
-4. reconsider the human-facing word `categorical` in comparative interpretation because ordinary-language readers may hear it as “absolute” rather than “discrete relationship class”;
-5. make scope-versus-result grammar consistent so availability states such as `ASSESSED`/`UNAVAILABLE` are not mixed ad hoc with conclusions such as `FAVORS_ONE_PLACEMENT`;
-6. consider rendering point-context agreement as the point and tested 101-bp context mapping through the same forward chain, avoiding language that could sound like independent corroboration;
-7. make the distinction between actual reverse mapping and precomputed UCSC reciprocal-best membership visually and terminologically unmistakable; and
-8. consider a bounded reverse-orientation note for downstream strand-dependent sequence/allele use that explicitly says liftAssess did not transform or validate that downstream data.
+Outside feedback has already influenced the current renderer. The reviewer is an experienced
+bioinformatician and frequent liftOver user with UCSC Genome Browser/annotation experience; the record
+does not treat that feedback as an endorsement.
 
-The same review also proposed stronger interpretations that are **not** carried forward: chain-score-based confidence/ranking, claims that UCSC-derived observations are independent corroboration, causal duplication/mechanism conclusions from contextual overlap, or a replacement aggregate confidence/verdict layer. Those suggestions conflict with the current scientific model and previously reviewed invariants.
+- On the original H01-style output, the reviewer said the result was not understandable enough to count
+  as human-readable. That feedback directly motivated the first default-output renderer slice.
+- On the revised H01 output, the reviewer no longer needed terminology explained and immediately reasoned
+  about the Segmental Duplications context. The reviewer independently suggested evaluating UCSC Self
+  Chain and asked to see more complex cases.
+- Self Chain was recorded as a plausible contextual-evidence candidate but deliberately deferred to
+  Milestone 25 / `v0.3.0a1`; it was not pulled into the M23 renderer gate.
+- The request for more complex cases was addressed internally with H03, H04, and H05. H04 in particular
+  drove the second renderer slice for multiple mappings and comparative UCSC evidence.
+
+This outside feedback is sufficient to establish that the old default output had a real comprehension
+problem and that the revised simple-case grammar materially improved it. It does **not** satisfy the
+frozen M23 completion rule by itself, because the current complex-case output has not yet received the
+planned outside-user/domain spot-check.
+
+## Remaining outside spot-check
+
+Do not ask the reviewer to approve implementation decisions or to review every case iteratively. H01 has
+already been reviewed in revised form. To satisfy the pre-registered outside-user/domain criterion, send
+one final compact packet containing the current H03, H04, and H05 default outputs, explicitly noting that
+H04 influenced the comparative presentation. H02 remains optional unless its invalid-input wording is of
+interest.
+
+Ask the reviewer, without first supplying our preferred interpretation:
+
+1. What do you think physically happened to the queried interval?
+2. What evidence in the output makes you think that?
+3. What, if anything, would you do next before using the mapped coordinate?
+4. Does any wording sound like a stronger claim than the evidence supports?
+5. Is it clear which questions liftAssess did **not** assess, especially variant/gene identity and
+   biological correctness?
+6. In H04, is it clear that the standard liftOver chain, net, and reciprocal-best chain are related UCSC
+   alignment evidence rather than three independent votes?
+
+Record only enough reviewer background to interpret the feedback. The goal is a comprehension/scope
+spot-check, not an endorsement request.
 
 ## Blocking failure criteria
 
@@ -254,25 +297,10 @@ implementation rather than as untouched validation evidence.
 
 ## Outside-user/domain packet
 
-After the internal case review, send the outputs for H01, H03, H04, and H05 that represent the current
-release candidate to at least one outside user or domain-informed reviewer who did not help derive the
-result language. For H04, use the post-correction rerun and disclose that this case exposed and influenced
-the comparative-interpretation wording. Include H02 as well if its preflight behavior or wording is
-surprising. Do not present the packet as untouched held-out validation.
-
-Ask the reviewer, without first supplying our preferred interpretation:
-
-1. What do you think physically happened to the queried interval?
-2. What evidence in the output makes you think that?
-3. What, if anything, would you do next before using the projected coordinate?
-4. Does any wording sound like a stronger claim than the evidence supports?
-5. Is it clear which questions liftAssess did **not** assess (for example rsID/gene identity or biological
-   correctness)?
-6. For COMPARATIVE and typed-context cases, is it clear that related UCSC observations are contextual or
-   provenance-dependent rather than independent votes?
-
-Record the reviewer’s role/background only at the level needed to interpret the feedback; do not turn the
-gate into an endorsement request.
+The current outside-user/domain procedure is recorded above under **Remaining outside spot-check**. H01
+has already been reviewed in revised form; the remaining packet is H03/H04/H05 as one final comprehension
+and scope-boundary check. Do not present the packet as untouched held-out validation, because H01 and H04
+influenced renderer implementation.
 
 ## Gate completion rule
 

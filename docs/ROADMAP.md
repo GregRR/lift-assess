@@ -4,7 +4,7 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 [`DESIGN.md`](DESIGN.md) remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, result-model semantics, current scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
 
-## Current status — 2026-08-29
+## Current status — 2026-09-06
 
 liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
 
@@ -14,11 +14,13 @@ The M22 closure gate contained **506 tests** and passed pytest, Ruff lint, Ruff 
 
 The earlier parallel prerequisite before the held-out Milestone 23 gate is now complete. The authoritative assembly-sequence metadata/preflight capability is implemented for source validation and version-matched target-role/context reporting, and the initial typed UCSC segmental-duplication pilot has completed focused internal review, external review/remediation, and its planned motivating-case A03/A04 real-data exercise. The external review found optional-context failure-boundary defects that were remediated and independently re-verified before the real-data runs. This work does not reopen M22; it closes the earlier parallel workstream that Milestone 23 assumes.
 
-Milestone 23's five pre-registered baseline cases have now been executed. The internal pass found no unresolved blocker, but H04 exposed a presentation gap in the shared comparative interpretation; that presentation was corrected and H04 was rerun unchanged. Because the held-out case influenced implementation, the five-case set is not described as untouched validation. Outside-user/domain review of the current candidate is pending, so Milestone 23 remains open.
+Milestone 23's five pre-registered cases have now been rechecked against the current default human renderer. H01 outside-user feedback exposed a genuine comprehension failure in the older default output and drove the first renderer slice. H04 then drove a second renderer slice for compact multiple-mapping and comparative UCSC evidence. The current H01-H05 output has no unresolved internal blocker, and H05 required no additional code change. Because H01 and H04 influenced implementation, the five-case set is not described as untouched validation.
+
+Outside review is partially complete: the revised H01 output was understood without terminology explanation, and the reviewer independently raised Segmental Duplications/Self Chain context and asked for more complex cases. Under the frozen M23 completion rule, one final compact outside spot-check of the current H03/H04/H05 complex-case output remains before Milestone 23 can close. The reviewer is not being used as an implementation-approval gate.
 
 The next release sequence is therefore:
 
-1. adjudicate the outside-user/domain feedback and resolve any blocking M23 finding;
+1. complete the final H03/H04/H05 outside comprehension/scope spot-check and resolve any blocking M23 finding;
 2. only after M23 passes, prepare the `v0.2.0a1` release candidate in Milestone 24;
 3. follow `v0.2.0a1` with a `v0.3.0a1` contextual-evidence release; and
 4. follow that with a `v0.4.0a1` navigation/export and workflow-usability release.
