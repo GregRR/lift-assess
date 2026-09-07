@@ -889,8 +889,11 @@ def test_indexed_point_context_with_no_projection_at_either_scale_is_explicit(
     assert context.findings == (QueryContextFinding.NO_PROJECTION_AT_EITHER_SCALE,)
     assert not context.point_and_local_context_map_together
     summary = render_assessment_summary(enriched)
-    assert "no chain projection was found for the point" in summary
-    assert "agrees with the point-level chain result" not in summary
+    assert (
+        "No liftOver mapping was found for the point or the flanking interval."
+        in summary
+    )
+    assert "point-level chain result" not in summary
 
 
 def test_point_context_without_index_is_explicitly_not_run(tmp_path: Path) -> None:

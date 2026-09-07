@@ -351,8 +351,15 @@ def test_out_of_bounds_source_interval_is_rejected_before_chain_assessment(
         ]
     )
 
-    with pytest.raises(ValueError, match="sequence length is 10000"):
+    with pytest.raises(cli.UserFacingCLIError) as exc_info:
         cli._run(args, stdin=StringIO(""), stdout=StringIO(), stderr=StringIO())
+
+    message = str(exc_info.value)
+    assert message.startswith("* INVALID SOURCE COORDINATE *")
+    assert "canFam3 chr1:9999-10001" in message
+    assert "10,000 bp" in message
+    assert "1 bp beyond the end of canFam3 chr1" in message
+    assert "liftOver was not attempted" in message
 
 
 def test_verified_alias_is_suggested_without_silent_rewrite(
@@ -434,7 +441,7 @@ def test_valid_assembly_sequence_without_chain_projection_is_assessed_normally(
     exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=StringIO())
 
     assert exit_code == 0
-    assert "* NO CHAIN PROJECTION *" in stdout.getvalue()
+    assert "* NO LIFTOVER MAPPING *" in stdout.getvalue()
 
 
 def test_cli_runs_end_to_end_with_interactive_acknowledgements(
@@ -452,9 +459,10 @@ def test_cli_runs_end_to_end_with_interactive_acknowledgements(
     exit_code = cli._run(args, stdin=stdin, stdout=stdout, stderr=stderr)
 
     assert exit_code == 0
-    assert "Source:\n    chr1:101-120 (1-based inclusive)" in stdout.getvalue()
-    assert "Evidence:\n    LIFTOVER-ONLY" in stdout.getvalue()
-    assert "This does not establish biological correctness." in stdout.getvalue()
+    assert "Source:\n    canFam3 chr1:101-120" in stdout.getvalue()
+    assert "= KEY FINDINGS =" in stdout.getvalue()
+    assert "= LIMITATIONS =" in stdout.getvalue()
+    assert "= CHECKS PERFORMED =" in stdout.getvalue()
     assert "UCSC terms to review" in stderr.getvalue()
     assert "Transfer plan: LIFTOVER_ONLY (1 resource(s))" in stderr.getvalue()
     assert (
@@ -516,12 +524,10 @@ def test_run_uses_cached_indexed_reverse_chain_without_provider_access(
 
     assert exit_code == 0
     assert seen_tiers == [EvidenceAvailabilityTier.LIFTOVER_ONLY]
+    assert "Reverse liftOver:" in stdout.getvalue()
+    assert "maps back exactly to:" in stdout.getvalue()
     assert (
-        "Reverse mapping:\n    exactly reconstructs the original aligned source geometry"
-        in stdout.getvalue()
-    )
-    assert (
-        "Assessing actual reverse mapping from cached indexed canFam4→canFam3 chain"
+        "Assessing reverse liftOver from cached indexed canFam4→canFam3 chain"
         in stderr.getvalue()
     )
 
@@ -596,10 +602,8 @@ def test_run_reports_reverse_unavailable_without_matching_cached_chain(
     exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
 
     assert exit_code == 0
-    assert (
-        "Reverse mapping:\n    unavailable from the current prepared reverse resources"
-        in stdout.getvalue()
-    )
+    assert "Reverse liftOver:" in stdout.getvalue()
+    assert "Reverse liftOver was unavailable" in stdout.getvalue()
     assert "UCSC was not contacted" in stderr.getvalue()
 
 
@@ -752,7 +756,7 @@ def test_run_marks_reverse_not_run_after_index_lookup_corruption(
     assert exit_code == 0
     assert "failed during lookup" in stderr.getvalue()
     assert "no full reverse-chain scan was started" in stderr.getvalue()
-    assert "Reverse mapping:\n    not run" in stdout.getvalue()
+    assert "Reverse liftOver:" not in stdout.getvalue()
 
 
 def test_run_marks_reverse_not_run_when_matching_chain_is_not_indexed(
@@ -787,7 +791,7 @@ def test_run_marks_reverse_not_run_when_matching_chain_is_not_indexed(
     assert exit_code == 0
     assert "no prepared index is available" in stderr.getvalue()
     assert "no full reverse-chain scan was started" in stderr.getvalue()
-    assert "Reverse mapping:\n    not run" in stdout.getvalue()
+    assert "Reverse liftOver:" not in stdout.getvalue()
 
 
 def test_cli_explicit_acknowledgement_flags_skip_prompts(
@@ -1053,8 +1057,10 @@ def test_main_runs_success_path_through_console_boundary(
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert "Evidence:\n    LIFTOVER-ONLY" in captured.out
-    assert "This does not establish biological correctness." in captured.out
+    assert "* ONE LIFTOVER MAPPING *" in captured.out
+    assert "= KEY FINDINGS =" in captured.out
+    assert "= LIMITATIONS =" in captured.out
+    assert "= CHECKS PERFORMED =" in captured.out
     assert "UCSC terms to review" in captured.err
 
 
@@ -1201,7 +1207,9 @@ def test_comparative_cli_run_shares_pair_provenance_across_consumed_resources(
     exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=StringIO())
 
     assert exit_code == 0
-    assert "Evidence:\n    COMPARATIVE" in stdout.getvalue()
+    assert "UCSC all-chain alignments" in stdout.getvalue()
+    assert "UCSC net alignment" in stdout.getvalue()
+    assert "UCSC reciprocal-best chain" in stdout.getvalue()
     assert len(reports) == 1
     report = reports[0]
     assert report.alignment_provenance.source_id == "ucsc-pair:canFam3:canFam4"
@@ -1383,7 +1391,11 @@ def test_comparative_cli_run_renders_paired_filtered_all_chain_result(
     )
 
     assert exit_code == 0
-    assert "Filtered/all-chain comparison:\n    inventories agree" in stdout.getvalue()
+    assert "Comparative UCSC evidence:" in stdout.getvalue()
+    assert (
+        "ordinary filtered liftOver chain and the all-chain alignments "
+        "contain the same mapping." in stdout.getvalue()
+    )
     assert (
         "\n    Comparing ordinary filtered liftOver and all-chain placements"
         in stderr.getvalue()
@@ -2026,7 +2038,7 @@ def test_run_retries_full_traversal_after_mid_query_index_corruption(
     assert seen_indexes == [built.index, None]
     assert progress_modes == [True, False]
     assert "retrying with full traversal" in stderr.getvalue()
-    assert "Source:\n    chr1:101-120 (1-based inclusive)" in stdout.getvalue()
+    assert "Source:\n    canFam3 chr1:101-120" in stdout.getvalue()
 
 
 def test_run_uses_validated_index_identity_to_skip_redundant_chain_rehash(
@@ -2232,7 +2244,7 @@ def test_cli_reuses_complete_verified_cache_without_provider_access(
     exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
 
     assert exit_code == 0
-    assert "Evidence:\n    LIFTOVER-ONLY" in stdout.getvalue()
+    assert "= CHECKS PERFORMED =" in stdout.getvalue()
     assert (
         "Checking/verifying local UCSC cache...\n    Using verified cached"
         in stderr.getvalue()
@@ -2453,7 +2465,10 @@ def test_run_integrates_zero_candidate_progress_without_consuming_comparative_ev
     )
 
     assert exit_code == 0
-    assert "Chain projections:\n    0" in stdout.getvalue()
+    assert stdout.getvalue().startswith("* NO LIFTOVER MAPPING *")
+    assert "No liftOver mapping was found" in stdout.getvalue()
+    assert "UCSC net alignment" not in stdout.getvalue()
+    assert "UCSC reciprocal-best chain" not in stdout.getvalue()
     progress = stderr.getvalue()
     assert "Chain" in progress
     assert "100%" in progress
@@ -2542,7 +2557,7 @@ def test_run_automatically_assesses_101bp_point_context_from_forward_index(
     assert context["tested_source_interval"]["end"] == 151
     assert context["evidence_scope"] == "forward_chain_only"
     assert len(context["candidates"]) == 1
-    assert "Assessing 101-bp point context" in stderr.getvalue()
+    assert "Assessing 101-bp flanking interval" in stderr.getvalue()
 
 
 def test_run_point_context_without_forward_index_is_not_run_without_extra_scan(
@@ -2813,9 +2828,11 @@ def test_run_point_context_summary_reports_exact_tested_window(
 
     assert exit_code == 0
     rendered = stdout.getvalue()
-    assert "Local context (forward chain only)" in rendered
-    assert "chr1:51-151 (1-based inclusive); 101 bp tested" in rendered
-    assert "point and local context map together" in rendered
+    assert "Flanking interval:" in rendered
+    assert "canFam3 chr1:51-151" in rendered
+    assert "101/101 bases mapped" in rendered
+    assert "also maps" in rendered
+    assert "completely through the same canFam3→canFam4 chain" in rendered
 
 
 def test_cli_can_explicitly_acquire_liftover_only_chain(
@@ -3015,4 +3032,4 @@ def test_target_role_parse_failure_degrades_optional_context(
     assert catalog is None
     assert returned_metadata is None
     assert unavailable
-    assert "continue without inferring a role" in stderr.getvalue()
+    assert "continue without NCBI assembly sequence metadata" in stderr.getvalue()

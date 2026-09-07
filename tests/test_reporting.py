@@ -14,6 +14,8 @@ from liftassess import (
     CachedAssemblyRoleArtifact,
     CachedResource,
     CachedTargetAssemblyRoleMetadata,
+    CachedUCSCChainResource,
+    CandidateReverseMappingResult,
     ChainGap,
     ChainGapSummary,
     ComparativeEvidenceRelationship,
@@ -28,18 +30,24 @@ from liftassess import (
     MappingSegment,
     NetHierarchySummary,
     NormalizedCandidate,
+    PointQueryContextResult,
     ProvenanceIdentifier,
     ProvenanceIdentifierKind,
     ProvenanceSource,
     ProviderChecksum,
+    QueryContextState,
     ReciprocalBestMembershipStatus,
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
     ResourceChecksumAlgorithm,
+    ReverseCheckState,
+    ReverseSegmentResult,
     TargetRoleState,
     UCSCAssessmentReport,
     UCSCAssessmentResource,
     UCSCBundleResourceRole,
+    attach_query_context_result,
+    attach_reverse_mapping_results,
     build_comparative_evidence_relationship,
     build_filtered_all_chain_comparison,
     build_result_profile,
@@ -51,6 +59,7 @@ from liftassess.reporting import (
     format_display_interval,
     render_assessment_details,
     render_assessment_summary,
+    render_invalid_source_coordinate,
 )
 
 SOURCE_ASSEMBLY = AssemblyIdentifier("sourceAsm", "test")
@@ -393,23 +402,236 @@ def test_format_display_interval_makes_coordinate_convention_explicit() -> None:
     assert format_display_interval(interval) == "chr1:12345-12400 (1-based inclusive)"
 
 
+def test_invalid_source_coordinate_uses_user_facing_assembly_bounds() -> None:
+    assembly = AssemblyIdentifier("hg38", "UCSC")
+    interval = GenomicInterval(assembly, "chr2", 242193705, 242193706)
+
+    rendered = render_invalid_source_coordinate(
+        "hg38",
+        interval,
+        sequence_length=242193529,
+    )
+
+    assert rendered.startswith("* INVALID SOURCE COORDINATE *")
+    assert "hg38 chr2:242193706" in rendered
+    assert "242,193,529 bp" in rendered
+    assert "177 bp beyond the end of hg38 chr2" in rendered
+    assert "liftOver was not attempted" in rendered
+    assert "UCSC hg38 sequence size" in rendered
+
+
 def test_clean_default_summary_is_compact_facts_first_and_verdict_free() -> None:
     summary = render_assessment_summary(_report((_candidate(42),)))
 
-    assert summary.splitlines()[:7] == [
-        "* ONE COMPLETE CHAIN PROJECTION *",
+    assert summary.splitlines()[:10] == [
+        "* ONE LIFTOVER MAPPING *",
+        "",
         "Source:",
-        "    chr1:101-200 (1-based inclusive)",
-        "Source coverage:",
-        "    100/100 source bases",
-        "Target:",
-        "    chrA:1001-1100 (1-based inclusive; same orientation)",
+        "    sourceAsm chr1:101-200",
+        "",
+        "Mapped interval:",
+        "    targetAsm chrA:1001-1100",
+        "    Orientation:",
+        "        same",
+        "",
     ]
+    assert "= KEY FINDINGS =" in summary
+    assert "One sourceAsm→targetAsm chain maps the queried interval." in summary
+    assert "100/100 input bases mapped." in summary
+    assert "= LIMITATIONS =" in summary
+    assert "same variant, gene, transcript" in summary
+    assert "= CHECKS PERFORMED =" in summary
+    assert "sourceAsm → targetAsm liftOver" in summary
     assert "Assessment:" not in summary
     assert "WELL SUPPORTED" not in summary
     assert "Preferred candidate" not in summary
-    assert "LIFTOVER-ONLY" in summary
-    assert "named-variant and gene/transcript identity not assessed" in summary
+    assert "LIFTOVER-ONLY" not in summary
+
+
+def test_interchromosomal_summary_surfaces_reverse_liftover_elsewhere() -> None:
+    source_assembly = AssemblyIdentifier("hg38", "UCSC")
+    target_assembly = AssemblyIdentifier("hg19", "UCSC")
+    source = GenomicInterval(source_assembly, "chr10", 10708, 10709)
+    target = GenomicInterval(target_assembly, "chr18", 10904, 10905)
+    candidate_id = chain_candidate_id(CHAIN.source_id, 1469)
+    candidate = NormalizedCandidate(
+        candidate_id=candidate_id,
+        target_interval=target,
+        orientation=MappingOrientation.SAME,
+        mapping_provenance=CHAIN,
+        segments=(MappingSegment(source, target),),
+        evidence=(
+            EvidenceObservation(
+                f"{candidate_id}:coverage",
+                EvidenceKind.MAPPING_COVERAGE,
+                MappingCoverageSummary(
+                    MappingCoverageStatus.FULL,
+                    1,
+                    1,
+                    (),
+                ),
+                CHAIN,
+            ),
+            EvidenceObservation(
+                f"{candidate_id}:gaps",
+                EvidenceKind.CHAIN_GAPS,
+                ChainGapSummary(()),
+                CHAIN,
+            ),
+        ),
+    )
+    resource = _resource(
+        UCSCBundleResourceRole.CHAIN,
+        consumed=True,
+        provenance=CHAIN,
+        digest_char="a",
+    )
+    profile = build_result_profile(
+        source,
+        (candidate,),
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        consumed_resource_roles=("CHAIN",),
+        target_role_unavailable=True,
+    )
+    report = UCSCAssessmentReport(
+        source_interval=source,
+        target_assembly=target_assembly,
+        candidates=(candidate,),
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        result_profile=profile,
+        source_db="hg38",
+        target_db="hg19",
+        alignment_provenance=ALIGNMENT,
+        resources=(resource,),
+    )
+
+    reverse_alignment = ProvenanceSource("reverse-alignment", "reverse alignment")
+    reverse_resource_url = (
+        "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/liftOver/"
+        "hg19ToHg38.over.chain.gz"
+    )
+    reverse_cached = CachedResource(
+        path=Path("/cache/reverse.chain.gz"),
+        source_url=reverse_resource_url,
+        retrieved_at="2026-08-29T00:00:00Z",
+        sha256="sha256:" + "9" * 64,
+        size_bytes=123,
+        provider_checksum=None,
+        terms=ucsc_resource_terms(reverse_resource_url),
+        cache_hit=True,
+    )
+    reverse_provenance = ProvenanceSource(
+        source_id=f"file:{reverse_cached.sha256}",
+        label="UCSC hg19→hg38 chain resource",
+        identifiers=(
+            ProvenanceIdentifier(
+                ProvenanceIdentifierKind.SHA256,
+                reverse_cached.sha256,
+            ),
+        ),
+        derived_from=(reverse_alignment,),
+    )
+    reverse_target = GenomicInterval(source_assembly, "chr18", 10904, 10905)
+    reverse_candidate_id = chain_candidate_id(reverse_provenance.source_id, 19)
+    reverse_candidate = NormalizedCandidate(
+        candidate_id=reverse_candidate_id,
+        target_interval=reverse_target,
+        orientation=MappingOrientation.SAME,
+        mapping_provenance=reverse_provenance,
+        segments=(MappingSegment(target, reverse_target),),
+        evidence=(
+            EvidenceObservation(
+                f"{reverse_candidate_id}:coverage",
+                EvidenceKind.MAPPING_COVERAGE,
+                MappingCoverageSummary(
+                    MappingCoverageStatus.FULL,
+                    1,
+                    1,
+                    (),
+                ),
+                reverse_provenance,
+            ),
+            EvidenceObservation(
+                f"{reverse_candidate_id}:gaps",
+                EvidenceKind.CHAIN_GAPS,
+                ChainGapSummary(()),
+                reverse_provenance,
+            ),
+        ),
+    )
+    reverse_result = CandidateReverseMappingResult(
+        forward_candidate_id=candidate_id,
+        check_state=ReverseCheckState.RUN,
+        original_source_segments=(source,),
+        queried_target_segments=(target,),
+        segment_results=(
+            ReverseSegmentResult(
+                queried_target_segment=target,
+                expected_original_source_segment=source,
+                candidates=(reverse_candidate,),
+            ),
+        ),
+    )
+    report = attach_reverse_mapping_results(
+        report,
+        (reverse_result,),
+        reverse_chain=CachedUCSCChainResource(
+            source_db="hg19",
+            target_db="hg38",
+            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+            chain=reverse_cached,
+        ),
+        reverse_alignment_provenance=reverse_alignment,
+    )
+
+    context_source = GenomicInterval(source_assembly, "chr10", 10658, 10759)
+    context_target = GenomicInterval(target_assembly, "chr18", 10854, 10955)
+    context_candidate = NormalizedCandidate(
+        candidate_id=candidate_id,
+        target_interval=context_target,
+        orientation=MappingOrientation.SAME,
+        mapping_provenance=CHAIN,
+        segments=(MappingSegment(context_source, context_target),),
+        evidence=(
+            EvidenceObservation(
+                f"{candidate_id}:context-coverage",
+                EvidenceKind.MAPPING_COVERAGE,
+                MappingCoverageSummary(
+                    MappingCoverageStatus.FULL,
+                    101,
+                    101,
+                    (),
+                ),
+                CHAIN,
+            ),
+            EvidenceObservation(
+                f"{candidate_id}:context-gaps",
+                EvidenceKind.CHAIN_GAPS,
+                ChainGapSummary(()),
+                CHAIN,
+            ),
+        ),
+    )
+    report = attach_query_context_result(
+        report,
+        PointQueryContextResult(
+            check_state=QueryContextState.RUN,
+            requested_window_bases=101,
+            tested_source_interval=context_source,
+            candidates=(context_candidate,),
+        ),
+    )
+
+    summary = render_assessment_summary(report)
+
+    assert summary.startswith("* INTERCHROMOSOMAL LIFTOVER MAPPING *")
+    assert "hg38 chr10:10709" in summary
+    assert "hg19 chr18:10905" in summary
+    assert "Reverse liftOver:" in summary
+    assert "hg38 chr18:10905" in summary
+    assert "It does not return to the original source coordinate" in summary
+    assert "101-bp interval centered on the input coordinate" in summary
+    assert "101/101 bases mapped" in summary
 
 
 def test_partial_fragmented_summary_expands_with_exact_coverage_and_gaps() -> None:
@@ -426,13 +648,13 @@ def test_partial_fragmented_summary_expands_with_exact_coverage_and_gaps() -> No
 
     summary = render_assessment_summary(report)
 
-    assert summary.startswith("* PARTIAL AND FRAGMENTED PROJECTION *")
-    assert "Source coverage:\n    80/100 source bases" in summary
-    assert "Geometric mapped segments:\n    2" in summary
-    assert "Uncovered source:\n    chr1:151-160" in summary
-    assert "chr1:191-200" in summary
-    assert "Target gaps:\n    chrA:1051-1060" in summary
-    assert "bounding span of 2 geometric mapped segments" in summary
+    assert summary.startswith("* PARTIAL MAPPING ACROSS MULTIPLE ALIGNMENT BLOCKS *")
+    assert "80/100 input bases mapped." in summary
+    assert "The mapping contains 2 alignment blocks." in summary
+    assert "The target span above is a bounding span" in summary
+    assert "sourceAsm chr1:151-160" in summary
+    assert "sourceAsm chr1:191-200" in summary
+    assert "targetAsm chrA:1051-1060" in summary
 
 
 def test_multiple_projection_summary_leads_with_coverage_before_count() -> None:
@@ -453,7 +675,7 @@ def test_multiple_projection_summary_leads_with_coverage_before_count() -> None:
 
     lines = render_assessment_summary(report).splitlines()
 
-    assert lines[0] == "* SOURCE INTERVAL SPLITS ACROSS MULTIPLE PROJECTIONS *"
+    assert lines[0] == "* SOURCE INTERVAL MAPS TO MULTIPLE LOCATIONS *"
     assert lines.index("Maximum candidate source coverage:") < lines.index(
         "Chain projections:"
     )
@@ -526,10 +748,11 @@ def test_comparative_summary_names_consumed_resources_and_dependency_boundary() 
 
     summary = render_assessment_summary(report)
 
-    assert "COMPARATIVE" in summary
-    assert "CHAIN, NET, RECIPROCAL_BEST_CHAIN" in summary
-    assert "not independent votes" in summary
-    assert "exact shared processing-run provenance is not verified" in summary
+    assert "UCSC all-chain alignments" in summary
+    assert "UCSC net alignment" in summary
+    assert "UCSC reciprocal-best chain" in summary
+    assert "COMPARATIVE" not in summary
+    assert "not independent votes" not in summary
     assert (
         report.result_profile.headline is FactualHeadline.ONE_COMPLETE_CHAIN_PROJECTION
     )
@@ -947,7 +1170,7 @@ def test_reporting_marks_unavailable_target_role_without_name_inference() -> Non
     summary = render_assessment_summary(report)
     payload = json.loads(reporting.render_assessment_json(report))
 
-    assert "unavailable; no role was inferred from sequence naming" in summary
+    assert "NCBI assembly sequence metadata (unavailable)" in summary
     assert payload["result_profile"]["target_role"]["state"] == "UNAVAILABLE"
     assert payload["target_role_metadata"]["assembly_accession"] is None
     assert payload["target_role_metadata"]["resources"] == []
@@ -974,7 +1197,8 @@ def test_reporting_preserves_unusual_provider_target_role_and_provenance() -> No
     summary = render_assessment_summary(report)
     payload = json.loads(reporting.render_assessment_json(report))
 
-    assert "role=unplaced-scaffold" in summary
+    assert "Target assembly sequence:" in summary
+    assert "Sequence role: unplaced-scaffold" in summary.replace("\n", " ")
     assert profile.scope.target_role is TargetRoleState.ASSESSED
     role = payload["result_profile"]["target_role"]["sequences"][0]
     assert role["provider_role"] == "unplaced-scaffold"
@@ -1052,7 +1276,7 @@ def test_segmental_duplication_context_is_typed_and_does_not_change_mapping_resu
         records=(
             UCSCSegmentalDuplicationRecord(
                 interval=GenomicInterval(SOURCE_ASSEMBLY, "chr1", 90, 150),
-                paired_interval=GenomicInterval(SOURCE_ASSEMBLY, "chr5", 500, 560),
+                paired_interval=GenomicInterval(SOURCE_ASSEMBLY, "chrA", 500, 560),
                 strand="+",
                 uid=10,
                 aligned_bases=60,
@@ -1093,12 +1317,14 @@ def test_segmental_duplication_context_is_typed_and_does_not_change_mapping_resu
     )
 
     summary = render_assessment_summary(enriched)
-    assert "putative duplication row(s)" in summary
-    assert "biological correctness" in summary
+    assert "Segmental Duplications:" in summary
+    assert "Both the source and mapped coordinates overlap" in summary
+    assert "pairs this chr1 region with a region on sourceAsm chrA" in summary
+    assert "does not by itself show" in summary
 
     details = render_assessment_details(enriched)
     assert "Typed external context: UCSC segmental duplications" in details
-    assert "chr5:501-560 (1-based inclusive)" in details
+    assert "chrA:501-560 (1-based inclusive)" in details
     assert "Fraction matching bases: 0.995" in details
     assert "descriptive context only" in details
 

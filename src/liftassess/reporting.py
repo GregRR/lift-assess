@@ -7,6 +7,7 @@ biological correctness claim.
 """
 
 import json
+import re
 
 from .chain import chain_id_from_candidate_id
 from .comparative_inventory import FilteredAllChainInventoryState
@@ -72,24 +73,64 @@ def format_display_interval(interval: GenomicInterval) -> str:
     )
 
 
+def render_invalid_source_coordinate(
+    database: str,
+    source_interval: GenomicInterval,
+    *,
+    sequence_length: int,
+) -> str:
+    """Render an out-of-bounds source-coordinate error for terminal users."""
+
+    if sequence_length <= 0:
+        raise ValueError("source sequence length must be positive")
+    if source_interval.end <= sequence_length:
+        raise ValueError(
+            "invalid-coordinate rendering requires an out-of-bounds interval"
+        )
+
+    excess = source_interval.end - sequence_length
+    sequence = source_interval.sequence_name
+    boundary_phrase = (
+        "coordinate is" if source_interval.length == 1 else "interval ends"
+    )
+    return "\n".join(
+        (
+            "* INVALID SOURCE COORDINATE *",
+            "",
+            "Source:",
+            f"    {_human_interval_text(database, source_interval)}",
+            "",
+            f"{database} {sequence} length:",
+            f"    {sequence_length:,} bp",
+            "",
+            "= INPUT ERROR =",
+            "",
+            (
+                f"The requested {boundary_phrase} {excess:,} bp beyond the end of "
+                f"{database} {sequence}."
+            ),
+            "",
+            "liftOver was not attempted.",
+            "",
+            "= CHECK PERFORMED =",
+            "",
+            f"    Source coordinate checked against UCSC {database} sequence size",
+        )
+    )
+
+
 def render_assessment_summary(report: UCSCAssessmentReport) -> str:
     """Render the progressive-disclosure default factual result summary."""
 
     profile = report.result_profile
+    if len(profile.candidate_profiles) <= 1:
+        return _render_single_mapping_summary(report)
+
     lines = [
-        f"* {_headline_text(profile.headline)} *",
-        f"Source: {format_display_interval(profile.source_interval)}",
+        f"* {_summary_headline_text(report)} *",
+        f"Source: {_human_interval_text(report.source_db, profile.source_interval)}",
     ]
-
-    if not profile.candidate_profiles:
-        lines.append("Chain projections: 0")
-    elif len(profile.candidate_profiles) == 1:
-        candidate_profile = profile.candidate_profiles[0]
-        candidate = report.candidates[0]
-        lines.extend(_single_candidate_summary_lines(candidate, candidate_profile))
-    else:
-        lines.extend(_multiple_candidate_summary_lines(report, profile))
-
+    lines.extend(_multiple_candidate_summary_lines(report, profile))
     lines.extend(_query_context_summary_lines(profile.query_context))
     lines.extend(_comparative_summary_lines(report, profile.comparative_relationship))
     lines.extend(_target_role_summary_lines(profile))
@@ -98,7 +139,7 @@ def render_assessment_summary(report: UCSCAssessmentReport) -> str:
     lines.append(f"Evidence: {_evidence_summary(profile)}")
     lines.append(f"Interpretation: {profile.interpretation}")
     lines.append(
-        "Scope: coordinate projection/structure assessed; named-variant and "
+        "Scope: coordinate mapping/structure assessed; named-variant and "
         "gene/transcript identity not assessed."
     )
     lines.append(
@@ -106,6 +147,563 @@ def render_assessment_summary(report: UCSCAssessmentReport) -> str:
     )
     lines.append(_BIOLOGICAL_CORRECTNESS_CAVEAT)
     return "\n".join(_format_summary_lines(lines))
+
+
+def _render_single_mapping_summary(report: UCSCAssessmentReport) -> str:
+    """Render a compact standard-terminology summary for zero/one mappings."""
+
+    profile = report.result_profile
+    lines = [
+        f"* {_summary_headline_text(report)} *",
+        "",
+        "Source:",
+        f"    {_human_interval_text(report.source_db, profile.source_interval)}",
+    ]
+
+    if not profile.candidate_profiles:
+        lines.extend(
+            (
+                "",
+                "= KEY FINDINGS =",
+                "",
+                "Mapping:",
+                "    No liftOver mapping was found for the requested source interval.",
+            )
+        )
+        context_lines = _single_flanking_interval_lines(report)
+        if context_lines:
+            lines.extend(("", *context_lines))
+        duplication_lines = _single_segmental_duplication_lines(report)
+        if duplication_lines:
+            lines.extend(("", *duplication_lines))
+        lines.extend(
+            (
+                "",
+                "= LIMITATIONS =",
+                "",
+                "No mapping in the consumed chain does not by itself establish that",
+                "homologous sequence is absent from the target assembly.",
+                "",
+                "= CHECKS PERFORMED =",
+                "",
+            )
+        )
+        lines.extend(_summary_check_lines(report, include_forward=True))
+        return "\n".join(lines)
+
+    candidate = report.candidates[0]
+    candidate_profile = profile.candidate_profiles[0]
+    target_label = _single_mapping_target_label(profile, candidate_profile)
+    lines.extend(
+        (
+            "",
+            f"{target_label}:",
+            f"    {_human_interval_text(report.target_db, candidate.target_interval)}",
+            "    Orientation:",
+            f"        {candidate.orientation.value.lower()}",
+            "",
+            "= KEY FINDINGS =",
+            "",
+        )
+    )
+    lines.extend(_single_mapping_finding_lines(report, candidate_profile))
+
+    limitation_lines = _single_mapping_limitation_lines(report)
+    if limitation_lines:
+        lines.extend(("", "= LIMITATIONS =", "", *limitation_lines))
+
+    lines.extend(("", "= CHECKS PERFORMED =", ""))
+    lines.extend(_summary_check_lines(report, include_forward=True))
+    lines.extend(
+        (
+            "",
+            "Details:",
+            "    Use --details for alignment blocks, gaps, evidence, and provenance,",
+            "    or --json for machine-readable output.",
+        )
+    )
+    return "\n".join(lines)
+
+
+def _single_mapping_target_label(
+    profile: ResultProfile,
+    candidate: CandidateResultProfile,
+) -> str:
+    if profile.source_interval.length == 1:
+        return "Mapped coordinate"
+    if candidate.geometric_segment_count > 1:
+        return "Target span"
+    return "Mapped interval"
+
+
+def _single_mapping_finding_lines(
+    report: UCSCAssessmentReport,
+    profile: CandidateResultProfile,
+) -> list[str]:
+    source_bases = profile.source_bases
+    query_noun = "base" if source_bases == 1 else "interval"
+    lines = [
+        "Mapping:",
+        (
+            f"    One {report.source_db}→{report.target_db} chain maps the "
+            f"queried {query_noun}."
+        ),
+        (
+            f"    {profile.covered_source_bases}/{source_bases} input "
+            f"{'base' if source_bases == 1 else 'bases'} mapped"
+            + (
+                ", with no chain gap at the queried position."
+                if source_bases == 1 and not profile.source_gap_intervals
+                else "."
+            )
+        ),
+    ]
+
+    if profile.geometric_segment_count > 1:
+        lines.extend(
+            (
+                (
+                    "    The mapping contains "
+                    f"{profile.geometric_segment_count} alignment blocks."
+                ),
+                (
+                    "    The target span above is a bounding span, not one "
+                    "continuous alignment."
+                ),
+            )
+        )
+    if profile.uncovered_source_intervals:
+        lines.extend(
+            (
+                "    Unmapped source interval(s):",
+                *(
+                    "        " + _human_interval_text(report.source_db, interval)
+                    for interval in profile.uncovered_source_intervals
+                ),
+            )
+        )
+    if profile.target_gap_intervals:
+        lines.extend(
+            (
+                "    Target gap(s) within the mapping:",
+                *(
+                    "        " + _human_interval_text(report.target_db, interval)
+                    for interval in profile.target_gap_intervals
+                ),
+            )
+        )
+
+    reverse_lines = _single_reverse_liftover_lines(report, profile)
+    if reverse_lines:
+        lines.extend(("", *reverse_lines))
+
+    context_lines = _single_flanking_interval_lines(report)
+    if context_lines:
+        lines.extend(("", *context_lines))
+
+    comparative_lines = _single_comparative_lines(report)
+    if comparative_lines:
+        lines.extend(("", *comparative_lines))
+
+    duplication_lines = _single_segmental_duplication_lines(report)
+    if duplication_lines:
+        lines.extend(("", *duplication_lines))
+
+    target_role_lines = _single_target_sequence_metadata_lines(report)
+    if target_role_lines:
+        lines.extend(("", *target_role_lines))
+    return lines
+
+
+def _single_reverse_liftover_lines(
+    report: UCSCAssessmentReport,
+    profile: CandidateResultProfile,
+) -> list[str]:
+    reverse = profile.reverse_mapping
+    if reverse.check_state is ReverseCheckState.NOT_RUN:
+        return []
+    if reverse.check_state is ReverseCheckState.UNAVAILABLE:
+        return [
+            "Reverse liftOver:",
+            "    Reverse liftOver was unavailable from the prepared resources.",
+        ]
+
+    queried = reverse.queried_target_segments
+    if len(queried) == 1:
+        query_text = _human_interval_text(report.target_db, queried[0])
+    else:
+        query_text = f"{len(queried)} mapped target blocks"
+
+    if reverse.relationship is ReverseRelationshipState.ORIGINAL_SOURCE_ONLY:
+        if reverse.exact_original_geometry_return:
+            return [
+                "Reverse liftOver:",
+                f"    {query_text} maps back exactly to:",
+                (
+                    "        "
+                    + _human_interval_text(report.source_db, report.source_interval)
+                ),
+            ]
+        assert reverse.original_source_covered_bases is not None
+        return [
+            "Reverse liftOver:",
+            f"    {query_text} maps only to the original source locus.",
+            (
+                "    Recovered original source bases: "
+                f"{reverse.original_source_covered_bases}/"
+                f"{reverse.original_source_bases}."
+            ),
+        ]
+
+    if reverse.relationship is ReverseRelationshipState.NO_PROJECTION:
+        return [
+            "Reverse liftOver:",
+            (
+                f"    {query_text} has no mapping in the "
+                f"{report.target_db}→{report.source_db} chain."
+            ),
+        ]
+
+    mapped_back = _reverse_target_intervals(report)
+    lines = ["Reverse liftOver:"]
+    if mapped_back:
+        if len(mapped_back) == 1:
+            lines.extend(
+                (
+                    f"    {query_text} maps to:",
+                    f"        {_human_interval_text(report.source_db, mapped_back[0])}",
+                )
+            )
+        else:
+            lines.append(
+                f"    {query_text} maps to {len(mapped_back)} "
+                "source-assembly locations:"
+            )
+            lines.extend(
+                "        " + _human_interval_text(report.source_db, interval)
+                for interval in mapped_back[:_DEFAULT_INLINE_PROJECTION_LIMIT]
+            )
+    if reverse.relationship is ReverseRelationshipState.ELSEWHERE_ONLY:
+        lines.extend(
+            (
+                "    It does not return to the original source coordinate:",
+                (
+                    "        "
+                    + _human_interval_text(report.source_db, report.source_interval)
+                ),
+            )
+        )
+    elif reverse.relationship is ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE:
+        lines.append(
+            "    Reverse liftOver returns to the original source locus and to "
+            "at least one other locus."
+        )
+    return lines
+
+
+def _reverse_target_intervals(
+    report: UCSCAssessmentReport,
+) -> tuple[GenomicInterval, ...]:
+    if not report.reverse_mapping_results:
+        return ()
+    intervals: list[GenomicInterval] = []
+    for segment_result in report.reverse_mapping_results[0].segment_results:
+        intervals.extend(
+            candidate.target_interval for candidate in segment_result.candidates
+        )
+    return tuple(dict.fromkeys(intervals))
+
+
+def _single_flanking_interval_lines(report: UCSCAssessmentReport) -> list[str]:
+    result = report.query_context_result
+    profile = report.result_profile.query_context
+    if result is None or profile.check_state is QueryContextState.NOT_RUN:
+        return []
+    tested = result.tested_source_interval
+    if tested is None:
+        raise ValueError("completed flanking-interval check requires a source interval")
+
+    lines = ["Flanking interval:"]
+    if profile.point_and_local_context_map_together and len(result.candidates) == 1:
+        context_candidate = result.candidates[0]
+        covered = profile.maximum_candidate_covered_source_bases
+        assert covered is not None
+        lines.extend(
+            (
+                f"    A {tested.length}-bp interval centered on the input coordinate also maps",
+                (
+                    "    completely through the same "
+                    f"{report.source_db}→{report.target_db} chain:"
+                ),
+                f"        {_human_interval_text(report.source_db, tested)}",
+                (
+                    "        "
+                    + _human_interval_text(
+                        report.target_db, context_candidate.target_interval
+                    )
+                ),
+                f"        {covered}/{tested.length} bases mapped",
+            )
+        )
+        return lines
+
+    lines.append(
+        f"    A {tested.length}-bp interval centered on the input coordinate was "
+        "also assessed."
+    )
+    findings = set(profile.findings)
+    if QueryContextFinding.REVEALS_PARTIAL_COVERAGE in findings:
+        lines.append("    The flanking interval has partial source coverage.")
+    if QueryContextFinding.REVEALS_FRAGMENTATION in findings:
+        lines.append("    The flanking interval maps in multiple alignment blocks.")
+    if QueryContextFinding.REVEALS_TARGET_DISCONTINUITY in findings:
+        lines.append("    The flanking interval contains a target-side alignment gap.")
+    if QueryContextFinding.CHANGES_WITH_QUERY_SCALE in findings:
+        lines.append(
+            "    The liftOver result changes when the larger interval is assessed."
+        )
+    if QueryContextFinding.NO_PROJECTION_AT_EITHER_SCALE in findings:
+        lines.append(
+            "    No liftOver mapping was found for the point or the flanking interval."
+        )
+    return lines
+
+
+def _single_comparative_lines(report: UCSCAssessmentReport) -> list[str]:
+    profile = report.result_profile.comparative_relationship
+    if profile.state is ComparativeRelationshipState.NOT_ASSESSED:
+        return []
+    comparison = report.filtered_all_chain_comparison
+    if comparison is None:
+        raise ValueError("comparative summary requires filtered/all-chain comparison")
+
+    lines = ["Comparative UCSC evidence:"]
+    if (
+        profile.inventory_state
+        is FilteredAllChainInventoryState.FILTERED_AND_ALL_CHAIN_AGREE
+    ):
+        lines.append(
+            "    The ordinary filtered liftOver chain and the all-chain alignments "
+            "contain the same mapping."
+        )
+    else:
+        additional = len(profile.additional_all_chain_candidate_ids)
+        lines.append(
+            "    The all-chain alignments contain "
+            f"{additional} additional {'mapping' if additional == 1 else 'mappings'} "
+            "not retained by the ordinary filtered liftOver chain."
+        )
+
+    if profile.state is ComparativeRelationshipState.NO_COMPETING_FULL_PLACEMENTS:
+        lines.append(
+            "    No additional complete mapping is present in the all-chain alignments."
+        )
+    return lines
+
+
+def _single_segmental_duplication_lines(report: UCSCAssessmentReport) -> list[str]:
+    context = report.segmental_duplication_context_result
+    if context is None:
+        return []
+    source_overlap = bool(context.source_overlaps)
+    target_overlap = bool(context.target_overlaps)
+    if not source_overlap and not target_overlap:
+        return []
+    if source_overlap and target_overlap:
+        text = (
+            "Both the source and mapped coordinates overlap the UCSC "
+            "Segmental Duplications track."
+        )
+    elif source_overlap:
+        text = "The source coordinate overlaps the UCSC Segmental Duplications track."
+    else:
+        text = "The mapped coordinate overlaps the UCSC Segmental Duplications track."
+
+    lines = ["Segmental Duplications:", f"    {text}"]
+    profile = report.result_profile
+    if len(profile.candidate_profiles) == 1 and context.source_overlaps:
+        source_sequence = profile.source_interval.sequence_name
+        target_sequence = report.candidates[0].target_interval.sequence_name
+        if source_sequence != target_sequence and any(
+            overlap.record.paired_interval.sequence_name == target_sequence
+            for overlap in context.source_overlaps
+        ):
+            lines.extend(
+                (
+                    "",
+                    (
+                        f"    One overlapping {report.source_db} Segmental Duplications "
+                        f"record pairs this {source_sequence} region with a region on "
+                        f"{report.source_db} {target_sequence}."
+                    ),
+                )
+            )
+    return lines
+
+
+def _single_target_sequence_metadata_lines(report: UCSCAssessmentReport) -> list[str]:
+    profile = report.result_profile
+    state = profile.scope.target_role
+    if state is not TargetRoleState.ASSESSED:
+        return []
+    unusual = [
+        item
+        for item in profile.target_sequence_roles
+        if item.context is None
+        or item.context.provider_role != "assembled-molecule"
+        or item.context.assembly_unit != "Primary Assembly"
+    ]
+    if not unusual:
+        return []
+    lines = ["Target assembly sequence:"]
+    for item in unusual[:_DEFAULT_INLINE_PROJECTION_LIMIT]:
+        if item.context is None:
+            lines.append(
+                f"    {item.sequence_name}: no matching row in the version-matched "
+                "NCBI sequence report."
+            )
+            continue
+        lines.extend(
+            (
+                f"    {item.sequence_name}",
+                f"        Assembly unit: {item.context.assembly_unit}",
+                f"        Sequence role: {item.context.provider_role}",
+            )
+        )
+    return lines
+
+
+def _single_mapping_limitation_lines(report: UCSCAssessmentReport) -> list[str]:
+    mapped_object = (
+        "mapped coordinate"
+        if report.result_profile.source_interval.length == 1
+        else "mapped interval"
+    )
+    lines = [
+        f"These results do not establish that the {mapped_object} is unique or",
+        (
+            "that it represents the same variant, gene, transcript, or other "
+            "biological feature."
+        ),
+    ]
+    context = report.segmental_duplication_context_result
+    if context is not None and (context.source_overlaps or context.target_overlaps):
+        lines.extend(
+            (
+                "",
+                (
+                    "Overlap with a Segmental Duplications annotation does not by "
+                    "itself show"
+                ),
+                (
+                    "that the liftOver mapping is incorrect or non-unique, establish "
+                    "paralogy,"
+                ),
+                "or explain why the two coordinates map to one another.",
+            )
+        )
+    return lines
+
+
+def _summary_check_lines(
+    report: UCSCAssessmentReport,
+    *,
+    include_forward: bool = False,
+) -> list[str]:
+    lines: list[str] = []
+    consumed_roles = set(report.result_profile.consumed_resource_roles)
+
+    if include_forward:
+        if report.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
+            lines.append(f"    {report.source_db} → {report.target_db} liftOver")
+        elif "CHAIN" in consumed_roles:
+            lines.append("    UCSC all-chain alignments")
+
+    reverse_state = report.result_profile.scope.reverse_result
+    if reverse_state is ReverseCheckState.RUN:
+        lines.append(f"    {report.target_db} → {report.source_db} reverse liftOver")
+    elif reverse_state is ReverseCheckState.UNAVAILABLE:
+        lines.append("    Reverse liftOver (resource unavailable)")
+
+    context = report.result_profile.query_context
+    if (
+        context.check_state is QueryContextState.RUN
+        and context.actual_window_bases is not None
+    ):
+        lines.append(
+            f"    {context.actual_window_bases}-bp flanking interval centered on "
+            "the input coordinate"
+        )
+
+    target_role = report.result_profile.scope.target_role
+    if target_role is TargetRoleState.ASSESSED:
+        lines.append("    NCBI assembly sequence metadata")
+    elif target_role is TargetRoleState.UNAVAILABLE:
+        lines.append("    NCBI assembly sequence metadata (unavailable)")
+
+    if report.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
+        if not include_forward and "CHAIN" in consumed_roles:
+            lines.append("    UCSC all-chain alignments")
+        if "NET" in consumed_roles:
+            lines.append("    UCSC net alignment")
+        if "RECIPROCAL_BEST_CHAIN" in consumed_roles:
+            lines.append("    UCSC reciprocal-best chain")
+        if report.filtered_all_chain_comparison is not None:
+            lines.append("    UCSC filtered liftOver chain / all-chain comparison")
+
+    external = report.result_profile.scope.external_context
+    if external is ExternalContextState.ASSESSED:
+        lines.append("    UCSC Segmental Duplications track")
+    elif external is ExternalContextState.PARTIALLY_ASSESSED:
+        lines.append("    UCSC Segmental Duplications track (partially available)")
+    elif external is ExternalContextState.UNAVAILABLE:
+        lines.append("    UCSC Segmental Duplications track (unavailable)")
+    return lines
+
+
+def _summary_headline_text(report: UCSCAssessmentReport) -> str:
+    profile = report.result_profile
+    if len(profile.candidate_profiles) == 1:
+        candidate = report.candidates[0]
+        source_sequence = profile.source_interval.sequence_name
+        target_sequence = candidate.target_interval.sequence_name
+        if (
+            _is_standard_ucsc_chromosome_name(source_sequence)
+            and _is_standard_ucsc_chromosome_name(target_sequence)
+            and source_sequence != target_sequence
+        ):
+            return "INTERCHROMOSOMAL LIFTOVER MAPPING"
+
+    replacements = {
+        FactualHeadline.NO_CHAIN_PROJECTION: "NO LIFTOVER MAPPING",
+        FactualHeadline.ONE_COMPLETE_CHAIN_PROJECTION: "ONE LIFTOVER MAPPING",
+        FactualHeadline.PARTIAL_SOURCE_COVERAGE: "PARTIAL LIFTOVER MAPPING",
+        FactualHeadline.PARTIAL_AND_FRAGMENTED_PROJECTION: (
+            "PARTIAL MAPPING ACROSS MULTIPLE ALIGNMENT BLOCKS"
+        ),
+        FactualHeadline.COMPLETE_BUT_DISCONTINUOUS_PROJECTION: (
+            "LIFTOVER MAPPING WITH A TARGET GAP"
+        ),
+        FactualHeadline.MULTIPLE_CHAIN_PROJECTIONS: "MULTIPLE LIFTOVER MAPPINGS",
+        FactualHeadline.SOURCE_INTERVAL_SPLITS_ACROSS_MULTIPLE_PROJECTIONS: (
+            "SOURCE INTERVAL MAPS TO MULTIPLE LOCATIONS"
+        ),
+    }
+    return replacements[profile.headline]
+
+
+def _is_standard_ucsc_chromosome_name(sequence_name: str) -> bool:
+    """Return whether a UCSC sequence label plainly names a chromosome."""
+
+    return re.fullmatch(r"chr(?:[1-9][0-9]*|X|Y)", sequence_name) is not None
+
+
+def _human_interval_text(database: str, interval: GenomicInterval) -> str:
+    if interval.length == 1:
+        coordinate = f"{interval.sequence_name}:{interval.start + 1}"
+    else:
+        coordinate = f"{interval.sequence_name}:{interval.start + 1}-{interval.end}"
+    return f"{database} {coordinate}"
 
 
 def _format_summary_lines(lines: list[str]) -> list[str]:

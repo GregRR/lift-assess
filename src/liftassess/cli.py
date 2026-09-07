@@ -74,6 +74,7 @@ from .reporting import (
     render_assessment_details,
     render_assessment_json,
     render_assessment_summary,
+    render_invalid_source_coordinate,
 )
 from .resource_cache import (
     CachedResource,
@@ -115,6 +116,10 @@ from .segmental_duplication import (
 )
 
 
+class UserFacingCLIError(ValueError):
+    """A complete terminal message that should not receive an ``error:`` prefix."""
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the ``assess-liftover`` command and return its process exit code."""
 
@@ -122,6 +127,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return _run(args, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr)
+    except UserFacingCLIError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     except (
         OSError,
         AssemblyRoleMetadataAcquisitionError,
@@ -137,9 +145,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="assess-liftover",
-        description=(
-            "Assess evidence supporting UCSC genomic coordinate liftover candidates."
-        ),
+        description="Assess UCSC liftOver mappings and their supporting evidence.",
     )
     parser.add_argument(
         "source_db", help="source UCSC database identifier, e.g. canFam3"
@@ -241,7 +247,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--context-bases",
         type=_context_window_bases_arg,
         help=(
-            "override the automatic 101-bp local-context window for 1-bp point "
+            "override the automatic 101-bp flanking interval for 1-bp point "
             "queries, including one-base batch rows, with an odd number of bases, "
             "e.g. 1001"
         ),
@@ -630,7 +636,7 @@ def _attach_ucsc_segmental_duplication_context(
                 OSError,
             ) as exc:
                 _status(
-                    f"UCSC segmental-duplication context unavailable for {db} "
+                    f"UCSC Segmental Duplications track unavailable for {db} "
                     f"({exc}); mapping result is unchanged.",
                     quiet=args.quiet,
                     stderr=stderr,
@@ -646,7 +652,7 @@ def _attach_ucsc_segmental_duplication_context(
             )
         except UCSCSegmentalDuplicationCatalogError as exc:
             _status(
-                f"UCSC segmental-duplication context unavailable for {db} "
+                f"UCSC Segmental Duplications track unavailable for {db} "
                 f"({exc}); mapping result is unchanged.",
                 quiet=args.quiet,
                 stderr=stderr,
@@ -685,8 +691,7 @@ def _attach_ucsc_segmental_duplication_context(
     assert context is not None
     if context.source_overlaps or context.target_overlaps:
         _status(
-            "UCSC segmental-duplication context overlaps observed; mapping "
-            "interpretation remains unchanged.",
+            "UCSC Segmental Duplications overlap observed.",
             quiet=args.quiet,
             stderr=stderr,
             indent=4,
@@ -720,8 +725,8 @@ def _prepare_target_role_context(
     if target_sequence_metadata is None or role_metadata is None:
         if args.offline:
             _status(
-                "Target sequence role/context unavailable in the local cache; "
-                "mapping will continue without inferring a role.",
+                "Target assembly sequence metadata unavailable in the local cache; "
+                "mapping will continue without NCBI assembly sequence metadata.",
                 quiet=args.quiet,
                 stderr=stderr,
                 indent=4,
@@ -732,7 +737,7 @@ def _prepare_target_role_context(
                 discovered = discover_ucsc_assembly_metadata(args.target_db)
                 if discovered is None:
                     _status(
-                        "Target sequence role/context unavailable: UCSC target "
+                        "Target assembly sequence metadata unavailable: UCSC target "
                         "chromInfo metadata was not published at the expected "
                         "database-table location.",
                         quiet=args.quiet,
@@ -754,8 +759,8 @@ def _prepare_target_role_context(
             OSError,
         ) as exc:
             _status(
-                f"Target sequence role/context unavailable ({exc}); mapping will "
-                "continue without inferring a role.",
+                f"Target assembly sequence metadata unavailable ({exc}); mapping will "
+                "continue without NCBI assembly sequence metadata.",
                 quiet=args.quiet,
                 stderr=stderr,
                 indent=4,
@@ -771,15 +776,15 @@ def _prepare_target_role_context(
         catalog = attach_cached_target_role_context(catalog, role_metadata)
     except (OSError, TypeError, ValueError) as exc:
         _status(
-            f"Target sequence role/context unavailable ({exc}); mapping will "
-            "continue without inferring a role.",
+            f"Target assembly sequence metadata unavailable ({exc}); mapping will "
+            "continue without NCBI assembly sequence metadata.",
             quiet=args.quiet,
             stderr=stderr,
             indent=4,
         )
         return None, None, True
     _status(
-        "Using version-matched UCSC/NCBI target sequence role/context metadata.",
+        "Using version-matched UCSC/NCBI assembly sequence metadata.",
         quiet=args.quiet,
         stderr=stderr,
         indent=4,
@@ -811,7 +816,7 @@ def _prepare_source_preflight(
         if metadata is not None:
             _status(
                 "Using verified cached UCSC source-sequence metadata; "
-                "provider access was not needed for source preflight.",
+                "provider access was not needed for source coordinate validation.",
                 quiet=args.quiet,
                 stderr=stderr,
                 indent=4,
@@ -847,11 +852,12 @@ def _prepare_source_preflight(
 
     if preflight.state is SourceIntervalPreflightState.INVALID_SOURCE_COORDINATE:
         assert preflight.sequence_length is not None
-        raise ValueError(
-            "source interval exceeds authoritative UCSC sequence bounds: "
-            f"{args.source_db} {source_interval.sequence_name}:"
-            f"{source_interval.start + 1}-{source_interval.end}; "
-            f"sequence length is {preflight.sequence_length}; mapping was not attempted"
+        raise UserFacingCLIError(
+            render_invalid_source_coordinate(
+                args.source_db,
+                source_interval,
+                sequence_length=preflight.sequence_length,
+            )
         )
 
     if preflight.suggested_sequence_name is not None:
@@ -944,7 +950,10 @@ def _prepare_cached_batch_source_preflight(
         if resource.sha256 in provenance_sha256
     )
     _status(
-        f"Authoritative source preflight passed for {len(records)} batch record(s).",
+        (
+            "Authoritative source coordinate validation passed for "
+            f"{len(records)} batch record(s)."
+        ),
         quiet=args.quiet,
         stderr=stderr,
         indent=4,
@@ -973,8 +982,8 @@ def _prepare_cached_batch_target_role_context(
     )
     if target_sequence_metadata is None or role_metadata is None:
         _status(
-            "Target sequence role/context unavailable in the local cache; batch "
-            "mapping will continue without inferring a role.",
+            "Target assembly sequence metadata unavailable in the local cache; batch "
+            "mapping will continue without NCBI assembly sequence metadata.",
             quiet=args.quiet,
             stderr=stderr,
             indent=4,
@@ -985,8 +994,8 @@ def _prepare_cached_batch_target_role_context(
     )
     catalog = attach_cached_target_role_context(catalog, role_metadata)
     _status(
-        "Using cached version-matched UCSC/NCBI target sequence role/context "
-        "metadata for batch results.",
+        "Using cached version-matched UCSC/NCBI assembly sequence metadata "
+        "for batch results.",
         quiet=args.quiet,
         stderr=stderr,
         indent=4,
@@ -1598,7 +1607,7 @@ def _attach_cached_point_query_context(
     requested_window_bases = args.context_bases or DEFAULT_POINT_CONTEXT_BASES
     if chain_index is None:
         _status(
-            "Point context not run: no prepared forward chain index is available; "
+            "Flanking interval not assessed: no prepared chain index is available; "
             "no additional full chain scan was started. Run prepare-liftassess-index "
             f"{report.source_db} {report.target_db} --evidence-tier "
             f"{_human_evidence_tier(report.evidence_tier)}.",
@@ -1619,8 +1628,8 @@ def _attach_cached_point_query_context(
         )
 
     _status(
-        f"Assessing {requested_window_bases}-bp point context from the cached "
-        "forward chain index...",
+        f"Assessing {requested_window_bases}-bp flanking interval from the cached "
+        "chain index...",
         quiet=args.quiet,
         stderr=stderr,
         indent=4,
@@ -1640,8 +1649,9 @@ def _attach_cached_point_query_context(
         )
     except ChainIndexCorruptionError as exc:
         _status(
-            "Point context not run: cached forward chain index failed during "
-            f"context lookup ({exc}); no full chain fallback was started. Rebuild "
+            "Flanking interval not assessed: cached chain index failed during "
+            f"flanking-interval lookup ({exc}); no full chain fallback was "
+            "started. Rebuild "
             "it with prepare-liftassess-index "
             f"{report.source_db} {report.target_db} --evidence-tier "
             f"{_human_evidence_tier(report.evidence_tier)} --rebuild.",
@@ -1663,7 +1673,8 @@ def _attach_cached_point_query_context(
         is QueryContextNotRunReason.SOURCE_BOUNDS_UNAVAILABLE
     ):
         _status(
-            "Point context not run: the prepared chain index does not provide a "
+            "Flanking interval not assessed: the prepared chain index does not "
+            "provide a "
             f"source-sequence bound for {report.source_interval.sequence_name!r}; "
             "no full chain fallback was started.",
             quiet=args.quiet,
@@ -1696,7 +1707,7 @@ def _attach_cached_reverse_mapping_context(
 
     if args.refresh:
         _status(
-            "Reverse mapping not run during --refresh: reverse-direction resources "
+            "Reverse liftOver not run during --refresh: reverse-direction resources "
             "were not refreshed automatically.",
             quiet=args.quiet,
             stderr=stderr,
@@ -1712,7 +1723,7 @@ def _attach_cached_reverse_mapping_context(
     )
     if structural is None:
         _status(
-            "Reverse mapping unavailable: no cached reverse-direction chain with "
+            "Reverse liftOver unavailable: no cached reverse-direction chain with "
             f"matching {report.evidence_tier.value.replace('_', '-')} publication "
             "class; UCSC was not contacted.",
             quiet=args.quiet,
@@ -1725,7 +1736,7 @@ def _attach_cached_reverse_mapping_context(
         reverse_index = load_cached_chain_index(cache_root, structural.chain)
     except ChainIndexCorruptionError as exc:
         _status(
-            "Reverse mapping not run: cached reverse chain index is unusable "
+            "Reverse liftOver not run: cached reverse chain index is unusable "
             f"({exc}). Rebuild it with prepare-liftassess-index "
             f"{reverse_source_db} {reverse_target_db} --evidence-tier "
             f"{_human_evidence_tier(report.evidence_tier)} --rebuild.",
@@ -1737,7 +1748,7 @@ def _attach_cached_reverse_mapping_context(
 
     if reverse_index is None:
         _status(
-            "Reverse mapping not run: the matching reverse chain is cached but no "
+            "Reverse liftOver not run: the matching reverse chain is cached but no "
             "prepared index is available. Run prepare-liftassess-index "
             f"{reverse_source_db} {reverse_target_db} --evidence-tier "
             f"{_human_evidence_tier(report.evidence_tier)}; no full reverse-chain "
@@ -1757,7 +1768,7 @@ def _attach_cached_reverse_mapping_context(
     )
     if reverse_chain is None:
         _status(
-            "Reverse mapping unavailable: cached reverse chain does not match the "
+            "Reverse liftOver unavailable: cached reverse chain does not match the "
             "validated index identity.",
             quiet=args.quiet,
             stderr=stderr,
@@ -1766,7 +1777,7 @@ def _attach_cached_reverse_mapping_context(
         return attach_reverse_mapping_results(report, unavailable)
 
     _status(
-        "Assessing actual reverse mapping from cached indexed "
+        "Assessing reverse liftOver from cached indexed "
         f"{reverse_source_db}→{reverse_target_db} chain...",
         quiet=args.quiet,
         stderr=stderr,
@@ -1784,7 +1795,7 @@ def _attach_cached_reverse_mapping_context(
         )
     except ChainIndexCorruptionError as exc:
         _status(
-            "Reverse mapping not run: cached reverse chain index failed during "
+            "Reverse liftOver not run: cached reverse chain index failed during "
             f"lookup ({exc}). Rebuild it with prepare-liftassess-index "
             f"{reverse_source_db} {reverse_target_db} --evidence-tier "
             f"{_human_evidence_tier(report.evidence_tier)} --rebuild; no full "
