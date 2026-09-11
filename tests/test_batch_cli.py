@@ -641,17 +641,16 @@ def test_bed_batch_cli_summary_preserves_bed_coordinate_convention(
 
     assert exit_code == 0
     rendered = stdout.getvalue()
-    assert "* BATCH CHAIN PROJECTIONS *" in rendered
-    assert "Source preflight:" in rendered
-    assert (
-        "4/4 records valid against authoritative UCSC assembly-sequence metadata"
-        in rendered
-    )
+    assert "* BATCH LIFTOVER MAPPINGS *" in rendered
+    assert "Source validation:" in rendered
+    assert "4/4 records valid against UCSC assembly sequence metadata" in rendered
     assert "Source metadata SHA-256:" in rendered
     assert "row-1 [first]" in rendered
     assert "chr1:0-10 (0-based half-open)" in rendered
-    assert "EXACT_TARGET_COLLISION=1" in rendered
-    assert "OVERLAPPING_TARGET_PROJECTIONS=2" in rendered
+    assert "exact target collisions=1" in rendered
+    assert "overlapping target mappings=2" in rendered
+    assert "candidate" not in rendered.lower()
+    assert "projection" not in rendered.lower()
 
 
 def test_bed_batch_cli_rejects_details_before_batch_execution(
@@ -830,7 +829,7 @@ def test_bed_batch_cli_automatically_reports_neighborhood_level_collision(
     assert exit_code == 0
     rendered = stdout.getvalue()
     assert "requested=101 bp; point records=2; run=2; not run=0" in rendered
-    assert "NEIGHBORHOOD_LEVEL_TARGET_COLLISION=1" in rendered
+    assert "flanking-interval target collisions=1" in rendered
     assert "source coverage=101/101" in rendered
 
 

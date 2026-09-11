@@ -179,8 +179,8 @@ def test_reverse_context_is_rendered_in_details_and_schema_v2_json(
     )
 
     details = render_assessment_details(enriched)
-    assert "Actual reverse mapping: RUN" in details
-    assert "Reverse relationship: ORIGINAL_SOURCE_ONLY" in details
+    assert "Reverse liftOver: performed" in details
+    assert "Reverse result: returns only to the source locus" in details
     assert "Exact original aligned geometry reconstructed: yes" in details
     assert "Reverse mapping resource" in details
 

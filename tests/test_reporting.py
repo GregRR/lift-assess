@@ -440,12 +440,10 @@ def test_clean_default_summary_is_compact_facts_first_and_verdict_free() -> None
         "",
     ]
     assert "= KEY FINDINGS =" in summary
-    assert "One sourceAsm→targetAsm chain maps the queried interval." in summary
-    assert "100/100 input bases mapped." in summary
+    assert "One liftOver chain maps 100/100 bp." in summary
     assert "= LIMITATIONS =" in summary
     assert "same variant, gene, transcript" in summary
-    assert "= CHECKS PERFORMED =" in summary
-    assert "sourceAsm → targetAsm liftOver" in summary
+    assert "= CHECKS PERFORMED =" not in summary
     assert "Assessment:" not in summary
     assert "WELL SUPPORTED" not in summary
     assert "Preferred candidate" not in summary
@@ -633,11 +631,15 @@ def test_interchromosomal_summary_surfaces_reverse_liftover_elsewhere() -> None:
     assert "hg19 chr18:10905" in summary
     assert "Reverse liftOver:" in summary
     assert "hg38 chr18:10905" in summary
-    assert "It does not return to the original source coordinate" in summary
-    assert "101-bp interval centered on the input coordinate" in summary
-    assert "101/101 bases mapped" in summary
+    assert (
+        "Does not return to the source locus; maps instead to hg38 chr18:10905."
+        in summary
+    )
+    assert "hg38 chr10:10659-10759 → hg19 chr18:10855-10955" in summary
+    assert "101/101 bp map through the same liftOver chain." in summary
+    assert "original source coordinate" not in summary
     assert "--evidence-tier COMPARATIVE" in summary
-    assert "with UCSC all-chain alignments, when available." in summary
+    assert "for comparison with UCSC all-chain alignments, when available." in summary
 
 
 def test_partial_fragmented_summary_expands_with_exact_coverage_and_gaps() -> None:
@@ -655,7 +657,7 @@ def test_partial_fragmented_summary_expands_with_exact_coverage_and_gaps() -> No
     summary = render_assessment_summary(report)
 
     assert summary.startswith("* PARTIAL MAPPING ACROSS MULTIPLE ALIGNMENT BLOCKS *")
-    assert "80/100 input bases mapped." in summary
+    assert "One liftOver chain maps 80/100 bp." in summary
     assert "The mapping contains 2 alignment blocks." in summary
     assert "The target span above is a bounding span" in summary
     assert "sourceAsm chr1:151-160" in summary
@@ -733,8 +735,8 @@ def test_summary_distinguishes_exact_blocks_from_geometric_fragmentation() -> No
     assert candidate_profile.geometric_segment_count == 1
     assert "Geometric mapped segments: 2" not in summary
     assert "bounding span of 2" not in summary
-    assert "Geometric mapped segments: 1" in details
-    assert "Exact chain-derived mapped segments (2):" in details
+    assert "Mapped segments: 1" in details
+    assert "Mapped chain alignment blocks (2):" in details
 
 
 def test_comparative_summary_names_consumed_resources_and_dependency_boundary() -> None:
@@ -760,16 +762,23 @@ def test_details_exposes_profile_evidence_resources_and_scope() -> None:
 
     details = render_assessment_details(report)
 
-    assert "Detailed factual result dossier" in details
-    assert "Headline: ONE COMPLETE CHAIN PROJECTION" in details
-    assert "Actual reverse mapping: NOT_RUN" in details
-    assert "Point/neighborhood context: NOT_RUN" in details
-    assert "Comparative relationship synthesis: NOT_ASSESSED" in details
+    assert "Detailed liftOver assessment" in details
+    assert "Headline: ONE LIFTOVER MAPPING" in details
+    assert "Reverse liftOver: not performed" in details
+    assert "Flanking-interval assessment: not performed" in details
+    assert "Standard liftOver/all-chain comparison: not assessed" in details
     assert "Chain 42" in details
-    assert "MAPPING_COVERAGE: FULL; 100/100 source bases covered" in details
-    assert "CHAIN_GAPS: 0 chain gap(s)" in details
-    assert "CHAIN [consumed]" in details
-    assert "Candidate order is preserved for reproducibility" in details
+    assert "Source coverage: complete; 100/100 source bases covered" in details
+    assert "Chain gaps: 0 chain gap(s)" in details
+    assert "Standard liftOver chain [consumed]" in details
+    assert "Mapping order is preserved for reproducibility" in details
+    assert "Projection count:" not in details
+    assert "Candidate ID:" not in details
+    assert "Typed external context:" not in details
+    assert "MAPPING_COVERAGE" not in details
+    assert "CHAIN_GAPS" not in details
+    assert "NOT_ASSESSED" not in details
+    assert "NOT_RUN" not in details
     assert "verdict" not in details.lower()
     assert details.endswith("This does not establish biological correctness.")
 
@@ -888,9 +897,9 @@ def test_comparative_summary_explains_why_one_placement_is_favored() -> None:
         in summary
     )
     expected_interpretation = (
-        "More than one chain projection exists; available categorical comparative "
-        "evidence favors one placement, but candidate encounter order is not a "
-        "scientific rank and this result does not establish a biological locus."
+        "More than one liftOver mapping exists; available categorical comparative "
+        "evidence favors one placement, but mapping order is not a scientific rank "
+        "and this result does not establish a biological locus."
     )
     assert f"Interpretation: {expected_interpretation}" in details
     assert payload["result_profile"]["interpretation"] == expected_interpretation
@@ -1078,9 +1087,11 @@ def test_comparative_details_and_json_expose_inventory_support_and_provenance() 
     details = render_assessment_details(report)
     payload = json.loads(reporting.render_assessment_json(report))
 
-    assert "Filtered/all-chain comparative relationship" in details
-    assert "Inventory state: ALL_CHAIN_REVEALS_ADDITIONAL_PLACEMENTS" in details
-    assert "Categorical relationship: FAVORS_ONE_PLACEMENT" in details
+    assert "Standard liftOver/all-chain comparison" in details
+    assert (
+        "Mapping inventory: all-chain alignments contain additional mappings" in details
+    )
+    assert "Comparative result: favors one mapping" in details
     assert "retained by filtered chain=yes" in details
     assert "depth-1 top-net=yes" in details
     assert "full reciprocal-best=yes" in details
@@ -1246,7 +1257,8 @@ def test_reporting_marks_unavailable_target_role_without_name_inference() -> Non
     summary = render_assessment_summary(report)
     payload = json.loads(reporting.render_assessment_json(report))
 
-    assert "NCBI assembly sequence metadata (unavailable)" in summary
+    assert "Target sequence metadata:" in summary
+    assert "NCBI assembly sequence metadata unavailable." in summary
     assert payload["result_profile"]["target_role"]["state"] == "UNAVAILABLE"
     assert payload["target_role_metadata"]["assembly_accession"] is None
     assert payload["target_role_metadata"]["resources"] == []
@@ -1395,11 +1407,12 @@ def test_segmental_duplication_context_is_typed_and_does_not_change_mapping_resu
     summary = render_assessment_summary(enriched)
     assert "Segmental Duplications:" in summary
     assert "Both the source and mapped coordinates overlap" in summary
-    assert "pairs this chr1 region with a region on sourceAsm chrA" in summary
-    assert "does not by itself show" in summary
+    assert "Segmental Duplications record" in summary
+    assert "pairs the chr1 source region with sourceAsm chrA" in summary
+    assert "does not by itself establish paralogy" in summary
 
     details = render_assessment_details(enriched)
-    assert "Typed external context: UCSC segmental duplications" in details
+    assert "UCSC Segmental Duplications context" in details
     assert "chrA:501-560 (1-based inclusive)" in details
     assert "Fraction matching bases: 0.995" in details
     assert "descriptive context only" in details

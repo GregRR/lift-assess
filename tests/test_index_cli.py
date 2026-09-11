@@ -72,7 +72,7 @@ def test_prepare_index_requires_verified_cached_bundle(
     )
 
     assert exit_code == 1
-    assert "requires a complete verified cached UCSC bundle" in stderr.getvalue()
+    assert "requires complete verified cached UCSC resources" in stderr.getvalue()
     assert "assess-liftover" in stderr.getvalue()
 
 
@@ -205,5 +205,5 @@ def test_prepare_index_can_select_exact_chain_publication_class(
 
     assert exit_code == 0
     assert seen_tiers == [EvidenceAvailabilityTier.LIFTOVER_ONLY]
-    assert "Publication class: LIFTOVER-ONLY" in stdout.getvalue()
+    assert "Indexed chain type: standard liftOver chain" in stdout.getvalue()
     assert load_cached_chain_index(cache_root, bundle.chain) is not None

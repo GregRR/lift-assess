@@ -46,17 +46,17 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
         result
     )
     lines = [
-        "* BATCH CHAIN PROJECTIONS *",
+        "* BATCH LIFTOVER MAPPINGS *",
         "Input records:",
         f"    {record_count}",
     ]
     if result.source_preflights is not None:
         lines.extend(
             [
-                "Source preflight:",
+                "Source validation:",
                 (
                     f"    {record_count}/{record_count} records valid against "
-                    "authoritative UCSC assembly-sequence metadata"
+                    "UCSC assembly sequence metadata"
                 ),
             ]
         )
@@ -69,19 +69,19 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
             )
     lines.extend(
         [
-            "Records with indexed candidate(s):",
+            "Records with liftOver mapping(s):",
             f"    {records_with_projection}",
-            "Records with zero indexed candidates:",
+            "Records with no liftOver mapping:",
             f"    {record_count - records_with_projection}",
-            "Candidate projections:",
+            "Total liftOver mappings:",
             f"    {candidate_count}",
-            "Input target relationships:",
+            "Cross-record target relationships:",
             (
                 "    none"
                 if not result.relationships.relationships
                 else "    "
-                + ", ".join(
-                    f"{kind.value}={relationship_counts[kind]}"
+                + "; ".join(
+                    f"{_human_relationship_kind(kind)}={relationship_counts[kind]}"
                     for kind in BatchTargetRelationshipKind
                     if relationship_counts[kind]
                 )
@@ -91,13 +91,13 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
     if point_count:
         lines.extend(
             [
-                "Point context:",
+                "Point-query flanking intervals:",
                 (
                     f"    requested={result.point_context_window_bases} bp; "
                     f"point records={point_count}; run={context_run_count}; "
                     f"not run={context_not_run_count}"
                 ),
-                "Point-context target relationships:",
+                "Flanking-interval target relationships:",
                 _render_context_relationship_counts(result),
             ]
         )
@@ -125,21 +125,22 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
                 "        Source: " + _format_half_open_interval(record.source_interval)
             )
             if not assessment.candidates:
-                lines.append("        Projections: 0")
+                lines.append("        Mappings: 0")
             else:
-                lines.append(f"        Projections: {len(assessment.candidates)}")
+                lines.append(f"        Mappings: {len(assessment.candidates)}")
                 for candidate in assessment.candidates[
                     :_DEFAULT_INLINE_PROJECTION_LIMIT
                 ]:
                     lines.append(
-                        f"            {candidate.candidate_id}: target bounding span "
+                        f"            Mapping {candidate.candidate_id}: target "
+                        "bounding span "
                         + _format_half_open_interval(candidate.target_interval)
                         + f"; orientation={candidate.orientation.value}"
                         + _candidate_comparative_suffix(candidate)
                     )
                 omitted = len(assessment.candidates) - _DEFAULT_INLINE_PROJECTION_LIMIT
                 if omitted > 0:
-                    lines.append(f"            ... {omitted} more projection(s)")
+                    lines.append(f"            ... {omitted} more mapping(s)")
             _append_point_context_preview(lines, context_result)
 
     omitted_records = record_count - len(preview)
@@ -297,6 +298,14 @@ def _point_context_counts(result: IndexedChainBatchResult) -> tuple[int, int, in
     return point_count, run_count, not_run_count
 
 
+def _human_relationship_kind(kind: BatchTargetRelationshipKind) -> str:
+    if kind is BatchTargetRelationshipKind.EXACT_TARGET_COLLISION:
+        return "exact target collisions"
+    if kind is BatchTargetRelationshipKind.OVERLAPPING_TARGET_PROJECTIONS:
+        return "overlapping target mappings"
+    raise ValueError(f"unsupported batch relationship kind: {kind!r}")
+
+
 def _render_context_relationship_counts(result: IndexedChainBatchResult) -> str:
     counts = {kind: 0 for kind in BatchTargetRelationshipKind}
     for relationship in result.point_context_relationships.relationships:
@@ -306,10 +315,10 @@ def _render_context_relationship_counts(result: IndexedChainBatchResult) -> str:
     parts: list[str] = []
     exact_count = counts[BatchTargetRelationshipKind.EXACT_TARGET_COLLISION]
     if exact_count:
-        parts.append(f"NEIGHBORHOOD_LEVEL_TARGET_COLLISION={exact_count}")
+        parts.append(f"flanking-interval target collisions={exact_count}")
     overlap_count = counts[BatchTargetRelationshipKind.OVERLAPPING_TARGET_PROJECTIONS]
     if overlap_count:
-        parts.append(f"OVERLAPPING_TARGET_PROJECTIONS={overlap_count}")
+        parts.append(f"overlapping flanking-interval mappings={overlap_count}")
     return "    " + ", ".join(parts)
 
 
@@ -322,26 +331,26 @@ def _append_point_context_preview(
     if context.check_state is not QueryContextState.RUN:
         reason = context.not_run_reason
         reason_text = reason.value if reason is not None else "UNKNOWN"
-        lines.append(f"        Point context: NOT RUN ({reason_text})")
+        lines.append(f"        Point-query flanking intervals: NOT RUN ({reason_text})")
         return
     tested = context.tested_source_interval
     if tested is None:
         raise ValueError("completed batch point context requires a tested interval")
     lines.append(
-        "        Point context: "
+        "        Point-query flanking intervals: "
         + _format_half_open_interval(tested)
-        + f"; projections={len(context.candidates)}"
+        + f"; mappings={len(context.candidates)}"
     )
     for candidate in context.candidates[:_DEFAULT_INLINE_PROJECTION_LIMIT]:
         covered = sum(segment.source_interval.length for segment in candidate.segments)
         lines.append(
-            f"            {candidate.candidate_id}: target bounding span "
+            f"            Mapping {candidate.candidate_id}: target bounding span "
             + _format_half_open_interval(candidate.target_interval)
             + f"; source coverage={covered}/{tested.length}"
         )
     omitted = len(context.candidates) - _DEFAULT_INLINE_PROJECTION_LIMIT
     if omitted > 0:
-        lines.append(f"            ... {omitted} more context projection(s)")
+        lines.append(f"            ... {omitted} more flanking-interval mapping(s)")
 
 
 def _point_context_record_json(
@@ -412,17 +421,20 @@ def _batch_scope_summary(result: IndexedChainBatchResult) -> str:
     point_count, run_count, not_run_count = _point_context_counts(result)
     if not point_count:
         context_text = (
-            "Point context is not applicable because the batch has no 1-bp rows."
+            "Flanking-interval assessment is not applicable because the batch has "
+            "no 1-bp rows."
         )
     elif not not_run_count:
         context_text = (
-            f"Automatic {result.point_context_window_bases}-bp point context is "
-            "assessed from the same prepared chain index for every 1-bp row."
+            f"Automatic {result.point_context_window_bases}-bp flanking-interval "
+            "assessment is assessed from the same prepared chain index for every "
+            "1-bp row."
         )
     else:
         context_text = (
-            f"Automatic {result.point_context_window_bases}-bp point context ran for "
-            f"{run_count}/{point_count} point rows; unavailable indexed source bounds "
+            f"Automatic {result.point_context_window_bases}-bp flanking-interval "
+            f"assessment ran for {run_count}/{point_count} point rows; unavailable "
+            "indexed source bounds "
             "are reported per record."
         )
     return (
@@ -431,12 +443,12 @@ def _batch_scope_summary(result: IndexedChainBatchResult) -> str:
         + context_text
         + (
             " Submitted-row net and reciprocal-best evidence are assessed once across "
-            "the batch; point-context candidates remain chain-only."
+            "the batch; flanking-interval mappings remain chain-only."
             if result.comparative_evidence_consumed
             else (
                 " Net/reciprocal-best resources were available but not consumed "
-                "because no submitted candidate was generated; point-context remains "
-                "chain-only."
+                "because no submitted mapping was generated; flanking-interval "
+                "assessment remains chain-only."
             )
             if result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
             else (
@@ -451,11 +463,10 @@ def _batch_scope_summary(result: IndexedChainBatchResult) -> str:
             else ""
         )
         + (
-            " Authoritative source-sequence names and bounds were preflighted for "
-            "all submitted records."
+            " Source sequence names and bounds were validated against authoritative "
+            "assembly metadata for all submitted records."
             if result.source_preflights is not None
-            else " Authoritative assembly-sequence name/alias preflight was not "
-            "assessed."
+            else " Source assembly metadata validation was not assessed."
         )
         + _batch_target_role_scope_text(result)
         + " Reverse, named-variant, and gene/transcript evidence are not assessed "
@@ -468,7 +479,7 @@ def _batch_target_role_summary_lines(
 ) -> list[str]:
     if result.target_role_state is TargetRoleState.UNAVAILABLE:
         return [
-            "Target role/context:",
+            "Target sequence role:",
             "    unavailable; no role inferred from sequence naming",
         ]
     if result.target_role_state is not TargetRoleState.ASSESSED:
@@ -484,7 +495,7 @@ def _batch_target_role_summary_lines(
     if not unusual:
         return []
 
-    lines = ["Target role/context:"]
+    lines = ["Target sequence role:"]
     for item in unusual[:_DEFAULT_INLINE_PROJECTION_LIMIT]:
         if item.context is None:
             lines.append(
@@ -504,21 +515,20 @@ def _batch_target_role_summary_lines(
 def _batch_target_role_scope_text(result: IndexedChainBatchResult) -> str:
     if result.target_role_state is TargetRoleState.ASSESSED:
         return (
-            " Version-matched target sequence role/context was assessed from "
-            "authoritative metadata; provider role and assembly unit remain "
+            " Version-matched target sequence role was assessed from authoritative "
+            "metadata; provider role and assembly unit remain "
             "descriptive facts, not mapping-quality evidence."
         )
     if result.target_role_state is TargetRoleState.UNAVAILABLE:
         return (
-            " Version-matched target sequence role/context was unavailable; no role "
+            " Version-matched target sequence role was unavailable; no role "
             "was inferred from target sequence naming."
         )
     if result.target_role_state is TargetRoleState.NO_TARGET_PROJECTIONS:
         return (
-            " Target role/context is not applicable because no target projection "
-            "exists."
+            " Target sequence role is not applicable because no target mapping exists."
         )
-    return " Target role/context was not assessed."
+    return " Target sequence role was not assessed."
 
 
 def _batch_target_sequence_role_json(
@@ -581,14 +591,14 @@ def _batch_evidence_summary(result: IndexedChainBatchResult) -> str:
     if result.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
         if result.comparative_evidence_consumed:
             return (
-                f"    {tier} publication class; indexed all-chain plus one shared net "
-                "scan and one shared reciprocal-best-chain scan for submitted rows"
+                f"    {tier} evidence; indexed all-chain alignments plus one shared "
+                "net scan and one shared reciprocal-best-chain scan for submitted rows"
             )
         return (
-            f"    {tier} publication class; indexed all-chain; net/reciprocal-best "
-            "not used because no submitted candidate was generated"
+            f"    {tier} evidence; indexed all-chain alignments; net/reciprocal-best "
+            "not used because no submitted mapping was generated"
         )
-    return f"    {tier} publication class; indexed chain only"
+    return f"    {tier} evidence; indexed liftOver chain only"
 
 
 def _candidate_comparative_suffix(candidate: NormalizedCandidate) -> str:

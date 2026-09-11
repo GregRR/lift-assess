@@ -303,6 +303,26 @@ def _install_successful_resource_flow(
     )
 
 
+def test_cli_help_uses_public_liftover_terminology() -> None:
+    parser = cli._build_parser()
+    help_by_dest = {action.dest: action.help for action in parser._actions}
+
+    assert help_by_dest["evidence_tier"] == (
+        "select UCSC alignment resources explicitly: COMPARATIVE uses all-chain, "
+        "net, and reciprocal-best resources; LIFTOVER-ONLY uses the standard "
+        "liftOver chain. Comparative resources are preferred when available"
+    )
+    assert help_by_dest["details"] == (
+        "emit full human-readable mapping, evidence, resource, and provenance details"
+    )
+    assert help_by_dest["offline"] == (
+        "guarantee zero provider access and require all needed UCSC resources "
+        "in the verified local cache"
+    )
+    assert "publication class" not in help_by_dest["evidence_tier"]
+    assert "dossier" not in help_by_dest["details"]
+
+
 def test_invalid_source_name_is_rejected_before_chain_assessment(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -462,9 +482,9 @@ def test_cli_runs_end_to_end_with_interactive_acknowledgements(
     assert "Source:\n    canFam3 chr1:101-120" in stdout.getvalue()
     assert "= KEY FINDINGS =" in stdout.getvalue()
     assert "= LIMITATIONS =" in stdout.getvalue()
-    assert "= CHECKS PERFORMED =" in stdout.getvalue()
+    assert "= CHECKS PERFORMED =" not in stdout.getvalue()
     assert "UCSC terms to review" in stderr.getvalue()
-    assert "Transfer plan: LIFTOVER_ONLY (1 resource(s))" in stderr.getvalue()
+    assert "Transfer plan: standard liftOver chain (1 resource)" in stderr.getvalue()
     assert (
         "Provider-advertised total identity resource size: 2.0 KiB" in stderr.getvalue()
     )
@@ -525,7 +545,7 @@ def test_run_uses_cached_indexed_reverse_chain_without_provider_access(
     assert exit_code == 0
     assert seen_tiers == [EvidenceAvailabilityTier.LIFTOVER_ONLY]
     assert "Reverse liftOver:" in stdout.getvalue()
-    assert "maps back exactly to:" in stdout.getvalue()
+    assert "Returns exactly to the source locus." in stdout.getvalue()
     assert (
         "Assessing reverse liftOver from cached indexed canFam4→canFam3 chain"
         in stderr.getvalue()
@@ -901,7 +921,7 @@ def test_cli_reports_missing_resource_pair_without_planning(
 
     assert exit_code == 1
     assert (
-        f"no supported UCSC resources found for {_SOURCE_DB}→{_TARGET_DB}"
+        f"no supported UCSC alignment resources found for {_SOURCE_DB}→{_TARGET_DB}"
         in stderr.getvalue()
     )
 
@@ -1060,7 +1080,7 @@ def test_main_runs_success_path_through_console_boundary(
     assert "* ONE LIFTOVER MAPPING *" in captured.out
     assert "= KEY FINDINGS =" in captured.out
     assert "= LIMITATIONS =" in captured.out
-    assert "= CHECKS PERFORMED =" in captured.out
+    assert "= CHECKS PERFORMED =" not in captured.out
     assert "UCSC terms to review" in captured.err
 
 
@@ -2171,7 +2191,7 @@ def test_run_wires_measured_cache_verification_progress_on_tty(
 
     assert exit_code == 0
     progress = stderr.getvalue()
-    assert "Checking/verifying local UCSC cache..." in progress
+    assert "Checking local UCSC resources..." in progress
     assert "Cache verification" in progress
     assert "50%" in progress
     assert "99%" in progress
@@ -2244,9 +2264,9 @@ def test_cli_reuses_complete_verified_cache_without_provider_access(
     exit_code = cli._run(args, stdin=StringIO(""), stdout=stdout, stderr=stderr)
 
     assert exit_code == 0
-    assert "= CHECKS PERFORMED =" in stdout.getvalue()
+    assert "= CHECKS PERFORMED =" not in stdout.getvalue()
     assert (
-        "Checking/verifying local UCSC cache...\n    Using verified cached"
+        "Checking local UCSC resources...\n    Using verified cached standard liftOver chain"
         in stderr.getvalue()
     )
     assert "UCSC was not contacted" in stderr.getvalue()
@@ -2289,7 +2309,7 @@ def test_details_flag_emits_full_dossier_from_cached_assessment(
 
     assert exit_code == 0
     output = stdout.getvalue()
-    assert "Detailed factual result dossier" in output
+    assert "Detailed liftOver assessment" in output
     assert "Chain 1" in output
     assert "Resources" in output
     assert "Provenance dependency graph" in output
@@ -2332,7 +2352,7 @@ def test_json_flag_emits_machine_readable_cached_assessment(
     )
 
     assert exit_code == 0
-    assert "Checking/verifying local UCSC cache" in stderr.getvalue()
+    assert "Checking local UCSC resources" in stderr.getvalue()
     payload = json.loads(stdout.getvalue())
     assert payload["schema_version"] == 2
     assert payload["source_interval"]["start"] == 100
@@ -2410,7 +2430,8 @@ def test_offline_requires_complete_cached_bundle_without_provider_access(
 
     assert exit_code == 1
     assert (
-        "--offline requires a complete verified cached UCSC bundle" in stderr.getvalue()
+        "--offline requires complete verified cached UCSC resources"
+        in stderr.getvalue()
     )
 
 
@@ -2783,9 +2804,10 @@ def test_run_point_context_details_state_chain_only_scope(
 
     assert exit_code == 0
     rendered = stdout.getvalue()
-    assert "Point neighborhood context" in rendered
+    assert "Flanking-interval assessment" in rendered
     assert (
-        "Evidence scope: forward chain only; net/reciprocal-best not re-run" in rendered
+        "Evidence scope: forward liftOver chain only; net and reciprocal-best resources were not reassessed"
+        in rendered
     )
     assert "Tested source window: chr1:51-151 (1-based inclusive)" in rendered
 
@@ -2830,9 +2852,7 @@ def test_run_point_context_summary_reports_exact_tested_window(
     rendered = stdout.getvalue()
     assert "Flanking interval:" in rendered
     assert "canFam3 chr1:51-151" in rendered
-    assert "101/101 bases mapped" in rendered
-    assert "also maps" in rendered
-    assert "completely through the same canFam3→canFam4 chain" in rendered
+    assert "101/101 bp map through the same liftOver chain." in rendered
 
 
 def test_cli_can_explicitly_acquire_liftover_only_chain(

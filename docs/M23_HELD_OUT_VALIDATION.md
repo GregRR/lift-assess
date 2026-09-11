@@ -280,6 +280,29 @@ failure.
 no unresolved scientific overclaim and no remaining explanation failure that would make the current output
 unsafe or substantially misleading.
 
+## Post-completion H03 feedback received during Milestone 24
+
+Additional H03 feedback arrived after the Milestone 23 gate had closed. It does not retroactively reopen
+Milestone 23, but it is recorded because it informs release-preparation presentation and future evidence
+priorities.
+
+- **Default-output density:** the reviewer still found H03 too wordy and summarized the key practical
+  takeaway as essentially "doesn't map back." Milestone 24 therefore uses H03 as a compactness case in the
+  public-language audit. Shortening must preserve the source and mapped coordinates, complete forward
+  coverage, reverse destination, exact flanking interval and coverage, Segmental Duplications context,
+  evidence boundaries, and relevant follow-up guidance. `--details` and `--json` retain the complete
+  structured result.
+- **Why the mapping is non-reciprocal:** the reviewer asked whether the explanation could involve a short
+  or boundary-adjacent chain alignment, a repeat and its repeat class, exonic/coding versus intronic or
+  intergenic context, or assembly component/new-sequence history. The evidence collected for H03 does not
+  answer those questions. In particular, Segmental Duplications overlap remains descriptive context and is
+  not a causal explanation.
+- **Feature disposition:** these questions are post-release evidence candidates, not Milestone 24 features.
+  Point/gap-boundary context is already represented in the Milestone 25 plan. Broader alignment-extent/edge
+  context, repeat annotation, gene/transcript feature context, and assembly component/history context are
+  retained as priority-to-be-determined candidates. One outside-user request establishes genuine demand
+  to retain the ideas, not an automatic priority or release commitment.
+
 ## Blocking failure criteria
 
 Milestone 23 does not pass until any observed blocker is resolved and the affected held-out case is rerun.

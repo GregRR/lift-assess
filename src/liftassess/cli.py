@@ -188,8 +188,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--evidence-tier",
         choices=("COMPARATIVE", "LIFTOVER-ONLY"),
         help=(
-            "request one exact UCSC resource publication class instead of the "
-            "default COMPARATIVE-preferred discovery/cache selection"
+            "select UCSC alignment resources explicitly: COMPARATIVE uses all-chain, "
+            "net, and reciprocal-best resources; LIFTOVER-ONLY uses the standard "
+            "liftOver chain. Comparative resources are preferred when available"
         ),
     )
     network_mode = parser.add_mutually_exclusive_group()
@@ -205,8 +206,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--offline",
         action="store_true",
         help=(
-            "guarantee zero provider access and require a complete verified local "
-            "cache bundle"
+            "guarantee zero provider access and require all needed UCSC resources "
+            "in the verified local cache"
         ),
     )
     parser.add_argument(
@@ -227,7 +228,10 @@ def _build_parser() -> argparse.ArgumentParser:
     output_mode.add_argument(
         "--details",
         action="store_true",
-        help="emit the full human-readable evidence, resource, and provenance dossier",
+        help=(
+            "emit full human-readable mapping, evidence, resource, and provenance "
+            "details"
+        ),
     )
     output_mode.add_argument(
         "--json",
@@ -312,7 +316,7 @@ def _run(
     unusable_index_sha256: str | None = None
     if not args.refresh:
         _status(
-            "Checking/verifying local UCSC cache...",
+            "Checking local UCSC resources...",
             quiet=args.quiet,
             stderr=stderr,
         )
@@ -418,9 +422,8 @@ def _run(
             )
         if cached_bundle is not None:
             _status(
-                "Using verified cached "
-                f"{cached_bundle.evidence_tier.value} bundle; UCSC was not contacted. "
-                "Use --refresh to check current provider resources.",
+                f"Using verified cached {_human_alignment_resource_label(cached_bundle.evidence_tier)}; "
+                "UCSC was not contacted. Use --refresh to check current provider resources.",
                 quiet=args.quiet,
                 stderr=stderr,
                 indent=4,
@@ -434,8 +437,8 @@ def _run(
                 else " " + requested_evidence_tier.value.replace("_", "-")
             )
             print(
-                "error: --offline requires a complete verified cached"
-                f"{requested} UCSC bundle for "
+                "error: --offline requires complete verified cached"
+                f"{requested} UCSC resources for "
                 f"{args.source_db}→{args.target_db} under {cache_root}",
                 file=stderr,
             )
@@ -469,7 +472,7 @@ def _run(
             )
     if chain_index is not None:
         _status(
-            "Using verified cached chain index for candidate lookup.",
+            "Using verified cached chain index for mapping lookup.",
             quiet=args.quiet,
             stderr=stderr,
             indent=4,
@@ -784,7 +787,7 @@ def _prepare_target_role_context(
         )
         return None, None, True
     _status(
-        "Using version-matched UCSC/NCBI assembly sequence metadata.",
+        "Using version-matched UCSC/NCBI target sequence metadata.",
         quiet=args.quiet,
         stderr=stderr,
         indent=4,
@@ -805,7 +808,7 @@ def _prepare_source_preflight(
     metadata: CachedUCSCAssemblyMetadata | None = None
     if not args.refresh:
         _status(
-            "Checking authoritative UCSC source-sequence metadata...",
+            "Checking UCSC source assembly sequence metadata...",
             quiet=args.quiet,
             stderr=stderr,
         )
@@ -815,8 +818,7 @@ def _prepare_source_preflight(
         )
         if metadata is not None:
             _status(
-                "Using verified cached UCSC source-sequence metadata; "
-                "provider access was not needed for source coordinate validation.",
+                "Using verified cached UCSC source assembly sequence metadata.",
                 quiet=args.quiet,
                 stderr=stderr,
                 indent=4,
@@ -829,7 +831,7 @@ def _prepare_source_preflight(
                 f"for {args.source_db} before scientific assessment"
             )
         _status(
-            "Discovering authoritative UCSC source-sequence metadata...",
+            "Finding UCSC source assembly sequence metadata...",
             quiet=args.quiet,
             stderr=stderr,
         )
@@ -909,7 +911,7 @@ def _prepare_cached_batch_source_preflight(
     """Preflight every batch row from one cached UCSC assembly catalog."""
 
     _status(
-        "Checking authoritative UCSC source-sequence metadata for batch input...",
+        "Checking UCSC source assembly sequence metadata for batch input...",
         quiet=args.quiet,
         stderr=stderr,
     )
@@ -950,10 +952,7 @@ def _prepare_cached_batch_source_preflight(
         if resource.sha256 in provenance_sha256
     )
     _status(
-        (
-            "Authoritative source coordinate validation passed for "
-            f"{len(records)} batch record(s)."
-        ),
+        (f"Source coordinate validation passed for {len(records)} batch record(s)."),
         quiet=args.quiet,
         stderr=stderr,
         indent=4,
@@ -982,8 +981,8 @@ def _prepare_cached_batch_target_role_context(
     )
     if target_sequence_metadata is None or role_metadata is None:
         _status(
-            "Target assembly sequence metadata unavailable in the local cache; batch "
-            "mapping will continue without NCBI assembly sequence metadata.",
+            "Target sequence-role metadata unavailable in the local cache; batch "
+            "mapping will continue without target sequence roles.",
             quiet=args.quiet,
             stderr=stderr,
             indent=4,
@@ -994,8 +993,7 @@ def _prepare_cached_batch_target_role_context(
     )
     catalog = attach_cached_target_role_context(catalog, role_metadata)
     _status(
-        "Using cached version-matched UCSC/NCBI assembly sequence metadata "
-        "for batch results.",
+        "Using cached version-matched UCSC/NCBI target sequence metadata.",
         quiet=args.quiet,
         stderr=stderr,
         indent=4,
@@ -1133,9 +1131,9 @@ def _run_indexed_batch(
     )
     if structural_chain is None:
         requested = (
-            "preferred COMPARATIVE/LIFTOVER-ONLY"
+            "preferred UCSC alignment"
             if requested_evidence_tier is None
-            else requested_evidence_tier.value.replace("_", "-")
+            else _human_chain_type(requested_evidence_tier)
         )
         raise ValueError(
             f"{input_option} batch assessment requires a cached "
@@ -1147,16 +1145,18 @@ def _run_indexed_batch(
         chain_index = load_cached_chain_index(cache_root, structural_chain.chain)
     except ChainIndexCorruptionError as exc:
         tier = structural_chain.evidence_tier.value.replace("_", "-")
+        chain_type = _human_chain_type(structural_chain.evidence_tier)
         raise ValueError(
             f"{input_option} batch assessment requires a usable prepared chain index "
-            f"for {tier}; rerun prepare-liftassess-index {args.source_db} "
+            f"for the {chain_type}; rerun prepare-liftassess-index {args.source_db} "
             f"{args.target_db} --evidence-tier {tier} --rebuild ({exc})"
         ) from exc
     if chain_index is None:
         tier = structural_chain.evidence_tier.value.replace("_", "-")
+        chain_type = _human_chain_type(structural_chain.evidence_tier)
         raise ValueError(
             f"{input_option} batch assessment requires a prepared chain index for "
-            f"{tier}; run prepare-liftassess-index {args.source_db} "
+            f"the {chain_type}; run prepare-liftassess-index {args.source_db} "
             f"{args.target_db} --evidence-tier {tier}"
         )
 
@@ -1173,9 +1173,9 @@ def _run_indexed_batch(
             or cached_bundle.chain.sha256 != structural_chain.chain.sha256
         ):
             raise ValueError(
-                f"COMPARATIVE {input_option} batch assessment requires the complete "
-                "cached comparative bundle so net/reciprocal-best evidence can be "
-                "shared across submitted rows"
+                f"{input_option} batch assessment with comparative UCSC alignment "
+                "resources requires the cached all-chain, net, and reciprocal-best "
+                "resources so they can be shared across submitted rows"
             )
         chain_context = CachedUCSCChainResource(
             source_db=cached_bundle.source_db,
@@ -1355,9 +1355,9 @@ def _discover_and_acquire_bundle(
         )
     if discovered is None:
         resource_label = (
-            "UCSC resources"
+            "UCSC alignment resources"
             if requested_evidence_tier is None
-            else requested_evidence_tier.value.replace("_", "-") + " UCSC resources"
+            else _human_alignment_resource_label(requested_evidence_tier)
         )
         print(
             f"error: no supported {resource_label} found for "
@@ -1452,6 +1452,18 @@ def _default_user_cache_root(
 
 def _human_evidence_tier(tier: EvidenceAvailabilityTier) -> str:
     return tier.value.replace("_", "-")
+
+
+def _human_chain_type(tier: EvidenceAvailabilityTier) -> str:
+    if tier is EvidenceAvailabilityTier.COMPARATIVE:
+        return "UCSC all-chain alignment"
+    return "standard liftOver chain"
+
+
+def _human_alignment_resource_label(tier: EvidenceAvailabilityTier) -> str:
+    if tier is EvidenceAvailabilityTier.COMPARATIVE:
+        return "comparative UCSC alignment resources"
+    return "standard liftOver chain"
 
 
 def _ucsc_pair_dependency_provenance(
@@ -2121,7 +2133,10 @@ def _print_transfer_plan(
     stderr: TextIO,
 ) -> None:
     print(
-        f"Transfer plan: {plan.evidence_tier.value} ({len(plan.items)} resource(s))",
+        (
+            f"Transfer plan: {_human_alignment_resource_label(plan.evidence_tier)} "
+            f"({len(plan.items)} resource{'s' if len(plan.items) != 1 else ''})"
+        ),
         file=stderr,
     )
     for plan_item, inspected_item in zip(plan.items, inspection.items, strict=True):

@@ -561,20 +561,47 @@ def _render_single_mapping_summary(report: UCSCAssessmentReport) -> str:
     if limitation_lines:
         lines.extend(("", "= LIMITATIONS =", "", *limitation_lines))
 
-    lines.extend(("", "= CHECKS PERFORMED =", ""))
-    lines.extend(_summary_check_lines(report, include_forward=True))
+    evidence_scope_lines = _single_evidence_scope_lines(report)
+    if evidence_scope_lines:
+        lines.extend(("", *evidence_scope_lines))
+
     lines.extend(
         (
             "",
             "Details:",
-            "    Use --details for alignment blocks, gaps, evidence, and provenance,",
-            "    or --json for machine-readable output.",
+            "    Use --details for alignment blocks, gaps, evidence, and provenance;",
+            "    use --json for machine-readable output.",
         )
     )
     follow_up_lines = _single_comparative_follow_up_lines(report, candidate_profile)
     if follow_up_lines:
         lines.extend(("", *follow_up_lines))
     return "\n".join(lines)
+
+
+def _single_evidence_scope_lines(report: UCSCAssessmentReport) -> list[str]:
+    lines: list[str] = []
+    consumed_roles = set(report.result_profile.consumed_resource_roles)
+
+    if report.evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
+        resources: list[str] = []
+        if "CHAIN" in consumed_roles:
+            resources.append("UCSC all-chain alignments")
+        if "NET" in consumed_roles:
+            resources.append("UCSC net alignment")
+        if "RECIPROCAL_BEST_CHAIN" in consumed_roles:
+            resources.append("UCSC reciprocal-best chain")
+        if resources:
+            lines.extend(("Evidence:", "    " + ", ".join(resources) + "."))
+
+    if report.result_profile.scope.target_role is TargetRoleState.UNAVAILABLE:
+        lines.extend(
+            (
+                "Target sequence metadata:",
+                "    NCBI assembly sequence metadata unavailable.",
+            )
+        )
+    return lines
 
 
 def _single_comparative_follow_up_lines(
@@ -594,8 +621,10 @@ def _single_comparative_follow_up_lines(
         return []
     return [
         "Additional alignment context:",
-        ("    Use --evidence-tier COMPARATIVE to compare the standard liftOver chain"),
-        "    with UCSC all-chain alignments, when available.",
+        (
+            "    Use --evidence-tier COMPARATIVE for comparison with UCSC all-chain "
+            "alignments, when available."
+        ),
     ]
 
 
@@ -615,18 +644,13 @@ def _single_mapping_finding_lines(
     profile: CandidateResultProfile,
 ) -> list[str]:
     source_bases = profile.source_bases
-    query_noun = "base" if source_bases == 1 else "interval"
     lines = [
         "Mapping:",
         (
-            f"    One {report.source_db}→{report.target_db} chain maps the "
-            f"queried {query_noun}."
-        ),
-        (
-            f"    {profile.covered_source_bases}/{source_bases} input "
-            f"{'base' if source_bases == 1 else 'bases'} mapped"
+            f"    One liftOver chain maps {profile.covered_source_bases}/"
+            f"{source_bases} bp"
             + (
-                ", with no chain gap at the queried position."
+                "; no chain gap at the query."
                 if source_bases == 1 and not profile.source_gap_intervals
                 else "."
             )
@@ -712,16 +736,12 @@ def _single_reverse_liftover_lines(
         if reverse.exact_original_geometry_return:
             return [
                 "Reverse liftOver:",
-                f"    {query_text} maps back exactly to:",
-                (
-                    "        "
-                    + _human_interval_text(report.source_db, report.source_interval)
-                ),
+                "    Returns exactly to the source locus.",
             ]
         assert reverse.original_source_covered_bases is not None
         return [
             "Reverse liftOver:",
-            f"    {query_text} maps only to the original source locus.",
+            "    Returns only to the source locus.",
             (
                 "    Recovered original source bases: "
                 f"{reverse.original_source_covered_bases}/"
@@ -740,38 +760,32 @@ def _single_reverse_liftover_lines(
 
     mapped_back = _reverse_target_intervals(report)
     lines = ["Reverse liftOver:"]
+    if reverse.relationship is ReverseRelationshipState.ELSEWHERE_ONLY:
+        lines.append("    Does not return to the source locus.")
+    elif reverse.relationship is ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE:
+        lines.append("    Returns to the source locus and to at least one other locus.")
+
     if mapped_back:
         if len(mapped_back) == 1:
-            lines.extend(
-                (
-                    f"    {query_text} maps to:",
-                    f"        {_human_interval_text(report.source_db, mapped_back[0])}",
+            mapped_text = _human_interval_text(report.source_db, mapped_back[0])
+            if reverse.relationship is ReverseRelationshipState.ELSEWHERE_ONLY:
+                lines[-1] = (
+                    "    Does not return to the source locus; "
+                    f"maps instead to {mapped_text}."
                 )
-            )
+            else:
+                lines.append(f"    Also maps to {mapped_text}.")
         else:
-            lines.append(
-                f"    {query_text} maps to {len(mapped_back)} "
-                "source-assembly locations:"
+            prefix = (
+                "    Maps instead to"
+                if reverse.relationship is ReverseRelationshipState.ELSEWHERE_ONLY
+                else "    Also maps to"
             )
+            lines.append(f"{prefix} {len(mapped_back)} source-assembly locations:")
             lines.extend(
                 "        " + _human_interval_text(report.source_db, interval)
                 for interval in mapped_back[:_DEFAULT_INLINE_PROJECTION_LIMIT]
             )
-    if reverse.relationship is ReverseRelationshipState.ELSEWHERE_ONLY:
-        lines.extend(
-            (
-                "    It does not return to the original source coordinate:",
-                (
-                    "        "
-                    + _human_interval_text(report.source_db, report.source_interval)
-                ),
-            )
-        )
-    elif reverse.relationship is ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE:
-        lines.append(
-            "    Reverse liftOver returns to the original source locus and to "
-            "at least one other locus."
-        )
     return lines
 
 
@@ -804,19 +818,15 @@ def _single_flanking_interval_lines(report: UCSCAssessmentReport) -> list[str]:
         assert covered is not None
         lines.extend(
             (
-                f"    A {tested.length}-bp interval centered on the input coordinate also maps",
                 (
-                    "    completely through the same "
-                    f"{report.source_db}→{report.target_db} chain:"
-                ),
-                f"        {_human_interval_text(report.source_db, tested)}",
-                (
-                    "        "
+                    "    "
+                    + _human_interval_text(report.source_db, tested)
+                    + " → "
                     + _human_interval_text(
                         report.target_db, context_candidate.target_interval
                     )
                 ),
-                f"        {covered}/{tested.length} bases mapped",
+                f"    {covered}/{tested.length} bp map through the same liftOver chain.",
             )
         )
         return lines
@@ -902,15 +912,10 @@ def _single_segmental_duplication_lines(report: UCSCAssessmentReport) -> list[st
             overlap.record.paired_interval.sequence_name == target_sequence
             for overlap in context.source_overlaps
         ):
-            lines.extend(
-                (
-                    "",
-                    (
-                        f"    One overlapping {report.source_db} Segmental Duplications "
-                        f"record pairs this {source_sequence} region with a region on "
-                        f"{report.source_db} {target_sequence}."
-                    ),
-                )
+            lines.append(
+                f"    One overlapping {report.source_db} Segmental Duplications record "
+                f"pairs the {source_sequence} source region with {report.source_db} "
+                f"{target_sequence}."
             )
     return lines
 
@@ -954,28 +959,28 @@ def _single_mapping_limitation_lines(report: UCSCAssessmentReport) -> list[str]:
         else "mapped interval"
     )
     lines = [
-        f"These results do not establish that the {mapped_object} is unique or",
         (
-            "that it represents the same variant, gene, transcript, or other "
-            "biological feature."
+            f"This result does not establish that the {mapped_object} is unique or "
+            "represents the same variant, gene, transcript, or other feature."
         ),
     ]
     context = report.segmental_duplication_context_result
     if context is not None and (context.source_overlaps or context.target_overlaps):
-        lines.extend(
-            (
-                "",
-                (
-                    "Overlap with a Segmental Duplications annotation does not by "
-                    "itself show"
-                ),
-                (
-                    "that the liftOver mapping is incorrect or non-unique, establish "
-                    "paralogy,"
-                ),
-                "or explain why the two coordinates map to one another.",
-            )
+        candidate_profiles = report.result_profile.candidate_profiles
+        reverse_returns_elsewhere = bool(
+            len(candidate_profiles) == 1
+            and candidate_profiles[0].reverse_mapping.relationship
+            in {
+                ReverseRelationshipState.ELSEWHERE_ONLY,
+                ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE,
+            }
         )
+        lines.append(
+            "Overlap with UCSC Segmental Duplications does not by itself establish "
+            "paralogy, mapping error, or non-uniqueness."
+        )
+        if reverse_returns_elsewhere:
+            lines.append("It does not explain the non-reciprocal mapping.")
     return lines
 
 
@@ -1050,22 +1055,7 @@ def _summary_headline_text(report: UCSCAssessmentReport) -> str:
         ):
             return "INTERCHROMOSOMAL LIFTOVER MAPPING"
 
-    replacements = {
-        FactualHeadline.NO_CHAIN_PROJECTION: "NO LIFTOVER MAPPING",
-        FactualHeadline.ONE_COMPLETE_CHAIN_PROJECTION: "ONE LIFTOVER MAPPING",
-        FactualHeadline.PARTIAL_SOURCE_COVERAGE: "PARTIAL LIFTOVER MAPPING",
-        FactualHeadline.PARTIAL_AND_FRAGMENTED_PROJECTION: (
-            "PARTIAL MAPPING ACROSS MULTIPLE ALIGNMENT BLOCKS"
-        ),
-        FactualHeadline.COMPLETE_BUT_DISCONTINUOUS_PROJECTION: (
-            "LIFTOVER MAPPING WITH A TARGET GAP"
-        ),
-        FactualHeadline.MULTIPLE_CHAIN_PROJECTIONS: "MULTIPLE LIFTOVER MAPPINGS",
-        FactualHeadline.SOURCE_INTERVAL_SPLITS_ACROSS_MULTIPLE_PROJECTIONS: (
-            "SOURCE INTERVAL MAPS TO MULTIPLE LOCATIONS"
-        ),
-    }
-    return replacements[profile.headline]
+    return _headline_text(profile.headline)
 
 
 def _is_standard_ucsc_chromosome_name(sequence_name: str) -> bool:
@@ -1113,20 +1103,20 @@ def _comparative_detail_lines(report: UCSCAssessmentReport) -> list[str]:
         )
 
     lines = [
-        f"  Inventory state: {comparison.relationship.value}",
-        f"  All-chain placements: {len(comparison.all_chain_candidates)}",
-        f"  Filtered-chain placements: {len(comparison.filtered_candidates)}",
+        f"  Mapping inventory: {_detail_inventory_state_text(comparison.relationship)}",
+        f"  All-chain mappings: {len(comparison.all_chain_candidates)}",
+        f"  Standard liftOver mappings: {len(comparison.filtered_candidates)}",
         (
-            "  Additional all-chain placements: "
+            "  Additional all-chain mappings: "
             + (
                 ", ".join(comparison.additional_all_chain_candidate_ids)
                 if comparison.additional_all_chain_candidate_ids
                 else "none"
             )
         ),
-        f"  Categorical relationship: {relationship.relationship.value}",
+        f"  Comparative result: {_detail_comparative_relationship_text(profile.state)}",
         (
-            "  Favored candidate: "
+            "  Favored mapping: "
             + (
                 relationship.favored_candidate_id
                 if relationship.favored_candidate_id is not None
@@ -1147,7 +1137,7 @@ def _comparative_detail_lines(report: UCSCAssessmentReport) -> list[str]:
             "independent votes; the pair group does not prove that the files came from one "
             "processing run."
         ),
-        "  Placement support (all-chain order is reproducibility only, not rank):",
+        "  Mapping support (all-chain order is reproducibility only, not rank):",
     ]
     if not profile.placement_support:
         lines.append("    none")
@@ -1173,7 +1163,22 @@ def _yes_no(value: bool) -> str:
 
 
 def _headline_text(headline: FactualHeadline) -> str:
-    return headline.value.replace("_", " ")
+    replacements = {
+        FactualHeadline.NO_CHAIN_PROJECTION: "NO LIFTOVER MAPPING",
+        FactualHeadline.ONE_COMPLETE_CHAIN_PROJECTION: "ONE LIFTOVER MAPPING",
+        FactualHeadline.PARTIAL_SOURCE_COVERAGE: "PARTIAL LIFTOVER MAPPING",
+        FactualHeadline.PARTIAL_AND_FRAGMENTED_PROJECTION: (
+            "PARTIAL MAPPING ACROSS MULTIPLE ALIGNMENT BLOCKS"
+        ),
+        FactualHeadline.COMPLETE_BUT_DISCONTINUOUS_PROJECTION: (
+            "LIFTOVER MAPPING WITH A TARGET GAP"
+        ),
+        FactualHeadline.MULTIPLE_CHAIN_PROJECTIONS: "MULTIPLE LIFTOVER MAPPINGS",
+        FactualHeadline.SOURCE_INTERVAL_SPLITS_ACROSS_MULTIPLE_PROJECTIONS: (
+            "SOURCE INTERVAL MAPS TO MULTIPLE LOCATIONS"
+        ),
+    }
+    return replacements[headline]
 
 
 def _candidate_text(
@@ -1188,10 +1193,139 @@ def _candidate_text(
     ]
     if profile.geometric_segment_count > 1:
         details.append(
-            "bounding span of "
-            f"{profile.geometric_segment_count} geometric mapped segments"
+            f"bounding span of {profile.geometric_segment_count} mapped segments"
         )
     return f"{coordinate_text} ({'; '.join(details)})"
+
+
+def _detail_state_text(value: str) -> str:
+    replacements = {
+        "VALID": "valid",
+        "NOT_ASSESSED": "not assessed",
+        "UNAVAILABLE": "unavailable",
+        "NO_TARGET_PROJECTIONS": "no target mappings",
+        "ASSESSED": "assessed",
+        "PARTIALLY_ASSESSED": "partially assessed",
+        "NOT_CHECKED": "not checked",
+        "NOT_RUN": "not performed",
+        "RUN": "performed",
+        "NONE": "none",
+        "COMPLETE": "complete",
+        "FULL": "complete",
+        "PARTIAL": "partial",
+        "SAME": "same",
+        "REVERSE": "reverse",
+        "MIXED": "mixed",
+    }
+    return replacements.get(value, value.lower().replace("_", " "))
+
+
+def _detail_evidence_tier_text(tier: EvidenceAvailabilityTier) -> str:
+    if tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
+        return "standard liftOver chain only"
+    return "comparative UCSC alignments"
+
+
+def _detail_resource_role_text(
+    role: str,
+    *,
+    evidence_tier: EvidenceAvailabilityTier | None = None,
+) -> str:
+    if role == "CHAIN":
+        if evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
+            return "standard liftOver chain"
+        if evidence_tier is EvidenceAvailabilityTier.COMPARATIVE:
+            return "all-chain alignments"
+    replacements = {
+        "CHAIN": "chain alignment",
+        "NET": "net alignment",
+        "SYNTENIC_NET": "syntenic net alignment",
+        "RECIPROCAL_BEST_CHAIN": "reciprocal-best chain",
+        "RECIPROCAL_BEST_NET": "reciprocal-best net",
+    }
+    return replacements.get(role, role.lower().replace("_", " "))
+
+
+def _capitalize_first(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
+def _detail_reverse_relationship_text(relationship: ReverseRelationshipState) -> str:
+    replacements = {
+        ReverseRelationshipState.NO_PROJECTION: "no reverse mapping",
+        ReverseRelationshipState.ORIGINAL_SOURCE_ONLY: (
+            "returns only to the source locus"
+        ),
+        ReverseRelationshipState.ELSEWHERE_ONLY: (
+            "does not return to the source locus"
+        ),
+        ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE: (
+            "returns to the source locus and elsewhere"
+        ),
+    }
+    return replacements[relationship]
+
+
+def _detail_query_context_finding_text(finding: QueryContextFinding) -> str:
+    replacements = {
+        QueryContextFinding.AGREES_WITH_POINT: "agrees with point mapping",
+        QueryContextFinding.NO_PROJECTION_AT_EITHER_SCALE: (
+            "no mapping at either scale"
+        ),
+        QueryContextFinding.REVEALS_PARTIAL_COVERAGE: "reveals partial coverage",
+        QueryContextFinding.REVEALS_FRAGMENTATION: (
+            "reveals multiple alignment blocks"
+        ),
+        QueryContextFinding.REVEALS_TARGET_DISCONTINUITY: ("reveals a target gap"),
+        QueryContextFinding.CHANGES_WITH_QUERY_SCALE: "changes with query scale",
+    }
+    return replacements[finding]
+
+
+def _detail_evidence_kind_text(kind: str) -> str:
+    replacements = {
+        "MAPPING_COVERAGE": "Source coverage",
+        "CHAIN_GAPS": "Chain gaps",
+        "CANDIDATE_RANK": "Mapping rank",
+        "TARGET_PLACEMENT": "Target placement",
+        "CHAIN_SCORE": "Chain score",
+        "ALIGNED_BASES": "Aligned bases",
+        "DUPLICATED_QUERY_BASES": "Duplicated query bases",
+        "NET_CLASSIFICATION": "Net classification",
+        "NET_HIERARCHY": "Net hierarchy",
+        "RECIPROCAL_BEST_MEMBERSHIP": "Reciprocal-best chain coverage",
+        "FLANKING_GENE_SYNTENY": "Flanking-gene synteny",
+    }
+    return replacements.get(kind, kind.lower().replace("_", " ").capitalize())
+
+
+def _detail_inventory_state_text(state: FilteredAllChainInventoryState) -> str:
+    replacements = {
+        FilteredAllChainInventoryState.FILTERED_AND_ALL_CHAIN_AGREE: (
+            "standard liftOver and all-chain mappings agree"
+        ),
+        FilteredAllChainInventoryState.ALL_CHAIN_REVEALS_ADDITIONAL_PLACEMENTS: (
+            "all-chain alignments contain additional mappings"
+        ),
+    }
+    return replacements[state]
+
+
+def _detail_comparative_relationship_text(
+    state: ComparativeRelationshipState,
+) -> str:
+    replacements = {
+        ComparativeRelationshipState.NOT_ASSESSED: "not assessed",
+        ComparativeRelationshipState.NO_COMPETING_FULL_PLACEMENTS: (
+            "no competing complete mappings"
+        ),
+        ComparativeRelationshipState.FAVORS_ONE_PLACEMENT: "favors one mapping",
+        ComparativeRelationshipState.DOES_NOT_SEPARATE_PLACEMENTS: (
+            "does not separate mappings"
+        ),
+        ComparativeRelationshipState.MIXED_CONFLICTING: "mixed or conflicting",
+    }
+    return replacements[state]
 
 
 def render_assessment_details(report: UCSCAssessmentReport) -> str:
@@ -1199,39 +1333,45 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
 
     profile = report.result_profile
     lines = [
-        "Detailed factual result dossier",
+        "Detailed liftOver assessment",
         f"UCSC database pair: {report.source_db} -> {report.target_db}",
         f"Source locus: {format_display_interval(report.source_interval)}",
         f"Headline: {_headline_text(profile.headline)}",
         f"Interpretation: {profile.interpretation}",
-        f"Input validity preflight: {profile.input_validity.value}",
-        f"Projection count: {profile.projection_count.value}",
-        f"Projection orientation: {profile.orientation.value}",
+        f"Source validation: {_detail_state_text(profile.input_validity.value)}",
+        f"Mapping count: {len(report.candidates)}",
+        f"Mapping orientation: {_detail_state_text(profile.orientation.value)}",
         (
-            "Maximum candidate source coverage: "
+            "Maximum source coverage for one mapping: "
             f"{profile.maximum_candidate_covered_source_bases}/{profile.source_bases}"
         ),
         (
-            "Union source coverage across candidates: "
+            "Union source coverage across mappings: "
             f"{profile.union_covered_source_bases}/{profile.source_bases}"
         ),
-        f"Evidence availability: {profile.evidence_tier.value.replace('_', '-')}",
-        "Consumed resource roles: "
-        + (", ".join(profile.consumed_resource_roles) or "none"),
+        f"Evidence resources: {_detail_evidence_tier_text(profile.evidence_tier)}",
+        "Consumed UCSC resources: "
+        + (
+            ", ".join(
+                _detail_resource_role_text(role, evidence_tier=profile.evidence_tier)
+                for role in profile.consumed_resource_roles
+            )
+            or "none"
+        ),
         "",
         "Current scope boundaries",
-        f"  Target role: {profile.scope.target_role.value}",
-        f"  Actual reverse mapping: {profile.scope.reverse_result.value}",
-        f"  Point/neighborhood context: {profile.scope.query_context.value}",
+        f"  Target sequence role: {_detail_state_text(profile.scope.target_role.value)}",
+        f"  Reverse liftOver: {_detail_state_text(profile.scope.reverse_result.value)}",
+        f"  Flanking-interval assessment: {_detail_state_text(profile.scope.query_context.value)}",
         (
-            "  Comparative relationship synthesis: "
-            f"{profile.scope.comparative_relationship.value}"
+            "  Standard liftOver/all-chain comparison: "
+            f"{_detail_comparative_relationship_text(profile.scope.comparative_relationship)}"
         ),
-        f"  Batch relationships: {profile.scope.batch_relationship.value}",
-        f"  Typed external context: {profile.scope.external_context.value}",
-        "  Named variant / rsID identity: NOT ASSESSED",
-        "  Gene / transcript identity: NOT ASSESSED",
-        "  File / downstream workflow: NOT ASSESSED",
+        f"  Batch relationships: {_detail_state_text(profile.scope.batch_relationship.value)}",
+        f"  Segmental Duplications context: {_detail_state_text(profile.scope.external_context.value)}",
+        "  Named variant / rsID identity: not assessed",
+        "  Gene / transcript identity: not assessed",
+        "  File / downstream workflow: not assessed",
     ]
 
     if report.source_preflight is not None:
@@ -1239,8 +1379,8 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
         lines.extend(
             (
                 "",
-                "Source preflight",
-                f"  State: {preflight.state.value}",
+                "Source validation details",
+                f"  State: {_detail_state_text(preflight.state.value)}",
                 f"  Canonical sequence: {preflight.canonical_sequence_name}",
                 f"  Authoritative sequence length: {preflight.sequence_length}",
                 "  Metadata provenance: "
@@ -1261,8 +1401,8 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
             )
 
     if profile.scope.target_role is not TargetRoleState.NOT_ASSESSED:
-        lines.extend(("", "Target sequence role/context"))
-        lines.append(f"  State: {profile.scope.target_role.value}")
+        lines.extend(("", "Target sequence role"))
+        lines.append(f"  State: {_detail_state_text(profile.scope.target_role.value)}")
         for item in profile.target_sequence_roles:
             lines.extend(_target_role_detail_lines(item))
         if report.target_role_metadata is not None:
@@ -1284,15 +1424,15 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
             )
 
     if profile.scope.external_context is not ExternalContextState.NOT_ASSESSED:
-        lines.extend(("", "Typed external context: UCSC segmental duplications"))
+        lines.extend(("", "UCSC Segmental Duplications context"))
         lines.extend(_segmental_duplication_detail_lines(report))
 
     lines.extend(
         (
             "",
-            "Candidates",
+            "Mappings",
             (
-                "Candidate order is preserved for reproducibility and does not "
+                "Mapping order is preserved for reproducibility and does not "
                 "indicate rank or preference."
             ),
         )
@@ -1308,15 +1448,15 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
         lines.extend(_candidate_detail_lines(candidate, candidate_profile))
 
     if report.query_context_result is not None:
-        lines.extend(("", "Point neighborhood context"))
+        lines.extend(("", "Flanking-interval assessment"))
         lines.extend(_query_context_detail_lines(report))
 
     if report.filtered_all_chain_comparison is not None:
-        lines.extend(("", "Filtered/all-chain comparative relationship"))
+        lines.extend(("", "Standard liftOver/all-chain comparison"))
         lines.extend(_comparative_detail_lines(report))
 
     if report.reverse_mapping_results is not None:
-        lines.extend(("", "Reverse mapping results"))
+        lines.extend(("", "Reverse liftOver results"))
         if not report.reverse_mapping_results:
             lines.append("  none")
         for result in report.reverse_mapping_results:
@@ -1330,7 +1470,7 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
         )
         lines.extend(
             (
-                f"{assessment_resource.role.value} [{consumption}]",
+                f"{_capitalize_first(_detail_resource_role_text(assessment_resource.role.value, evidence_tier=profile.evidence_tier))} [{consumption}]",
                 f"  Source URL: {resource.source_url}",
                 f"  Cache path: {resource.path}",
                 f"  Retrieved at: {resource.retrieved_at}",
@@ -1357,7 +1497,7 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
             (
                 (
                     f"{report.target_db}->{report.source_db} "
-                    f"{reverse_resource.role.value} [consumed]"
+                    f"{_capitalize_first(_detail_resource_role_text(reverse_resource.role.value, evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY))} [consumed]"
                 ),
                 f"  Source URL: {resource.source_url}",
                 f"  Cache path: {resource.path}",
@@ -1615,9 +1755,9 @@ def _segmental_duplication_detail_lines(report: UCSCAssessmentReport) -> list[st
         return ["  State: NOT_ASSESSED"]
 
     lines = [
-        f"  Overall state: {report.result_profile.scope.external_context.value}",
-        f"  Source query state: {result.source_state.value}",
-        f"  Target projection state: {result.target_state.value}",
+        f"  Overall state: {_detail_state_text(report.result_profile.scope.external_context.value)}",
+        f"  Source query state: {_detail_state_text(result.source_state.value)}",
+        f"  Target mapping state: {_detail_state_text(result.target_state.value)}",
     ]
     if report.source_segmental_duplication_resource is not None:
         resource = report.source_segmental_duplication_resource
@@ -1644,13 +1784,13 @@ def _segmental_duplication_detail_lines(report: UCSCAssessmentReport) -> list[st
     for source_overlap in result.source_overlaps:
         lines.extend(_source_segmental_duplication_detail(source_overlap))
     lines.append(
-        f"  Target candidate/row overlap observations: {len(result.target_overlaps)}"
+        f"  Target mapping/row overlap observations: {len(result.target_overlaps)}"
     )
     for target_overlap in result.target_overlaps:
         lines.extend(_target_segmental_duplication_detail(target_overlap))
     lines.append(
         "  Interpretation boundary: overlap is descriptive context only; it does not "
-        "penalize a projection or establish biological correctness."
+        "penalize a mapping or establish biological correctness."
     )
     return lines
 
@@ -1676,7 +1816,7 @@ def _target_segmental_duplication_detail(
     item: CandidateSegmentalDuplicationOverlap,
 ) -> list[str]:
     return [
-        f"    Candidate: {item.candidate_id}",
+        f"    Mapping: {item.candidate_id}",
         "      Exact mapped overlap: "
         + ", ".join(
             format_display_interval(interval) for interval in item.overlap_intervals
@@ -2325,13 +2465,13 @@ def _candidate_detail_lines(
 ) -> list[str]:
     lines = [
         _candidate_heading(candidate),
-        f"  Candidate ID: {candidate.candidate_id}",
+        f"  Mapping ID: {candidate.candidate_id}",
         f"  Target: {_candidate_text(candidate, profile)}",
         (
             f"  Source coverage: {profile.covered_source_bases}/{profile.source_bases} "
-            f"({profile.coverage_state.value})"
+            f"({_detail_state_text(profile.coverage_state.value)})"
         ),
-        f"  Geometric mapped segments: {profile.geometric_segment_count}",
+        f"  Mapped segments: {profile.geometric_segment_count}",
         f"  Fragmented: {'yes' if profile.fragmented else 'no'}",
         f"  Target discontinuous: {'yes' if profile.target_discontinuous else 'no'}",
         (
@@ -2341,10 +2481,7 @@ def _candidate_detail_lines(
         f"  Largest source chain gap: {profile.largest_source_gap_bases} bases",
         f"  Largest target gap: {profile.largest_target_gap_bases} bases",
         f"  Mapping provenance: {candidate.mapping_provenance.source_id}",
-        (
-            "  Exact chain-derived mapped segments "
-            f"({profile.exact_mapped_segment_count}):"
-        ),
+        (f"  Mapped chain alignment blocks ({profile.exact_mapped_segment_count}):"),
     ]
     for segment in candidate.segments:
         lines.append(
@@ -2382,7 +2519,9 @@ def _candidate_detail_lines(
 
     if include_reverse_mapping:
         reverse = profile.reverse_mapping
-        lines.append(f"  Reverse mapping check: {reverse.check_state.value}")
+        lines.append(
+            f"  Reverse mapping check: {_detail_state_text(reverse.check_state.value)}"
+        )
         if reverse.check_state is ReverseCheckState.RUN:
             assert reverse.relationship is not None
             assert reverse.original_source_covered_bases is not None
@@ -2392,30 +2531,32 @@ def _candidate_detail_lines(
             assert reverse.segments_with_reverse_projection is not None
             lines.extend(
                 (
-                    f"  Reverse relationship: {reverse.relationship.value}",
+                    f"  Reverse result: {_detail_reverse_relationship_text(reverse.relationship)}",
                     (
                         "  Reverse original-source coverage: "
                         f"{reverse.original_source_covered_bases}/"
                         f"{reverse.original_source_bases} "
-                        f"({reverse.original_source_coverage.value})"
+                        f"({_detail_state_text(reverse.original_source_coverage.value)})"
                     ),
                     (
                         "  Exact original aligned geometry reconstructed: "
                         f"{'yes' if reverse.exact_original_geometry_return else 'no'}"
                     ),
-                    f"  Reverse projections: {reverse.reverse_projection_count}",
+                    f"  Reverse mappings: {reverse.reverse_projection_count}",
                     (
-                        "  Forward target segments with reverse projection: "
+                        "  Forward target segments with reverse mapping: "
                         f"{reverse.segments_with_reverse_projection}/"
                         f"{len(reverse.queried_target_segments)}"
                     ),
                 )
             )
 
-    lines.append(f"  Evidence observations ({len(candidate.evidence)}):")
+    lines.append(f"  Evidence ({len(candidate.evidence)}):")
     for observation in candidate.evidence:
         value_lines = _evidence_value_lines(observation)
-        lines.append(f"    {observation.kind.value}: {value_lines[0]}")
+        lines.append(
+            f"    {_detail_evidence_kind_text(observation.kind.value)}: {value_lines[0]}"
+        )
         lines.extend(f"      {line}" for line in value_lines[1:])
         lines.append(f"      provenance: {observation.provenance.source_id}")
     return lines
@@ -2424,17 +2565,19 @@ def _candidate_detail_lines(
 def _query_context_detail_lines(report: UCSCAssessmentReport) -> list[str]:
     result = report.query_context_result
     if result is None:
-        return ["  Check state: NOT_RUN"]
+        return ["  Check state: not performed"]
     profile = report.result_profile.query_context
     lines = [
-        f"  Check state: {profile.check_state.value}",
+        f"  Check state: {_detail_state_text(profile.check_state.value)}",
         f"  Requested window: {profile.requested_window_bases} bases",
-        "  Evidence scope: forward chain only; net/reciprocal-best not re-run",
+        "  Evidence scope: forward liftOver chain only; net and reciprocal-best resources were not reassessed",
     ]
     if profile.check_state is QueryContextState.NOT_RUN:
         if profile.not_run_reason is None:
             raise ValueError("unperformed query context requires a not-run reason")
-        lines.append(f"  Not-run reason: {profile.not_run_reason.value}")
+        lines.append(
+            f"  Not-run reason: {_detail_state_text(profile.not_run_reason.value)}"
+        )
         return lines
 
     assert profile.tested_source_interval is not None
@@ -2449,25 +2592,31 @@ def _query_context_detail_lines(report: UCSCAssessmentReport) -> list[str]:
                 f"{format_display_interval(profile.tested_source_interval)}"
             ),
             f"  Actual tested width: {profile.actual_window_bases} bases",
-            f"  Context headline: {_headline_text(profile.headline)}",
-            f"  Context projection count: {profile.projection_count.value}",
-            f"  Context source coverage: {profile.source_coverage.value}",
+            f"  Flanking-interval headline: {_headline_text(profile.headline)}",
+            f"  Flanking-interval mapping count: {len(result.candidates)}",
+            f"  Flanking-interval source coverage: {_detail_state_text(profile.source_coverage.value)}",
             (
-                "  Maximum context candidate source coverage: "
+                "  Maximum flanking-interval source coverage for one mapping: "
                 f"{profile.maximum_candidate_covered_source_bases}/"
                 f"{profile.actual_window_bases}"
             ),
             (
-                "  Union context source coverage: "
+                "  Union flanking-interval source coverage: "
                 f"{profile.union_covered_source_bases}/{profile.actual_window_bases}"
             ),
             "  Findings: "
-            + (", ".join(finding.value for finding in profile.findings) or "none"),
+            + (
+                ", ".join(
+                    _detail_query_context_finding_text(finding)
+                    for finding in profile.findings
+                )
+                or "none"
+            ),
             (
-                "  Point and local context map together: "
+                "  Point and flanking interval map together: "
                 f"{'yes' if profile.point_and_local_context_map_together else 'no'}"
             ),
-            "  Context candidates:",
+            "  Flanking-interval mappings:",
         )
     )
     if not result.candidates:
@@ -2491,8 +2640,8 @@ def _reverse_mapping_detail_lines(
     result: CandidateReverseMappingResult,
 ) -> list[str]:
     lines = [
-        f"Candidate {result.forward_candidate_id}",
-        f"  Check state: {result.check_state.value}",
+        f"Mapping {result.forward_candidate_id}",
+        f"  Check state: {_detail_state_text(result.check_state.value)}",
     ]
     if result.check_state is not ReverseCheckState.RUN:
         return lines
@@ -2500,12 +2649,12 @@ def _reverse_mapping_detail_lines(
     assert result.relationship is not None
     lines.extend(
         (
-            f"  Relationship: {result.relationship.value}",
+            f"  Result: {_detail_reverse_relationship_text(result.relationship)}",
             (
                 "  Original aligned source coverage: "
                 f"{result.original_source_covered_bases}/"
                 f"{result.original_source_bases} "
-                f"({result.original_source_coverage.value})"
+                f"({_detail_state_text(result.original_source_coverage.value)})"
             ),
             (
                 "  Exact original aligned geometry reconstructed: "
@@ -2523,9 +2672,9 @@ def _reverse_mapping_detail_lines(
         )
         lines.append(f"    Expected original source: {expected_source}")
         if not segment_result.candidates:
-            lines.append("    Reverse projections: none")
+            lines.append("    Reverse mappings: none")
             continue
-        lines.append(f"    Reverse projections: {len(segment_result.candidates)}")
+        lines.append(f"    Reverse mappings: {len(segment_result.candidates)}")
         for candidate in segment_result.candidates:
             lines.append(
                 "      "
@@ -2538,7 +2687,7 @@ def _reverse_mapping_detail_lines(
 def _candidate_heading(candidate: NormalizedCandidate) -> str:
     chain_id = _chain_id_from_candidate(candidate)
     if chain_id is None:
-        return f"Candidate {candidate.candidate_id}"
+        return f"Mapping {candidate.candidate_id}"
     return f"Chain {chain_id}"
 
 
@@ -2551,7 +2700,7 @@ def _evidence_value_lines(observation: EvidenceObservation) -> list[str]:
     if isinstance(value, MappingCoverageSummary):
         lines = [
             (
-                f"{value.status.value}; {value.covered_source_bases}/"
+                f"{_detail_state_text(value.status.value)}; {value.covered_source_bases}/"
                 f"{value.source_bases} source bases covered"
             )
         ]
@@ -2597,10 +2746,9 @@ def _evidence_value_lines(observation: EvidenceObservation) -> list[str]:
     if isinstance(value, ReciprocalBestMembershipSummary):
         lines = [
             (
-                f"{value.status.value}; {value.covered_source_bases}/"
-                f"{value.candidate_source_bases} "
-                "candidate mapped source bases covered; "
-                f"completeness={value.resource_completeness.value}; "
+                f"{_detail_state_text(value.status.value)}; {value.covered_source_bases}/"
+                f"{value.candidate_source_bases} mapped source bases covered; "
+                f"resource completeness={_detail_state_text(value.resource_completeness.value)}; "
                 f"chains examined={value.chains_examined}"
             )
         ]

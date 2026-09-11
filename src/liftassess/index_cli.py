@@ -68,8 +68,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--evidence-tier",
         choices=("COMPARATIVE", "LIFTOVER-ONLY"),
         help=(
-            "prepare the chain for one exact publication class; useful for reverse "
-            "mapping when both COMPARATIVE and LIFTOVER_ONLY chains are cached"
+            "select which cached chain to index: COMPARATIVE uses the UCSC all-chain "
+            "alignment; LIFTOVER-ONLY uses the standard liftOver chain"
         ),
     )
     parser.add_argument(
@@ -95,7 +95,7 @@ def _run(
     stderr: TextIO,
 ) -> int:
     cache_root = args.cache_dir or default_user_cache_root()
-    _status("Checking/verifying local UCSC cache...", quiet=args.quiet, stderr=stderr)
+    _status("Checking local UCSC resources...", quiet=args.quiet, stderr=stderr)
     selected_tier: EvidenceAvailabilityTier
     if args.evidence_tier is not None:
         selected_tier = (
@@ -127,8 +127,8 @@ def _run(
         )
         if bundle is None:
             print(
-                "error: index preparation requires a complete verified cached UCSC "
-                f"bundle for {args.source_db}→{args.target_db} under {cache_root}; "
+                "error: index preparation requires complete verified cached UCSC "
+                f"resources for {args.source_db}→{args.target_db} under {cache_root}; "
                 "run assess-liftover for this assembly pair first to acquire/verify "
                 "resources",
                 file=stderr,
@@ -287,7 +287,12 @@ def _print_summary(
         + manifest.lookup_catalog_size_bytes
     )
     print(f"{state}: reusable chain index for {source_db}→{target_db}", file=stdout)
-    print(f"Publication class: {evidence_tier.value.replace('_', '-')}", file=stdout)
+    chain_type = (
+        "UCSC all-chain alignment"
+        if evidence_tier is EvidenceAvailabilityTier.COMPARATIVE
+        else "standard liftOver chain"
+    )
+    print(f"Indexed chain type: {chain_type}", file=stdout)
     print(f"Index: {index_path}", file=stdout)
     print(f"Source chain: {manifest.source_chain_sha256_identifier}", file=stdout)
     print(f"Records: {manifest.record_count}", file=stdout)

@@ -1105,44 +1105,45 @@ def _interpretation(
         is ComparativeRelationshipState.FAVORS_ONE_PLACEMENT
     ):
         return (
-            "More than one chain projection exists; available categorical comparative "
-            "evidence favors one placement, but candidate encounter order is not a "
-            "scientific rank and this result does not establish a biological locus."
+            "More than one liftOver mapping exists; available categorical comparative "
+            "evidence favors one placement, but mapping order is not a scientific rank "
+            "and this result does not establish a biological locus."
         )
     if headline is FactualHeadline.NO_CHAIN_PROJECTION:
         return (
-            "No consumed chain produced a projection for this source interval; "
-            "this result does not establish why."
+            "No consumed liftOver chain maps this source interval; this result does "
+            "not establish why."
         )
     if headline is FactualHeadline.ONE_COMPLETE_CHAIN_PROJECTION:
         return (
-            "One chain projects every requested source base; this describes coordinate "
-            "geometry, not biological identity or correctness."
+            "One liftOver chain maps every requested source base; this describes "
+            "coordinate geometry, not biological identity or correctness."
         )
     if headline is FactualHeadline.PARTIAL_SOURCE_COVERAGE:
         return (
-            "One chain projects only part of the requested source interval; uncovered "
-            "source bases remain explicit."
+            "One liftOver chain maps only part of the requested source interval; "
+            "uncovered source bases remain explicit."
         )
     if headline is FactualHeadline.PARTIAL_AND_FRAGMENTED_PROJECTION:
         return (
-            "One chain projects only part of the source interval and the mapped "
-            "portion is split across multiple exact segments."
+            "One liftOver chain maps only part of the source interval, and the mapped "
+            "portion spans multiple alignment blocks."
         )
     if headline is FactualHeadline.COMPLETE_BUT_DISCONTINUOUS_PROJECTION:
         return (
-            "Every requested source base projects, but target adjacency is not "
-            "preserved across the mapped segments."
+            "Every requested source base maps, but target adjacency is not preserved "
+            "across the mapped segments."
         )
     if headline is FactualHeadline.MULTIPLE_CHAIN_PROJECTIONS:
         return (
-            "More than one chain projection exists; candidate encounter order is not a "
-            "scientific rank and this result does not choose a biological locus."
+            "More than one liftOver mapping exists; mapping order is not a scientific "
+            "rank and this result does not choose a biological locus."
         )
     if headline is FactualHeadline.SOURCE_INTERVAL_SPLITS_ACROSS_MULTIPLE_PROJECTIONS:
         return (
-            "Different chain projections cover different portions of the source interval; "
-            "they are not equivalent to multiple complete alternative mappings."
+            "Different liftOver mappings cover different portions of the source "
+            "interval; they are not equivalent to multiple complete alternative "
+            "mappings."
         )
     assert_never(headline)
 

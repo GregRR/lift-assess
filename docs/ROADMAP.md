@@ -934,6 +934,26 @@ Planned scope:
   report the relationship supported by the selected source but must not automatically declare the
   projected locus to be the biologically correct ortholog.
 
+Candidate follow-ups from post-M23 outside feedback, with priority not yet assigned:
+
+- **Alignment extent/edge context:** consider whether the mapped locus lies near the edge of a chain or
+  alignment block, or whether the supporting alignment is unusually local for the query. Report only literal
+  alignment geometry; do not infer a biological or assembly-history mechanism from alignment extent alone.
+- **Repeat annotation context:** consider reporting overlap with a named, versioned repeat annotation
+  and its established repeat class/family when that would help explain a difficult mapping. Do not infer
+  repeat class from chain geometry or treat repeat overlap as proof of mapping error.
+- **Gene/transcript feature context:** consider optional annotation of exon, CDS, UTR, intron, or
+  intergenic context from an explicit versioned gene annotation. Coordinate overlap must not be promoted
+  into gene/transcript identity across assemblies.
+- **Assembly component/history context:** consider whether component/gap structure or documented assembly
+  changes help explain difficult mappings. AGP data can describe the components and gaps used to build an
+  assembly sequence; separate evidence is still required for alignment behavior, repeat annotation,
+  gene/transcript annotation, or historical interpretation.
+
+These items are retained because an outside domain user asked the questions directly. They are not
+commitments to `v0.3.0a1`; priority depends on recurring demand, explanatory value, evidence quality,
+and implementation cost.
+
 Implementation constraints:
 
 - reuse region-addressable/indexed access where resource scale would otherwise reintroduce repeated
