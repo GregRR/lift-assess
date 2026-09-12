@@ -8,6 +8,8 @@ biological correctness claim.
 
 import json
 import re
+from textwrap import wrap
+from urllib.parse import urlencode
 
 from .chain import chain_id_from_candidate_id
 from .comparative_inventory import FilteredAllChainInventoryState
@@ -19,6 +21,7 @@ from .models import (
     EvidenceValue,
     GenomicInterval,
     MappingCoverageSummary,
+    MappingOrientation,
     NetHierarchySummary,
     NormalizedCandidate,
     ProvenanceSource,
@@ -116,6 +119,31 @@ def render_invalid_source_coordinate(
             f"    Source coordinate checked against UCSC {database} sequence size",
         )
     )
+
+
+def _wrap_summary_paragraphs(lines: list[str], *, width: int = 88) -> list[str]:
+    """Wrap explanatory summary prose while preserving labels, indentation, and URLs."""
+
+    wrapped: list[str] = []
+    for line in lines:
+        if (
+            not line
+            or line.startswith("    ")
+            or line.endswith(":")
+            or "https://" in line
+        ):
+            wrapped.append(line)
+            continue
+        wrapped.extend(
+            wrap(
+                line,
+                width=width,
+                break_long_words=False,
+                break_on_hyphens=False,
+            )
+            or [line]
+        )
+    return wrapped
 
 
 def render_assessment_summary(report: UCSCAssessmentReport) -> str:
@@ -525,19 +553,24 @@ def _render_single_mapping_summary(report: UCSCAssessmentReport) -> str:
         duplication_lines = _single_segmental_duplication_lines(report)
         if duplication_lines:
             lines.extend(("", *duplication_lines))
+        why_lines, next_step_lines = _no_mapping_guidance_lines(report)
+        lines.extend(
+            ("", "= WHY THIS MATTERS =", "", *_wrap_summary_paragraphs(why_lines))
+        )
+        lines.extend(
+            ("", "= NEXT STEP =", "", *_wrap_summary_paragraphs(next_step_lines))
+        )
+        evidence_scope_lines = _single_evidence_scope_lines(report)
+        if evidence_scope_lines:
+            lines.extend(("", *evidence_scope_lines))
         lines.extend(
             (
                 "",
-                "= LIMITATIONS =",
-                "",
-                "No mapping in the consumed chain does not by itself establish that",
-                "homologous sequence is absent from the target assembly.",
-                "",
-                "= CHECKS PERFORMED =",
-                "",
+                "Details:",
+                "    Use --details for alignment evidence, resources, and provenance;",
+                "    use --json for machine-readable output.",
             )
         )
-        lines.extend(_summary_check_lines(report, include_forward=True))
         return "\n".join(lines)
 
     candidate = report.candidates[0]
@@ -548,8 +581,12 @@ def _render_single_mapping_summary(report: UCSCAssessmentReport) -> str:
             "",
             f"{target_label}:",
             f"    {_human_interval_text(report.target_db, candidate.target_interval)}",
-            "    Orientation:",
-            f"        {candidate.orientation.value.lower()}",
+        )
+    )
+    if candidate.orientation.value == "REVERSE":
+        lines.extend(("    Orientation:", "        reverse"))
+    lines.extend(
+        (
             "",
             "= KEY FINDINGS =",
             "",
@@ -557,9 +594,21 @@ def _render_single_mapping_summary(report: UCSCAssessmentReport) -> str:
     )
     lines.extend(_single_mapping_finding_lines(report, candidate_profile))
 
-    limitation_lines = _single_mapping_limitation_lines(report)
-    if limitation_lines:
-        lines.extend(("", "= LIMITATIONS =", "", *limitation_lines))
+    why_lines, next_step_lines = _single_mapping_guidance_lines(
+        report, candidate_profile
+    )
+    if why_lines:
+        lines.extend(
+            ("", "= WHY THIS MATTERS =", "", *_wrap_summary_paragraphs(why_lines))
+        )
+        if next_step_lines:
+            lines.extend(
+                ("", "= NEXT STEP =", "", *_wrap_summary_paragraphs(next_step_lines))
+            )
+    else:
+        limitation_lines = _single_mapping_limitation_lines(report)
+        if limitation_lines:
+            lines.extend(("", "= LIMITATIONS =", "", *limitation_lines))
 
     evidence_scope_lines = _single_evidence_scope_lines(report)
     if evidence_scope_lines:
@@ -573,9 +622,6 @@ def _render_single_mapping_summary(report: UCSCAssessmentReport) -> str:
             "    use --json for machine-readable output.",
         )
     )
-    follow_up_lines = _single_comparative_follow_up_lines(report, candidate_profile)
-    if follow_up_lines:
-        lines.extend(("", *follow_up_lines))
     return "\n".join(lines)
 
 
@@ -597,35 +643,263 @@ def _single_evidence_scope_lines(report: UCSCAssessmentReport) -> list[str]:
     if report.result_profile.scope.target_role is TargetRoleState.UNAVAILABLE:
         lines.extend(
             (
-                "Target sequence metadata:",
-                "    NCBI assembly sequence metadata unavailable.",
+                "Target sequence role:",
+                (
+                    "    Not assessed because version-matched NCBI assembly sequence "
+                    "metadata was unavailable."
+                ),
             )
         )
     return lines
 
 
-def _single_comparative_follow_up_lines(
+def _ucsc_browser_url(database: str, interval: GenomicInterval) -> str:
+    """Return a direct UCSC Genome Browser link for one assembly interval."""
+
+    position = f"{interval.sequence_name}:{interval.start + 1}-{interval.end}"
+    query = urlencode({"db": database, "position": position})
+    return f"https://genome.ucsc.edu/cgi-bin/hgTracks?{query}"
+
+
+def _no_mapping_guidance_lines(
     report: UCSCAssessmentReport,
-    profile: CandidateResultProfile,
-) -> list[str]:
-    reverse = profile.reverse_mapping
-    if report.evidence_tier is not EvidenceAvailabilityTier.LIFTOVER_ONLY:
-        return []
-    if reverse.check_state is not ReverseCheckState.RUN:
-        return []
-    if reverse.relationship not in {
-        ReverseRelationshipState.ELSEWHERE_ONLY,
-        ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE,
-        ReverseRelationshipState.NO_PROJECTION,
-    }:
+) -> tuple[list[str], list[str]]:
+    """Explain a valid source interval with no mapping in the consumed chain."""
+
+    why = [
+        (
+            "No liftOver mapping means the consumed chain does not provide a coordinate "
+            "conversion for this source interval; it does not establish biological "
+            "deletion or absence of homologous sequence from the target assembly."
+        )
+    ]
+    next_steps = [
+        "Review the source locus in the UCSC Genome Browser:",
+        f"    {_ucsc_browser_url(report.source_db, report.source_interval)}",
+    ]
+    if report.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
+        next_steps.append(
+            "If comparative resources are available, rerun with --evidence-tier "
+            "COMPARATIVE to look for additional UCSC chain alignments."
+        )
+    next_steps.append(
+        "If a named variant, gene, or transcript is the real target of the conversion, "
+        "check that feature directly in a target-assembly-specific source."
+    )
+    return why, next_steps
+
+
+def _single_browser_review_lines(report: UCSCAssessmentReport) -> list[str]:
+    """Render direct Browser navigation for an unusual single-mapping result."""
+
+    if len(report.candidates) != 1:
         return []
     return [
-        "Additional alignment context:",
+        "Review the source and mapped loci in the UCSC Genome Browser:",
+        f"    Source: {_ucsc_browser_url(report.source_db, report.source_interval)}",
         (
-            "    Use --evidence-tier COMPARATIVE for comparison with UCSC all-chain "
-            "alignments, when available."
+            "    Mapped: "
+            + _ucsc_browser_url(report.target_db, report.candidates[0].target_interval)
         ),
     ]
+
+
+def _single_mapping_guidance_lines(
+    report: UCSCAssessmentReport,
+    profile: CandidateResultProfile,
+) -> tuple[list[str], list[str]]:
+    """Explain why unusual single-mapping observations matter and what to do next."""
+
+    why: list[str] = []
+    next_steps: list[str] = []
+    browser_review = False
+
+    if profile.covered_source_bases < profile.source_bases:
+        why.append(
+            "Not all requested source bases map, so a feature spanning the unmapped "
+            "bases cannot be transferred as one complete interval."
+        )
+        next_steps.append(
+            "Use --details to inspect the exact alignment blocks, gaps, and unmapped "
+            "source intervals before transferring a larger feature."
+        )
+        browser_review = True
+
+    if profile.geometric_segment_count > 1 or profile.target_discontinuous:
+        why.append(
+            "The mapped target span is not one continuous alignment; treating the "
+            "bounding span as continuous would include unaligned target sequence."
+        )
+        if not any("alignment blocks" in line for line in next_steps):
+            next_steps.append(
+                "Use --details to inspect the exact alignment blocks and gaps before "
+                "using the target span as one interval."
+            )
+        browser_review = True
+
+    if profile.orientation is MappingOrientation.REVERSE:
+        why.append(
+            "Reverse orientation means the source and target align on opposite "
+            "strands; that strand relationship is not by itself a mapping error."
+        )
+        next_steps.append(
+            "Account for strand when interpreting strand-sensitive features, alleles, "
+            "or transcript structure at the mapped locus."
+        )
+        browser_review = True
+
+    reverse = profile.reverse_mapping
+    if reverse.check_state is ReverseCheckState.UNAVAILABLE:
+        why.append(
+            "Reverse liftOver was not available, so this run does not establish "
+            "whether the mapping is reciprocal."
+        )
+        next_steps.append(
+            "Prepare the matching reverse liftOver chain index/resources and rerun "
+            "if reciprocity matters for the intended use."
+        )
+    elif reverse.check_state is ReverseCheckState.RUN:
+        if (
+            reverse.relationship is ReverseRelationshipState.ORIGINAL_SOURCE_ONLY
+            and not reverse.exact_original_geometry_return
+        ):
+            why.append(
+                "Reverse liftOver returns only to the source locus but does not "
+                "reconstruct the complete original aligned geometry."
+            )
+            next_steps.append(
+                "Use --details to inspect the recovered source coverage before "
+                "treating the mapping as fully reciprocal."
+            )
+            browser_review = True
+        elif reverse.relationship is ReverseRelationshipState.ELSEWHERE_ONLY:
+            why.append(
+                "The forward and reverse liftOver mappings are not reciprocal. "
+                "liftOver alone therefore does not establish a unique relationship "
+                "between the source and mapped loci."
+            )
+            browser_review = True
+        elif (
+            reverse.relationship
+            is ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE
+        ):
+            why.append(
+                "Reverse liftOver returns to the source locus and to other loci, so "
+                "the reverse chain does not support a unique relationship."
+            )
+            browser_review = True
+        elif reverse.relationship is ReverseRelationshipState.NO_PROJECTION:
+            why.append(
+                "The mapped target does not map back through the reverse chain, so "
+                "reciprocity is not supported by this check."
+            )
+            browser_review = True
+
+    context_profile = report.result_profile.query_context
+    context_findings = set(context_profile.findings)
+    context_disagrees = bool(
+        context_findings
+        & {
+            QueryContextFinding.REVEALS_PARTIAL_COVERAGE,
+            QueryContextFinding.REVEALS_FRAGMENTATION,
+            QueryContextFinding.REVEALS_TARGET_DISCONTINUITY,
+            QueryContextFinding.CHANGES_WITH_QUERY_SCALE,
+        }
+    )
+    if context_disagrees:
+        why.append(
+            "The point and its flanking interval do not show the same alignment "
+            "behavior, so the local sequence context is more complex than the point "
+            "alone suggests."
+        )
+        next_steps.append(
+            "Use --details to inspect the flanking interval geometry; request a wider "
+            "--context-bases window only when a larger biological context is justified."
+        )
+        browser_review = True
+
+    duplication = report.segmental_duplication_context_result
+    if duplication is not None and (
+        duplication.source_overlaps or duplication.target_overlaps
+    ):
+        why.append(
+            "Segmental-duplication overlap is relevant duplicated-sequence context, "
+            "but it does not by itself establish paralogy, mapping error, "
+            "non-uniqueness, or the cause of this mapping."
+        )
+        browser_review = True
+
+    target_roles = report.result_profile.target_sequence_roles
+    if any(item.context is None for item in target_roles):
+        why.append(
+            "The version-matched assembly metadata did not identify the target "
+            "sequence role, so primary/alternate/unplaced status is unresolved."
+        )
+        next_steps.append(
+            "Check the target assembly sequence metadata before applying a workflow "
+            "that filters by primary, alternate, or unplaced sequence role."
+        )
+        browser_review = True
+    elif any(
+        item.context is not None
+        and (
+            item.context.provider_role != "assembled-molecule"
+            or item.context.assembly_unit != "Primary Assembly"
+        )
+        for item in target_roles
+    ):
+        why.append(
+            "The mapped sequence is not an assembled molecule on the Primary Assembly in "
+            "the version-matched assembly metadata, which can matter for downstream "
+            "tools that restrict analyses to primary-assembly sequences."
+        )
+        next_steps.append(
+            "Confirm that the downstream workflow accepts this target sequence role "
+            "before filtering or discarding the mapping."
+        )
+        browser_review = True
+
+    comparative = report.result_profile.comparative_relationship
+    if (
+        comparative.state is not ComparativeRelationshipState.NOT_ASSESSED
+        and comparative.inventory_state
+        is FilteredAllChainInventoryState.ALL_CHAIN_REVEALS_ADDITIONAL_PLACEMENTS
+    ):
+        why.append(
+            "The all-chain alignments contain additional alignment relationships that "
+            "are not retained by the standard liftOver chain."
+        )
+        next_steps.append(
+            "Use --details to inspect the additional all-chain mappings and their "
+            "coverage before treating the standard liftOver result as unique."
+        )
+
+    if not why:
+        return [], []
+
+    if browser_review:
+        next_steps[:0] = _single_browser_review_lines(report)
+
+    if (
+        report.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY
+        and reverse.check_state is ReverseCheckState.RUN
+        and reverse.relationship
+        in {
+            ReverseRelationshipState.ELSEWHERE_ONLY,
+            ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE,
+            ReverseRelationshipState.NO_PROJECTION,
+        }
+    ):
+        next_steps.append(
+            "If comparative resources are available, rerun with --evidence-tier "
+            "COMPARATIVE to look for additional UCSC chain alignments."
+        )
+
+    next_steps.append(
+        "If this coordinate will stand in for a named variant, gene, or transcript, "
+        "verify that identity separately in a target-assembly-specific source."
+    )
+    return why, next_steps
 
 
 def _single_mapping_target_label(

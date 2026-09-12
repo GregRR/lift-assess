@@ -481,7 +481,8 @@ def test_cli_runs_end_to_end_with_interactive_acknowledgements(
     assert exit_code == 0
     assert "Source:\n    canFam3 chr1:101-120" in stdout.getvalue()
     assert "= KEY FINDINGS =" in stdout.getvalue()
-    assert "= LIMITATIONS =" in stdout.getvalue()
+    assert "= WHY THIS MATTERS =" in stdout.getvalue()
+    assert "= NEXT STEP =" in stdout.getvalue()
     assert "= CHECKS PERFORMED =" not in stdout.getvalue()
     assert "UCSC terms to review" in stderr.getvalue()
     assert "Transfer plan: standard liftOver chain (1 resource)" in stderr.getvalue()
@@ -1079,7 +1080,8 @@ def test_main_runs_success_path_through_console_boundary(
     assert exit_code == 0
     assert "* ONE LIFTOVER MAPPING *" in captured.out
     assert "= KEY FINDINGS =" in captured.out
-    assert "= LIMITATIONS =" in captured.out
+    assert "= WHY THIS MATTERS =" in captured.out
+    assert "= NEXT STEP =" in captured.out
     assert "= CHECKS PERFORMED =" not in captured.out
     assert "UCSC terms to review" in captured.err
 

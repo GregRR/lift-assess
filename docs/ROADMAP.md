@@ -898,6 +898,11 @@ Release requirements:
   bioinformatics/genomics and UCSC liftOver terminology, preserve the M23 facts-first evidence
   boundaries, and do not expose obsolete aggregate-verdict language or unnecessary internal
   implementation vocabulary in normal user-facing text;
+- a meaning/actionability audit confirms that materially unusual default results explain why the
+  highlighted observation matters, state only the bounded implication supported by the evidence, and
+  provide a useful next inspection/verification step without asserting an unobserved biological cause;
+- basic UCSC Genome Browser source/mapped-locus links may be included in unusual single-locus output as
+  navigation aids, with the explicit design boundary that links add no scientific evidence;
 - release artifacts are reviewed before tag/publication, and the published package is smoke-tested
   through the documented external install path.
 
@@ -976,8 +981,14 @@ scientific interpretation.
 
 Planned scope:
 
-- **Genome Browser links:** emit UCSC Genome Browser/locus links when the assembly and coordinates
-  are known. Links remain navigation aids, not additional evidence.
+- **Genome Browser/navigation expansion:** basic source/mapped-locus links for unusual single-locus
+  results were brought forward into Milestone 24. Extend that foundation with richer navigation for
+  multiple mappings, context tracks, and workflow-specific views. Links remain navigation aids, not
+  additional evidence.
+- **Interpretation documentation links:** once stable user documentation exists, add concise terminal
+  links to longer explanations of observations such as non-reciprocal liftOver, fragmented mappings,
+  duplicated-sequence context, and target sequence roles. Documentation may explain plausible causes
+  and follow-up strategies but must distinguish them from causes established in the current result.
 - **BED12/custom-track export:** export one candidate's mapped blocks when they can be represented
   legally on one target sequence. Never collapse multiple candidates or multiple target sequences
   into one BED12 feature, and never replace exact source-coverage/uncovered-source reporting with a

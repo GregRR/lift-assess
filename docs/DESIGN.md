@@ -755,6 +755,20 @@ projections, alternate/unplaced targets, reverse disagreement, point/101-bp disa
 filtered/all-chain disagreement, comparative conflict/non-separation, batch collision/overlap, or
 typed difficult-region context.
 
+For materially unusual results, progressive disclosure must add **meaning and actionability**, not
+merely more metrics. The default summary should answer, as applicable: why the observation is being
+shown, what bounded implication the current evidence supports, and what the user can inspect or
+verify next. Prefer a smaller set of explained observations over a larger inventory of unexplained
+metrics. Action guidance must remain one rung below the evidence: it may recommend inspecting an
+alignment, assembly context, or target-specific annotation, but it must not turn a plausible
+mechanism into an asserted cause.
+
+Direct UCSC Genome Browser links may accompany unusual results when source/target coordinates are
+known. These links are navigation aids only; they are not additional evidence or identity checks.
+Longer educational material such as "why can this happen?" pages may be linked later once stable
+liftAssess user documentation exists, rather than embedding that explanation in every terminal
+result.
+
 The renderer does **not** print six invariant `NOT TESTED` lines on every clean result. The six
 common-use lenses remain represented in the profile/details so that absent domains cannot be
 mistaken for assessed evidence.
@@ -942,7 +956,9 @@ Completed 2026-09-06 for the `v0.2.0a1` release candidate. Five pre-registered r
 both uncomplicated and difficult mapping results, including automatic assessment of a 101-bp flanking
 interval and UCSC segmental-duplication context. Outside review of the final complex outputs found no
 unresolved scientific overclaim; its actionable presentation findings were incorporated and the affected
-cases were rerun.
+cases were rerun. Additional feedback received during Milestone 24 did not retroactively reopen that
+gate, but it identified a further release-facing usability need: unusual observations should explain why
+they matter to a biologist and what can be inspected or verified next, with navigation links where useful.
 Because the held-out cases influenced presentation during the gate, they are not described as untouched
 validation. This gate evaluates understandability and evidence boundaries, not numeric confidence.
 
@@ -1002,8 +1018,10 @@ implementation/evidence questions or deliberately deferred domains:
   full traversal when no usable derived index is present.
 - Extend the accepted initial comparative classifier only with explicit deterministic semantics and
   tests. Do not introduce hidden weighting of `ali`, `qDup`, chain score, or related observations.
-- Browser-link UX and optional BED12/export remain optional navigation/visualization work within the
-  constraints in §§4, 6, and 9; the required BED/simple-table batch CLI and schema surface is implemented.
+- Basic UCSC Genome Browser links for unusual single-locus results were brought forward into the
+  `v0.2.0a1` release candidate after post-M23 outside-user feedback asked for a clearer path from an
+  observation to something inspectable. Richer navigation, reusable explanatory documentation links,
+  and optional BED12/export remain later usability work within the constraints in §§4, 6, and 9.
 - The initial UCSC segmental-duplication pilot has been exercised against its motivating A03/A04 real
   cases. Treat those results as same-corpus implementation/design evidence, not held-out validation.
   Evaluate GIAB stratifications and relevant `excluderanges` categories separately before promoting them

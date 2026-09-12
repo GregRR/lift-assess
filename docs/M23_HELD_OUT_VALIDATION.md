@@ -302,6 +302,15 @@ priorities.
   context, repeat annotation, gene/transcript feature context, and assembly component/history context are
   retained as priority-to-be-determined candidates. One outside-user request establishes genuine demand
   to retain the ideas, not an automatic priority or release commitment.
+- **Biologist-facing meaning/actionability:** later Milestone 24 feedback made the usability gap more
+  explicit: reporting that reverse liftOver does not return to the source locus is not enough if the user
+  still has to ask "what does that mean, why are you showing me this, and what can I do with it?" The
+  release-candidate renderer should therefore favor fewer explained observations over a larger metric
+  inventory and add bounded `WHY THIS MATTERS` / `NEXT STEP` guidance for materially unusual results.
+- **Navigation:** the same feedback asked for links to additional information. Basic source/mapped-locus
+  UCSC Genome Browser links are appropriate to bring into Milestone 24 because they are low-risk navigation
+  aids, not new evidence. Longer "learn more" explanations remain future documentation work until a
+  stable public user-doc site exists.
 
 ## Blocking failure criteria
 

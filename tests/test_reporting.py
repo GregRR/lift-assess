@@ -435,8 +435,8 @@ def test_clean_default_summary_is_compact_facts_first_and_verdict_free() -> None
         "",
         "Mapped interval:",
         "    targetAsm chrA:1001-1100",
-        "    Orientation:",
-        "        same",
+        "",
+        "= KEY FINDINGS =",
         "",
     ]
     assert "= KEY FINDINGS =" in summary
@@ -448,6 +448,35 @@ def test_clean_default_summary_is_compact_facts_first_and_verdict_free() -> None
     assert "WELL SUPPORTED" not in summary
     assert "Preferred candidate" not in summary
     assert "LIFTOVER-ONLY" not in summary
+    assert "Orientation:" not in summary
+    assert "= WHY THIS MATTERS =" not in summary
+    assert "= NEXT STEP =" not in summary
+
+
+def test_no_mapping_summary_explains_scope_and_next_step() -> None:
+    summary = render_assessment_summary(_report(()))
+
+    assert summary.startswith("* NO LIFTOVER MAPPING *")
+    assert "= WHY THIS MATTERS =" in summary
+    assert "does not establish biological deletion" in summary.replace("\n", " ")
+    assert "= NEXT STEP =" in summary
+    assert "Source locus in the UCSC Genome Browser" not in summary
+    assert "Review the source locus in the UCSC Genome Browser:" in summary
+    assert "https://genome.ucsc.edu/cgi-bin/hgTracks?db=sourceAsm" in summary
+    assert "--evidence-tier COMPARATIVE" in summary
+
+
+def test_reverse_orientation_summary_explains_strand_actionability() -> None:
+    summary = render_assessment_summary(
+        _report((_candidate(43, orientation=MappingOrientation.REVERSE),))
+    )
+
+    assert "Orientation:\n        reverse" in summary
+    assert "= WHY THIS MATTERS =" in summary
+    assert "opposite strands" in summary.replace("\n", " ")
+    assert "not by itself a mapping error" in summary.replace("\n", " ")
+    assert "= NEXT STEP =" in summary
+    assert "Account for strand" in summary
 
 
 def test_interchromosomal_summary_surfaces_reverse_liftover_elsewhere() -> None:
@@ -638,8 +667,16 @@ def test_interchromosomal_summary_surfaces_reverse_liftover_elsewhere() -> None:
     assert "hg38 chr10:10659-10759 → hg19 chr18:10855-10955" in summary
     assert "101/101 bp map through the same liftOver chain." in summary
     assert "original source coordinate" not in summary
+    assert "= WHY THIS MATTERS =" in summary
+    assert "does not establish a unique relationship" in summary.replace("\n", " ")
+    assert "= NEXT STEP =" in summary
+    assert "https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38" in summary
+    assert "https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19" in summary
     assert "--evidence-tier COMPARATIVE" in summary
-    assert "for comparison with UCSC all-chain alignments, when available." in summary
+    assert "look for additional UCSC chain alignments" in summary.replace("\n", " ")
+    assert "Target sequence role:" in summary
+    assert "Not assessed because version-matched NCBI assembly sequence" in summary
+    assert "Orientation:" not in summary
 
 
 def test_partial_fragmented_summary_expands_with_exact_coverage_and_gaps() -> None:
@@ -663,6 +700,15 @@ def test_partial_fragmented_summary_expands_with_exact_coverage_and_gaps() -> No
     assert "sourceAsm chr1:151-160" in summary
     assert "sourceAsm chr1:191-200" in summary
     assert "targetAsm chrA:1051-1060" in summary
+    assert "= WHY THIS MATTERS =" in summary
+    assert (
+        "feature spanning the unmapped bases cannot be transferred"
+        in summary.replace("\n", " ")
+    )
+    assert "target span is not one continuous alignment" in summary
+    assert "= NEXT STEP =" in summary
+    assert "Use --details to inspect the exact alignment blocks" in summary
+    assert "https://genome.ucsc.edu/cgi-bin/hgTracks?db=sourceAsm" in summary
 
 
 def test_multiple_mapping_summary_leads_with_coverage_before_count() -> None:
@@ -1257,8 +1303,9 @@ def test_reporting_marks_unavailable_target_role_without_name_inference() -> Non
     summary = render_assessment_summary(report)
     payload = json.loads(reporting.render_assessment_json(report))
 
-    assert "Target sequence metadata:" in summary
-    assert "NCBI assembly sequence metadata unavailable." in summary
+    assert "Target sequence role:" in summary
+    assert "Not assessed because version-matched NCBI assembly sequence" in summary
+    assert "metadata was unavailable." in summary
     assert payload["result_profile"]["target_role"]["state"] == "UNAVAILABLE"
     assert payload["target_role_metadata"]["assembly_accession"] is None
     assert payload["target_role_metadata"]["resources"] == []
@@ -1287,6 +1334,12 @@ def test_reporting_preserves_unusual_provider_target_role_and_provenance() -> No
 
     assert "Target assembly sequence:" in summary
     assert "Sequence role: unplaced-scaffold" in summary.replace("\n", " ")
+    assert "= WHY THIS MATTERS =" in summary
+    assert "not an assembled molecule on the Primary Assembly" in summary
+    assert (
+        "Confirm that the downstream workflow accepts this target sequence role"
+        in summary
+    )
     assert profile.scope.target_role is TargetRoleState.ASSESSED
     role = payload["result_profile"]["target_role"]["sequences"][0]
     assert role["provider_role"] == "unplaced-scaffold"
@@ -1409,7 +1462,12 @@ def test_segmental_duplication_context_is_typed_and_does_not_change_mapping_resu
     assert "Both the source and mapped coordinates overlap" in summary
     assert "Segmental Duplications record" in summary
     assert "pairs the chr1 source region with sourceAsm chrA" in summary
-    assert "does not by itself establish paralogy" in summary
+    assert (
+        "Segmental-duplication overlap is relevant duplicated-sequence context"
+        in summary
+    )
+    assert "paralogy, mapping error" in summary
+    assert "= NEXT STEP =" in summary
 
     details = render_assessment_details(enriched)
     assert "UCSC Segmental Duplications context" in details
