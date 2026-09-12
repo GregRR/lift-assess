@@ -146,6 +146,25 @@ def _wrap_summary_paragraphs(lines: list[str], *, width: int = 88) -> list[str]:
     return wrapped
 
 
+def _local_why_lines(paragraphs: list[str]) -> list[str]:
+    """Render finding-specific interpretation immediately below that finding."""
+
+    if not paragraphs:
+        return []
+    lines = ["", "    Why this matters:"]
+    for paragraph in paragraphs:
+        lines.extend(
+            "        " + line
+            for line in wrap(
+                paragraph,
+                width=80,
+                break_long_words=False,
+                break_on_hyphens=False,
+            )
+        )
+    return lines
+
+
 def render_assessment_summary(report: UCSCAssessmentReport) -> str:
     """Render the progressive-disclosure default factual result summary."""
 
@@ -191,12 +210,15 @@ def _render_multiple_mapping_summary(report: UCSCAssessmentReport) -> str:
     if target_metadata_lines:
         lines.extend(("", *target_metadata_lines))
 
-    limitation_lines = _multiple_mapping_limitation_lines(report)
-    if limitation_lines:
-        lines.extend(("", "= LIMITATIONS =", "", *limitation_lines))
-
-    lines.extend(("", "= CHECKS PERFORMED =", ""))
-    lines.extend(_summary_check_lines(report, include_forward=True))
+    why_lines, next_step_lines = _multiple_mapping_guidance_lines(report)
+    if why_lines:
+        lines.extend(
+            ("", "= WHY THIS MATTERS =", "", *_wrap_summary_paragraphs(why_lines))
+        )
+    if next_step_lines:
+        lines.extend(
+            ("", "= NEXT STEP =", "", *_wrap_summary_paragraphs(next_step_lines))
+        )
     lines.extend(
         (
             "",
@@ -495,35 +517,146 @@ def _multiple_segmental_duplication_lines(
     return lines
 
 
-def _multiple_mapping_limitation_lines(
+def _multiple_mapping_guidance_lines(
     report: UCSCAssessmentReport,
-) -> list[str]:
-    comparative = report.result_profile.comparative_relationship
-    if comparative.state is ComparativeRelationshipState.FAVORS_ONE_PLACEMENT:
-        lines = [
-            "The UCSC comparative evidence distinguishes one mapping within the",
-            "assessed alignment resources, but it does not establish that mapping as",
-            "biologically correct or show that it represents the same variant, gene,",
-            "transcript, or other biological feature.",
-        ]
-    else:
-        lines = [
-            "Multiple liftOver mappings do not by themselves establish which mapping,",
-            "if any, represents the same biological feature.",
-        ]
+) -> tuple[list[str], list[str]]:
+    """Explain why multiple mappings matter and what a user can do next."""
 
-    if comparative.state is not ComparativeRelationshipState.NOT_ASSESSED:
-        lines.extend(
-            (
-                "",
+    profile = report.result_profile
+    comparative = profile.comparative_relationship
+    why: list[str] = []
+    next_steps: list[str] = []
+
+    complete_count = sum(
+        candidate.covered_source_bases == candidate.source_bases
+        for candidate in profile.candidate_profiles
+    )
+    if complete_count > 1:
+        why.append(
+            "More than one complete coordinate mapping exists, so liftOver alone does "
+            "not identify which mapped locus, if any, represents the same biological "
+            "feature."
+        )
+    elif (
+        profile.union_covered_source_bases
+        > profile.maximum_candidate_covered_source_bases
+    ):
+        why.append(
+            "Different mappings cover different parts of the source interval. Their "
+            "combined coverage is not one continuous mapping and should not be joined "
+            "into a single target interval."
+        )
+    else:
+        why.append(
+            "Multiple liftOver mappings exist, so mapping order does not identify a "
+            "preferred biological locus."
+        )
+
+    if comparative.state is ComparativeRelationshipState.FAVORS_ONE_PLACEMENT:
+        why.append(
+            "Within the assessed UCSC alignment resources, one mapping is distinguished "
+            "because it is retained by the standard liftOver chain and also has "
+            "top-level net and full reciprocal-best support."
+        )
+        why.append(
+            "Those UCSC resources share alignment lineage and are not independent "
+            "confirmations; the distinction does not establish biological correctness."
+        )
+    elif comparative.state is ComparativeRelationshipState.DOES_NOT_SEPARATE_PLACEMENTS:
+        why.append(
+            "The assessed UCSC alignment relationships do not distinguish among the "
+            "complete mappings, so they do not provide a basis for choosing one by "
+            "mapping order."
+        )
+        why.append(
+            "The standard liftOver chain, net, and reciprocal-best chain are related "
+            "UCSC alignment evidence rather than independent confirmations."
+        )
+    elif comparative.state is ComparativeRelationshipState.MIXED_CONFLICTING:
+        why.append(
+            "The assessed UCSC alignment relationships distinguish different complete "
+            "mappings, so these resources do not provide one consistent mapping choice."
+        )
+        why.append(
+            "The standard liftOver chain, net, and reciprocal-best chain are related "
+            "UCSC alignment evidence rather than independent confirmations."
+        )
+    elif comparative.state is ComparativeRelationshipState.NO_COMPETING_FULL_PLACEMENTS:
+        why.append(
+            "The additional mappings are not competing complete mappings, so source "
+            "coverage remains the important distinction among them."
+        )
+
+    reverse_state = profile.scope.reverse_result
+    if reverse_state is ReverseCheckState.UNAVAILABLE:
+        why.append(
+            "Reverse liftOver was unavailable, so reciprocity was not assessed for "
+            "these mappings."
+        )
+
+    duplication = report.segmental_duplication_context_result
+    if duplication is not None and (
+        duplication.source_overlaps or duplication.target_overlaps
+    ):
+        why.append(
+            "Segmental-duplication overlap is relevant duplicated-sequence context, "
+            "but it does not by itself identify the biologically corresponding mapping."
+        )
+
+    next_steps.append(
+        "Use --details to inspect every mapping, its source coverage, alignment blocks, "
+        "and the comparative evidence attached to it."
+    )
+
+    if comparative.state is ComparativeRelationshipState.FAVORS_ONE_PLACEMENT:
+        favored_id = comparative.favored_candidate_id
+        if favored_id is not None:
+            favored = _report_candidate_for_id(report, favored_id)
+            next_steps.extend(
                 (
-                    "The standard liftOver chain, net, and reciprocal-best chain "
-                    "are related"
-                ),
-                "UCSC alignment evidence and are not independent confirmations.",
+                    (
+                        "Review the source and distinguished mapping in the "
+                        "UCSC Genome Browser:"
+                    ),
+                    (
+                        "    Source: "
+                        + _ucsc_browser_url(report.source_db, report.source_interval)
+                    ),
+                    (
+                        "    Distinguished mapping: "
+                        + _ucsc_browser_url(report.target_db, favored.target_interval)
+                    ),
+                )
+            )
+    elif len(report.candidates) <= _DEFAULT_INLINE_PROJECTION_LIMIT:
+        next_steps.extend(
+            (
+                "Review the source and mapped loci in the UCSC Genome Browser:",
+                f"    Source: {_ucsc_browser_url(report.source_db, report.source_interval)}",
             )
         )
-    return lines
+        next_steps.extend(
+            f"    Mapping {index}: "
+            + _ucsc_browser_url(report.target_db, candidate.target_interval)
+            for index, candidate in enumerate(report.candidates, start=1)
+        )
+
+    if (
+        comparative.state is ComparativeRelationshipState.NOT_ASSESSED
+        and report.evidence_tier is EvidenceAvailabilityTier.LIFTOVER_ONLY
+    ):
+        next_steps.append(
+            "If comparative resources are available, rerun with --evidence-tier "
+            "COMPARATIVE to compare the standard liftOver chain with broader UCSC "
+            "alignment relationships."
+        )
+
+    next_steps.append(
+        "If the choice of locus affects a named variant, gene, transcript, or other "
+        "biological feature, use target-assembly-specific feature evidence before "
+        "selecting a mapping."
+    )
+    return why, next_steps
 
 
 def _render_single_mapping_summary(report: UCSCAssessmentReport) -> str:
@@ -601,11 +734,11 @@ def _render_single_mapping_summary(report: UCSCAssessmentReport) -> str:
         lines.extend(
             ("", "= WHY THIS MATTERS =", "", *_wrap_summary_paragraphs(why_lines))
         )
-        if next_step_lines:
-            lines.extend(
-                ("", "= NEXT STEP =", "", *_wrap_summary_paragraphs(next_step_lines))
-            )
-    else:
+    if next_step_lines:
+        lines.extend(
+            ("", "= NEXT STEP =", "", *_wrap_summary_paragraphs(next_step_lines))
+        )
+    if not why_lines and not next_step_lines:
         limitation_lines = _single_mapping_limitation_lines(report)
         if limitation_lines:
             lines.extend(("", "= LIMITATIONS =", "", *limitation_lines))
@@ -713,6 +846,7 @@ def _single_mapping_guidance_lines(
     why: list[str] = []
     next_steps: list[str] = []
     browser_review = False
+    local_why_present = False
 
     if profile.covered_source_bases < profile.source_bases:
         why.append(
@@ -772,27 +906,12 @@ def _single_mapping_guidance_lines(
                 "treating the mapping as fully reciprocal."
             )
             browser_review = True
-        elif reverse.relationship is ReverseRelationshipState.ELSEWHERE_ONLY:
-            why.append(
-                "The forward and reverse liftOver mappings are not reciprocal. "
-                "liftOver alone therefore does not establish a unique relationship "
-                "between the source and mapped loci."
-            )
-            browser_review = True
-        elif (
-            reverse.relationship
-            is ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE
-        ):
-            why.append(
-                "Reverse liftOver returns to the source locus and to other loci, so "
-                "the reverse chain does not support a unique relationship."
-            )
-            browser_review = True
-        elif reverse.relationship is ReverseRelationshipState.NO_PROJECTION:
-            why.append(
-                "The mapped target does not map back through the reverse chain, so "
-                "reciprocity is not supported by this check."
-            )
+        elif reverse.relationship in {
+            ReverseRelationshipState.ELSEWHERE_ONLY,
+            ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE,
+            ReverseRelationshipState.NO_PROJECTION,
+        }:
+            local_why_present = True
             browser_review = True
 
     context_profile = report.result_profile.query_context
@@ -822,11 +941,7 @@ def _single_mapping_guidance_lines(
     if duplication is not None and (
         duplication.source_overlaps or duplication.target_overlaps
     ):
-        why.append(
-            "Segmental-duplication overlap is relevant duplicated-sequence context, "
-            "but it does not by itself establish paralogy, mapping error, "
-            "non-uniqueness, or the cause of this mapping."
-        )
+        local_why_present = True
         browser_review = True
 
     target_roles = report.result_profile.target_sequence_roles
@@ -874,7 +989,7 @@ def _single_mapping_guidance_lines(
             "coverage before treating the standard liftOver result as unique."
         )
 
-    if not why:
+    if not why and not local_why_present:
         return [], []
 
     if browser_review:
@@ -1024,13 +1139,30 @@ def _single_reverse_liftover_lines(
         ]
 
     if reverse.relationship is ReverseRelationshipState.NO_PROJECTION:
-        return [
+        lines = [
             "Reverse liftOver:",
             (
                 f"    {query_text} has no mapping in the "
                 f"{report.target_db}→{report.source_db} chain."
             ),
         ]
+        lines.extend(
+            _local_why_lines(
+                [
+                    (
+                        "Because the mapped target does not map back through the available "
+                        "reverse chain, this check does not demonstrate a one-to-one "
+                        "reciprocal coordinate relationship."
+                    ),
+                    (
+                        "The forward mapping is not necessarily wrong, but coordinate "
+                        "conversion alone is not sufficient evidence of biological feature "
+                        "identity in this case."
+                    ),
+                ]
+            )
+        )
+        return lines
 
     mapped_back = _reverse_target_intervals(report)
     lines = ["Reverse liftOver:"]
@@ -1060,6 +1192,44 @@ def _single_reverse_liftover_lines(
                 "        " + _human_interval_text(report.source_db, interval)
                 for interval in mapped_back[:_DEFAULT_INLINE_PROJECTION_LIMIT]
             )
+
+    if reverse.relationship is ReverseRelationshipState.ELSEWHERE_ONLY:
+        lines.extend(
+            _local_why_lines(
+                [
+                    (
+                        "The mapped coordinate does not return to the original locus when "
+                        "lifted back. The source and mapped loci therefore do not have a "
+                        "one-to-one reciprocal correspondence under the available forward "
+                        "and reverse chain mappings."
+                    ),
+                    (
+                        "The forward mapping is not necessarily wrong, but it should not by "
+                        "itself be treated as sufficient evidence that the target coordinate "
+                        "represents the same variant, gene, transcript, or other biological "
+                        "feature."
+                    ),
+                ]
+            )
+        )
+    elif reverse.relationship is ReverseRelationshipState.ORIGINAL_SOURCE_AND_ELSEWHERE:
+        lines.extend(
+            _local_why_lines(
+                [
+                    (
+                        "Reverse liftOver returns to the source locus and to other loci. "
+                        "That one-to-many reverse relationship means the source and mapped "
+                        "loci do not have a one-to-one reciprocal correspondence under the "
+                        "available chain mappings."
+                    ),
+                    (
+                        "The forward mapping is not necessarily wrong, but it should not by "
+                        "itself be treated as sufficient evidence that the target coordinate "
+                        "represents the same biological feature."
+                    ),
+                ]
+            )
+        )
     return lines
 
 
@@ -1191,6 +1361,18 @@ def _single_segmental_duplication_lines(report: UCSCAssessmentReport) -> list[st
                 f"pairs the {source_sequence} source region with {report.source_db} "
                 f"{target_sequence}."
             )
+    lines.extend(
+        _local_why_lines(
+            [
+                (
+                    "Duplicated sequence can complicate interpretation of mappings between "
+                    "loci, so this context is reported when present. The overlap does not "
+                    "by itself establish paralogy, mapping error, non-uniqueness, or the "
+                    "cause of this mapping."
+                )
+            ]
+        )
+    )
     return lines
 
 

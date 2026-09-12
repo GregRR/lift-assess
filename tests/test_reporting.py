@@ -667,8 +667,16 @@ def test_interchromosomal_summary_surfaces_reverse_liftover_elsewhere() -> None:
     assert "hg38 chr10:10659-10759 → hg19 chr18:10855-10955" in summary
     assert "101/101 bp map through the same liftOver chain." in summary
     assert "original source coordinate" not in summary
-    assert "= WHY THIS MATTERS =" in summary
-    assert "does not establish a unique relationship" in summary.replace("\n", " ")
+    assert "= WHY THIS MATTERS =" not in summary
+    assert "    Why this matters:" in summary
+    compact_summary = " ".join(summary.split())
+    assert "do not have a one-to-one reciprocal correspondence" in compact_summary
+    assert "forward mapping is not necessarily wrong" in compact_summary
+    assert "same variant, gene, transcript" in compact_summary
+    reverse_index = summary.index("Reverse liftOver:")
+    reverse_why_index = summary.index("    Why this matters:", reverse_index)
+    flanking_index = summary.index("Flanking interval:")
+    assert reverse_index < reverse_why_index < flanking_index
     assert "= NEXT STEP =" in summary
     assert "https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38" in summary
     assert "https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19" in summary
@@ -738,6 +746,15 @@ def test_multiple_mapping_summary_leads_with_coverage_before_count() -> None:
     assert "    targetAsm chrA:1001-1060" in lines
     assert "    targetAsm chrA:3001-3040" in lines
     assert "Projection order" not in "\n".join(lines)
+    assert "= WHY THIS MATTERS =" in lines
+    assert "Different mappings cover different parts" in " ".join(lines)
+    assert "should not be joined into a single target interval" in " ".join(lines)
+    assert "= NEXT STEP =" in lines
+    assert "https://genome.ucsc.edu/cgi-bin/hgTracks?db=sourceAsm" in "\n".join(lines)
+    assert "Mapping 1: https://genome.ucsc.edu/cgi-bin/hgTracks?db=targetAsm" in (
+        "\n".join(lines)
+    )
+    assert "= CHECKS PERFORMED =" not in lines
 
 
 def test_large_multiple_mapping_summary_is_bounded_without_mapping_sampling() -> None:
@@ -760,6 +777,11 @@ def test_large_multiple_mapping_summary_is_bounded_without_mapping_sampling() ->
     assert "Mappings:" not in lines
     assert "Projection orientations" not in summary
     assert "Geometric mapped segments per projection" not in summary
+    assert "= WHY THIS MATTERS =" in summary
+    assert "More than one complete coordinate mapping exists" in summary
+    assert "= NEXT STEP =" in summary
+    assert "--evidence-tier COMPARATIVE" in summary
+    assert "= CHECKS PERFORMED =" not in summary
 
 
 def test_summary_distinguishes_exact_blocks_from_geometric_fragmentation() -> None:
@@ -956,7 +978,12 @@ def test_comparative_summary_explains_why_one_placement_is_favored() -> None:
         "All 100/100 input bases are present in the reciprocal-best chain." in summary
     )
     assert "None of the other 1 complete mapping has that same combination." in summary
+    assert "= WHY THIS MATTERS =" in summary
+    assert "one mapping is distinguished" in summary
     assert "not independent confirmations" in summary
+    assert "does not establish biological correctness" in summary
+    assert "= NEXT STEP =" in summary
+    assert "Distinguished mapping: https://genome.ucsc.edu/cgi-bin/hgTracks" in summary
     assert "FAVORS_ONE_PLACEMENT" not in summary
     assert favored.candidate_id not in summary
 
@@ -1039,8 +1066,15 @@ def test_h04_style_comparative_summary_keeps_seven_mappings_readable() -> None:
     assert (
         "None of the other 6 complete mappings have that same combination." in summary
     )
-    assert "are related\nUCSC alignment evidence" in summary
+    assert "= WHY THIS MATTERS =" in summary
+    assert "one mapping is distinguished" in summary
     assert "not independent confirmations" in summary
+    assert (
+        "Reverse liftOver was unavailable, so reciprocity was not assessed" in summary
+    )
+    assert "= NEXT STEP =" in summary
+    assert "Distinguished mapping: https://genome.ucsc.edu/cgi-bin/hgTracks" in summary
+    assert "= CHECKS PERFORMED =" not in summary
     assert "FAVORS_ONE_PLACEMENT" not in summary
     assert favored.candidate_id not in summary
     for candidate in alternatives:
@@ -1079,6 +1113,13 @@ def test_mixed_comparative_summary_names_the_conflicting_placements() -> None:
     assert "Standard liftOver chain:\n        targetAsm chrA:1001-1100" in summary
     assert "Top-level net fill:\n        targetAsm chrA:3001-3100" in summary
     assert "Reciprocal-best chain:\n        targetAsm chrA:3001-3100" in summary
+    assert "= WHY THIS MATTERS =" in summary
+    assert "do not provide one consistent mapping choice" in summary.replace("\n", " ")
+    assert (
+        "related UCSC alignment evidence rather than independent confirmations"
+        in summary.replace("\n", " ")
+    )
+    assert "= NEXT STEP =" in summary
     assert "MIXED_CONFLICTING" not in summary
 
 
@@ -1109,6 +1150,12 @@ def test_nonseparating_comparative_summary_exposes_missing_category_support() ->
     assert "Standard liftOver chain:\n        targetAsm chrA:1001-1100" in summary
     assert "Top-level net fill:\n        none" in summary
     assert "Reciprocal-best chain:\n        targetAsm chrA:1001-1100" in summary
+    assert "= WHY THIS MATTERS =" in summary
+    assert (
+        "do not provide a basis for choosing one by mapping order"
+        in summary.replace("\n", " ")
+    )
+    assert "= NEXT STEP =" in summary
     assert "DOES_NOT_SEPARATE_PLACEMENTS" not in summary
 
 
@@ -1462,11 +1509,12 @@ def test_segmental_duplication_context_is_typed_and_does_not_change_mapping_resu
     assert "Both the source and mapped coordinates overlap" in summary
     assert "Segmental Duplications record" in summary
     assert "pairs the chr1 source region with sourceAsm chrA" in summary
-    assert (
-        "Segmental-duplication overlap is relevant duplicated-sequence context"
-        in summary
-    )
-    assert "paralogy, mapping error" in summary
+    assert "    Why this matters:" in summary
+    assert "Duplicated sequence can complicate interpretation" in summary
+    assert "paralogy, mapping error" in " ".join(summary.split())
+    duplication_index = summary.index("Segmental Duplications:")
+    duplication_why_index = summary.index("    Why this matters:", duplication_index)
+    assert duplication_index < duplication_why_index
     assert "= NEXT STEP =" in summary
 
     details = render_assessment_details(enriched)
