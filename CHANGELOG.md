@@ -6,7 +6,7 @@ The project is still alpha scientific software. Pre-release compatibility may ch
 
 ## Unreleased
 
-## 0.2.0a1 - 2026-09-12
+## 0.2.0a1 - 2026-09-13
 
 ### Changed
 
