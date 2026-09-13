@@ -2,7 +2,7 @@
 
 **liftAssess** is a Python command-line tool and library for assessing genomic coordinate liftOver mappings between genome assemblies. It reports exact mapping geometry, evidence availability, provenance, and bounded interpretation without collapsing those facts into a single confidence label.
 
-> **Status:** Early public alpha development. Core mapping generation, comparative evidence extraction, verified UCSC resource caching, a derived factual result profile, progressive human reporting, and schema-v2 JSON reporting are implemented and tested. The current redesign intentionally breaks the original alpha result schema; this remains early scientific software.
+> **Status:** Early public alpha. `v0.2.0a1` is the current published release. Core mapping generation, comparative evidence extraction, verified UCSC resource caching, a derived factual result profile, progressive human reporting, and schema-v2 JSON reporting are implemented and tested. The second public alpha intentionally breaks the original alpha result schema; this remains early scientific software.
 
 **New to liftAssess?** Start with [`GETTING_STARTED.md`](https://github.com/GregRR/lift-assess/blob/main/docs/GETTING_STARTED.md). See [`FEATURES.md`](https://github.com/GregRR/lift-assess/blob/main/docs/FEATURES.md) for the complete catalog of implemented capabilities, expert APIs, and current limitations.
 

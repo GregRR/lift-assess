@@ -4,9 +4,9 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 [`DESIGN.md`](DESIGN.md) remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, result-model semantics, current scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
 
-## Current status — 2026-09-12
+## Current status — 2026-09-13
 
-liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
+liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public alpha. `v0.2.0a1` was released on 2026-09-13 as the second public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
 
 The post-alpha redesign through Milestone 23 is complete. The development code now reports liftOver mappings through a facts-first schema-v2 result model, uses chain indexes for scalable exact interval lookup, performs reverse liftOver and automatic assessment of a 101-bp flanking interval for point queries, compares standard liftOver chains with all-chain alignments when comparative resources are available, supports indexed batch assessment from BED and simple interval tables, validates source sequence names and bounds against authoritative assembly metadata, reports target sequence roles from version-matched metadata, and reports UCSC segmental-duplication overlap as contextual evidence.
 
@@ -16,13 +16,12 @@ The assembly-metadata and segmental-duplication work required before Milestone 2
 
 Milestone 23 is complete. All five pre-registered cases were rechecked against the current default human renderer. H01 outside-user feedback exposed a genuine comprehension failure in the older default output and drove the first renderer slice; H04 drove the compact multiple-mapping/comparative slice. The final H03/H04/H05 outside spot-check found the complex outputs understandable and scientifically bounded, while identifying one H04 prominence gap and one bounded follow-up-navigation improvement. Both were corrected and the affected cases were rerun successfully. Because held-out cases influenced presentation, the five-case set is explicitly not described as untouched validation.
 
-Milestone 24 has since completed the runtime terminology and meaning/actionability pass. The current native quality gate contains **585 tests** and passes pytest, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`. Unusual single-locus results now keep interpretation next to the finding it explains, provide bounded next-step guidance, and can include direct UCSC Genome Browser navigation. No unresolved M23 scientific-correctness or evidence-boundary blocker remains; M24 is now completing the public-documentation and release-preparation audit.
+Milestone 24 is complete. The `v0.2.0a1` release candidate passed the full release-readiness checklist, including the 585-test native quality gate, documentation and repository drift audits, wheel/source-distribution review, clean-environment installation and smoke tests, release-workflow review, and public-package verification. `v0.2.0a1` was published to PyPI and GitHub on 2026-09-13, and the normal public `pip install --pre liftassess` path was verified successfully against the published package.
 
 The next release sequence is therefore:
 
-1. prepare the `v0.2.0a1` release candidate in Milestone 24;
-2. follow `v0.2.0a1` with a `v0.3.0a1` contextual-evidence release; and
-3. follow that with a `v0.4.0a1` navigation/export and workflow-usability release.
+1. develop the `v0.3.0a1` contextual-evidence release in Milestone 25; and
+2. follow that with a `v0.4.0a1` navigation/export and workflow-usability release.
 
 The post-`v0.2.0a1` release assignments below group related work deliberately. Milestone 25 adds
 new contextual evidence or new deterministic context derived from mapping geometry. Milestone 26
@@ -830,9 +829,9 @@ held-out set influenced renderer language and is therefore not represented as un
 This gate tests communication/usefulness, not a numeric confidence model. The existing 50 cases
 remain same-corpus design evidence.
 
-### 24. Second public alpha release — `v0.2.0a1`
+### 24. Second public alpha release — `v0.2.0a1` — complete
 
-Milestone 23 passed on 2026-09-06. Milestone 24 prepares the redesigned second public alpha for release.
+Milestone 23 passed on 2026-09-06. Milestone 24 completed on 2026-09-13 with publication and external verification of the redesigned second public alpha.
 
 Milestone 24 is a release milestone, not another scientific-feature milestone. Its scope is the
 implementation and validated result language completed through Milestones 17–23; new analysis
@@ -864,9 +863,7 @@ Release requirements:
 - release artifacts are reviewed before tag/publication, and the published package is smoke-tested
   through the documented external install path.
 
-The Milestone 23 prerequisite was satisfied on 2026-09-06; Milestone 24 remains open until the
-release-candidate gate, artifact review, publication, and published-package smoke test are complete.
-Maintainer release mechanics are documented in [`RELEASING.md`](RELEASING.md).
+The Milestone 23 prerequisite was satisfied on 2026-09-06. Milestone 24 completed on 2026-09-13 after the release-candidate gate, artifact review, publication, and public PyPI/GitHub verification all passed. Maintainer release mechanics are documented in [`RELEASING.md`](RELEASING.md).
 
 ### 25. Contextual-evidence expansion — `v0.3.0a1`
 
