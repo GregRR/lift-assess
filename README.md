@@ -4,7 +4,7 @@
 
 > **Status:** Early public alpha development. Core mapping generation, comparative evidence extraction, verified UCSC resource caching, a derived factual result profile, progressive human reporting, and schema-v2 JSON reporting are implemented and tested. The current redesign intentionally breaks the original alpha result schema; this remains early scientific software.
 
-**New to liftAssess?** Start with [`GETTING_STARTED.md`](docs/GETTING_STARTED.md). See [`FEATURES.md`](docs/FEATURES.md) for the complete catalog of implemented capabilities, expert APIs, and current limitations.
+**New to liftAssess?** Start with [`GETTING_STARTED.md`](https://github.com/GregRR/lift-assess/blob/main/docs/GETTING_STARTED.md). See [`FEATURES.md`](https://github.com/GregRR/lift-assess/blob/main/docs/FEATURES.md) for the complete catalog of implemented capabilities, expert APIs, and current limitations.
 
 ## Why liftAssess exists
 
@@ -24,7 +24,7 @@ The current result model is facts-first rather than label-first. It derives orth
 
 A deterministic factual headline summarizes the dominant mapping event, for example `ONE LIFTOVER MAPPING`, `PARTIAL LIFTOVER MAPPING`, or `MULTIPLE LIFTOVER MAPPINGS`. For unusual findings, the human report keeps interpretation next to the observation it explains and gives a bounded next step without turning the result into a claim of biological truth or a preferred mapping.
 
-The result profile also carries reverse liftOver context when a matching reverse-direction chain and its prepared index are already available in the local cache. Reverse liftOver is chain-only, is reported separately from reciprocal-best membership, and preserves exact return geometry. A non-reciprocal result means the source and mapped loci do not have a one-to-one reciprocal correspondence under the available forward and reverse chain mappings; it does not by itself prove the forward mapping is wrong. The automatic CLI uses the same chain resource class as the forward assessment and never silently downloads reverse resources or builds a reverse index. See [`REFERENCES.md`](docs/REFERENCES.md) for literature supporting this interpretation boundary.
+The result profile also carries reverse liftOver context when a matching reverse-direction chain and its prepared index are already available in the local cache. Reverse liftOver is chain-only, is reported separately from reciprocal-best membership, and preserves exact return geometry. A non-reciprocal result means the source and mapped loci do not have a one-to-one reciprocal correspondence under the available forward and reverse chain mappings; it does not by itself prove the forward mapping is wrong. The automatic CLI uses the same chain resource class as the forward assessment and never silently downloads reverse resources or builds a reverse index. See [`REFERENCES.md`](https://github.com/GregRR/lift-assess/blob/main/docs/REFERENCES.md) for literature supporting this interpretation boundary.
 
 For 1-bp point queries, the profile additionally carries an automatic flanking-interval check when the prepared forward chain index is available. The default window is centered at 101 bp (boundary-clipped when needed), its exact tested interval is reported, and the result distinguishes agreement with the point mapping from newly revealed partial coverage, fragmentation, target discontinuity, or other query-scale changes. `--context-bases N` requests another odd-width point window explicitly. This check reuses the same forward chain resource class and does not re-run net/reciprocal-best evidence or fall back to another full chain scan. BED3+ batch input is also available through prepared chain indexes; COMPARATIVE batches attach ordinary-net and reciprocal-best-chain observations to submitted rows with one shared pass over each resource, while flanking-interval checks remain chain-only. Authoritative UCSC source metadata validates source names and bounds before mapping. Version-matched UCSC/NCBI metadata can report target sequence roles, and single-locus runs can attach UCSC Segmental Duplications context. These dimensions remain separate from mapping quality and biological correctness.
 
@@ -90,7 +90,7 @@ The current development code includes:
 
 ## Not implemented yet
 
-The project now implements the common-case CLI, concise summary, human-readable detail, schema-versioned JSON reporting, and measured cache-verification/assessment/transfer progress paths. The post-hardening real comparative CLI and independent mechanical-fixture verifier have both completed successfully against the established external `canFam3`→`canFam4` cache. Planned work beyond the first public alpha includes:
+The project now implements the common-case CLI, concise summary, human-readable detail, schema-versioned JSON reporting, and measured cache-verification/assessment/transfer progress paths. The post-hardening real comparative CLI and independent mechanical-fixture verifier have both completed successfully against the established external `canFam3`→`canFam4` cache. Planned work beyond the second public alpha includes:
 
 - a future truth-bearing historical-resolution locus for the planned `canFam3.1`→`canFam6` sanity-check pedigree;
 - optional flanking-gene orthology/synteny evidence;
@@ -98,7 +98,7 @@ The project now implements the common-case CLI, concise summary, human-readable 
 - reverse context across batch loci;
 - reproducible case manifests and, where redistribution terms permit, portable resource packets.
 
-`0.1.0a1` is the first public alpha. It should be treated as early scientific software under active development rather than as a mature or stable analysis platform.
+`0.2.0a1` is the second public alpha. It should be treated as early scientific software under active development rather than as a mature or stable analysis platform. The earlier `0.1.0a1` release remains the first public alpha and used the earlier result schema.
 
 ## Evidence-availability tiers
 
@@ -179,7 +179,7 @@ liftAssess supports several distinct operating scenarios:
 | Use explicit local UCSC chain/net files | Public Python API | No automatic provider access; the caller supplies the files and provenance |
 | Deliberately check current UCSC resources | CLI with `--refresh` | Provider access is required |
 
-The automatic CLI and the explicit-local-file Python API use the same underlying UCSC chain/net parsers and mapping model. The difference is who supplies and manages the resource files. The explicit-local-file route is a lower-level integration boundary: callers compose any source validation, reverse liftOver, target sequence-role, or other contextual checks they need rather than receiving the complete automatic CLI workflow for free. See [`GETTING_STARTED.md`](docs/GETTING_STARTED.md#15-usage-scenarios) for complete examples, including chain-only, comparative, offline, batch, and explicit-local-file workflows.
+The automatic CLI and the explicit-local-file Python API use the same underlying UCSC chain/net parsers and mapping model. The difference is who supplies and manages the resource files. The explicit-local-file route is a lower-level integration boundary: callers compose any source validation, reverse liftOver, target sequence-role, or other contextual checks they need rather than receiving the complete automatic CLI workflow for free. See [`GETTING_STARTED.md`](https://github.com/GregRR/lift-assess/blob/main/docs/GETTING_STARTED.md#15-usage-scenarios) for complete examples, including chain-only, comparative, offline, batch, and explicit-local-file workflows.
 
 Before mapping-evidence resource acquisition, the command displays the applicable UCSC terms and requires explicit acknowledgement. It then performs body-free HEAD inspection of the exact transfer plan, displays provider-advertised resource sizes and the cache destination, and requires a separate transfer-plan acknowledgement before downloading or verifying cached mapping resources. The displayed size is the provider resource-set size, not a promise that all bytes will be transferred: verified cache hits can avoid body transfer unless `--refresh` is used. `--acknowledge-ucsc-terms` and `--accept-transfer-plan` provide explicit non-interactive acknowledgements; `--cache-dir`, `--refresh`, `--offline`, `--details`, `--json`, `--quiet`, `--context-bases`, `--bed PATH`, and `--interval-table PATH` control cache placement, provider access, report format, progress output, flanking-interval width for one-base queries, and batch input.
 
@@ -201,7 +201,7 @@ liftOver chain instead of the default COMPARATIVE-preferred selection. This is u
 when preparing the standard-liftOver side of a paired comparison; provider terms and
 transfer-plan acknowledgement remain unchanged.
 
-Index construction parses the complete chain once and can take many minutes and several GiB of additional local cache space for very large resources. Later `assess-liftover` CLI runs automatically reuse the exact-resource index when present. The CLI falls back to the original verified full traversal when the index is absent or unusable; lower-level library calls surface `ChainIndexCorruptionError` so callers can choose their own recovery policy. The index is a derived acceleration artifact; scientific provenance continues to identify the original UCSC chain bytes. See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for measured examples and scope.
+Index construction parses the complete chain once and can take many minutes and several GiB of additional local cache space for very large resources. Later `assess-liftover` CLI runs automatically reuse the exact-resource index when present. The CLI falls back to the original verified full traversal when the index is absent or unusable; lower-level library calls surface `ChainIndexCorruptionError` so callers can choose their own recovery policy. The index is a derived acceleration artifact; scientific provenance continues to identify the original UCSC chain bytes. See [`docs/PERFORMANCE.md`](https://github.com/GregRR/lift-assess/blob/main/docs/PERFORMANCE.md) for measured examples and scope.
 
 Batch assessment uses that same prepared exact-resource index and is intentionally stricter than the single-locus path. BED3-or-later input keeps native 0-based, half-open coordinates:
 
@@ -268,7 +268,7 @@ Non-obvious genomic, coordinate, provenance, and evidence decisions should be do
 
 The goal is for researchers to be able to inspect not only **what** liftAssess concluded, but also **what evidence was examined, where it came from, which observations share upstream sources, and what assumptions the implementation made**.
 
-[`docs/DESIGN.md`](docs/DESIGN.md) is the authoritative design document and contains the detailed scientific rationale, result semantics, scope, invariants, validation plan, and open questions.
+[`docs/DESIGN.md`](https://github.com/GregRR/lift-assess/blob/main/docs/DESIGN.md) is the authoritative design document and contains the detailed scientific rationale, result semantics, scope, invariants, validation plan, and open questions.
 
 ## External resources
 
@@ -288,18 +288,18 @@ Automatic UCSC discovery is intended as a convenience, not a permanent hard depe
 
 ## Project documentation
 
-- [`GETTING_STARTED.md`](docs/GETTING_STARTED.md) — beginner-oriented CLI guide, output interpretation, cache/network modes, and common mistakes.
-- [`FEATURES.md`](docs/FEATURES.md) — complete catalog of implemented capabilities, expert APIs, and current non-features.
-- [`DESIGN.md`](docs/DESIGN.md) — authoritative scientific and architectural specification.
-- [`ROADMAP.md`](docs/ROADMAP.md) — implementation history, current review state, and planned milestones.
-- [`PERFORMANCE.md`](docs/PERFORMANCE.md) — measured runtime characteristics, profiling results, and current optimization priorities.
-- [`REFERENCES.md`](docs/REFERENCES.md) — literature, provider/format documentation, and technical evidence used by the project.
-- [`CHANGELOG.md`](CHANGELOG.md) — user-visible changes and release history.
-- [`RELEASING.md`](docs/RELEASING.md) — maintainer release-validation and publishing procedure.
+- [`GETTING_STARTED.md`](https://github.com/GregRR/lift-assess/blob/main/docs/GETTING_STARTED.md) — beginner-oriented CLI guide, output interpretation, cache/network modes, and common mistakes.
+- [`FEATURES.md`](https://github.com/GregRR/lift-assess/blob/main/docs/FEATURES.md) — complete catalog of implemented capabilities, expert APIs, and current non-features.
+- [`DESIGN.md`](https://github.com/GregRR/lift-assess/blob/main/docs/DESIGN.md) — authoritative scientific and architectural specification.
+- [`ROADMAP.md`](https://github.com/GregRR/lift-assess/blob/main/docs/ROADMAP.md) — implementation history, current review state, and planned milestones.
+- [`PERFORMANCE.md`](https://github.com/GregRR/lift-assess/blob/main/docs/PERFORMANCE.md) — measured runtime characteristics, profiling results, and current optimization priorities.
+- [`REFERENCES.md`](https://github.com/GregRR/lift-assess/blob/main/docs/REFERENCES.md) — literature, provider/format documentation, and technical evidence used by the project.
+- [`CHANGELOG.md`](https://github.com/GregRR/lift-assess/blob/main/CHANGELOG.md) — user-visible changes and release history.
+- [`RELEASING.md`](https://github.com/GregRR/lift-assess/blob/main/docs/RELEASING.md) — maintainer release-validation and publishing procedure.
 
 ## Citation
 
-If you use liftAssess in research, please cite the software using the version and release-date metadata in [`CITATION.cff`](CITATION.cff).
+If you use liftAssess in research, please cite the software using the version and release-date metadata in [`CITATION.cff`](https://github.com/GregRR/lift-assess/blob/main/CITATION.cff).
 
 ## License
 

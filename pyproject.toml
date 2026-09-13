@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "liftassess"
-version = "0.1.0a1"
-description = "Evidence-based assessment of ambiguous genomic coordinate liftOver mappings"
+version = "0.2.0a1"
+description = "Assessment of genomic coordinate liftOver mappings with exact geometry and provenance"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
