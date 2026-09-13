@@ -966,7 +966,7 @@ def test_comparative_summary_explains_why_one_placement_is_favored() -> None:
     )
     expected_interpretation = (
         "More than one liftOver mapping exists; available categorical comparative "
-        "evidence favors one placement, but mapping order is not a scientific rank "
+        "evidence distinguishes one mapping, but mapping order is not a scientific rank "
         "and this result does not establish a biological locus."
     )
     assert f"Interpretation: {expected_interpretation}" in details
@@ -1184,11 +1184,11 @@ def test_comparative_details_and_json_expose_inventory_support_and_provenance() 
     assert (
         "Mapping inventory: all-chain alignments contain additional mappings" in details
     )
-    assert "Comparative result: favors one mapping" in details
-    assert "retained by filtered chain=yes" in details
+    assert "Comparative result: distinguishes one mapping" in details
+    assert "retained by standard liftOver chain=yes" in details
     assert "depth-1 top-net=yes" in details
     assert "full reciprocal-best=yes" in details
-    assert "Filtered-chain comparison resource" in details
+    assert "Standard liftOver comparison resource" in details
     assert "consumed for paired comparison" in details
     assert "UCSC pair dependency group: alignment" in details
     assert "Exact shared processing-run provenance: not verified" in details

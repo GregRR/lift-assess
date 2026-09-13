@@ -23,7 +23,7 @@ merely to move a result toward the historical expectation.
 
 Historical reports are comparison evidence, not automatic biological ground truth. Where a source
 mentions an rsID/database placement, that identifier-aware placement remains a separate evidence domain
-from coordinate projection.
+from coordinate mapping.
 
 ## Pre-registered cases
 
@@ -43,7 +43,7 @@ from coordinate projection.
 
 ### H02 — mixed-build / out-of-bounds source point
 
-- **Role:** invalid-input/preflight control.
+- **Role:** invalid-input/source-validation control.
 - **Source:** Reddit r/bioinformatics, “How to perform liftover from 38 to 37 for GWAS summary
   statistics?”.
 - **Source URL:** https://www.reddit.com/r/bioinformatics/comments/17y8f8b/
@@ -52,13 +52,13 @@ from coordinate projection.
   sampled members of the same rejected set appeared to be hg19 loci, raising a source-build mix-up.
 - **Why selected before execution:** directly tests the redesigned requirement that invalid source
   coordinates stop before scientific mapping interpretation rather than becoming biological-looking
-  “no projection” results.
-- **What is being tested:** authoritative source bounds, user-facing preflight wording, nonzero failure
+  “no mapping” results.
+- **What is being tested:** authoritative source bounds, user-facing source-validation wording, nonzero failure
   behavior, and absence of a scientific mapping headline for invalid input.
 
 ### H03 — surprising telomeric interchromosomal point
 
-- **Role:** difficult human point; local-context and typed-context exercise.
+- **Role:** difficult human point; flanking-interval and typed-context exercise.
 - **Source:** same Reddit discussion as H02.
 - **Source URL:** https://www.reddit.com/r/bioinformatics/comments/17y8f8b/
 - **Query:** hg38 → hg19, `chr10:10709-10709` (1-based inclusive).
@@ -66,10 +66,10 @@ from coordinate projection.
   GRCh37 chr18 near position 10905. Community replies suggest telomeric/repetitive complexity, but that
   mechanism is not treated as established evidence here.
 - **Why selected before execution:** a real user found the chromosome change surprising; it tests whether
-  liftAssess can describe a non-obvious projection without declaring it erroneous or biologically
+  liftAssess can describe a non-obvious mapping without declaring it erroneous or biologically
   correct.
 - **What is being tested:** automatic 101-bp context, actual reverse mapping, interchromosomal and
-  orientation wording, typed UCSC segmental-duplication context when available, target-role context, and
+  orientation wording, typed UCSC segmental-duplication context when available, target sequence-role context, and
   explicit separation between measured structure and unverified mechanism.
 
 ### H04 — CanFam3.1 LHX3 pituitary-dwarfism variant
@@ -84,7 +84,7 @@ from coordinate projection.
   that the genomic CanFam3.1 coordinates were supplied subsequently.
 - **Why selected before execution:** it is outside the B12–B14 DoGA/OMIA loci used to shape comparative
   language and therefore exercises COMPARATIVE reporting on a new real canine locus.
-- **What is being tested:** filtered/all-chain relationship, categorical net/reciprocal-best explanation,
+- **What is being tested:** standard liftOver/all-chain relationship, categorical net/reciprocal-best explanation,
   provenance/dependence language, target-role/context availability, and whether a comparative conclusion
   stays below biological variant identity/correctness.
 - **No target coordinate is pre-declared as correct.** The case tests explanatory evidence, not agreement
@@ -98,10 +98,10 @@ from coordinate projection.
 - **Query:** hg38 → hg19, `chr22:15528888-15528888` (1-based inclusive).
 - **Historical comparison:** the discussion reports UCSC liftOver returning hg19 chr14 near 19378323,
   while an rsID-aware GRCh37 placement is reported on chr22 near 16449075. The database placement is
-  treated as identifier-aware comparison evidence, not as proof that one coordinate projection is the
+  treated as identifier-aware comparison evidence, not as proof that one coordinate mapping is the
   biologically correct locus.
 - **Why selected before execution:** this is an unseen locus/source relative to Corpus A/B and directly
-  tests whether the redesigned output prevents a coordinate projection from being mistaken for variant
+  tests whether the redesigned output prevents a coordinate mapping from being mistaken for variant
   identity. It is related to the chr22/chr14 duplication failure class represented by motivating case
   A04, so it must not be presented as independent evidence that the mechanism generalizes.
 - **What is being tested:** automatic 101-bp context, reverse mapping, typed duplication context, scope
@@ -126,7 +126,7 @@ For each case, record:
 1. What factual event does the headline say occurred?
 2. Do the detailed geometry and structured fields support that headline exactly?
 3. Does progressive disclosure expose the material unusual facts without making the clean cases noisy?
-4. Are point-context, reverse, comparative, target-role, batch, and typed-context scope states truthful?
+4. Are flanking-interval, reverse, comparative, target-role, batch, and typed-context scope states truthful?
 5. Does any sentence imply variant identity, gene identity, uniqueness, causal mechanism, or biological
    correctness beyond the evidence consumed?
 6. Would the output have answered the practical confusion in the historical source, or at least made the
@@ -138,7 +138,7 @@ For each case, record:
 All five pre-registered baseline cases were executed without substitution on 2026-08-29. The held-out
 set subsequently influenced implementation in two presentation-only ways: outside-user feedback on H01
 showed that the original default output was not understandable enough, and H04 exposed the need for a
-compact multiple-mapping/comparative explanation. Candidate generation, comparative classification, and
+compact multiple-mapping/comparative explanation. mapping generation, comparative classification, and
 scientific evidence semantics were not changed by those renderer corrections. The five-case set is
 therefore **not** described as untouched held-out validation.
 
@@ -165,7 +165,7 @@ blocker remains.
 
 - **Observed:** UCSC hg38 chr2 has 242,193,529 bases; the requested point was 177 bp beyond the sequence
   end.
-- **Behavior:** source preflight stopped before liftOver, reported `INVALID SOURCE COORDINATE`, stated that
+- **Behavior:** source validation stopped before liftOver, reported `INVALID SOURCE COORDINATE`, stated that
   liftOver was not attempted, and returned process exit status 1.
 - **Adjudication:** no blocker. Invalid input does not become a biological-looking no-mapping result.
 
@@ -233,11 +233,11 @@ blocker remains.
 The current renderer has no unresolved M23 blocker across H01-H05. H01 and H04 influenced presentation,
 and the final outside review caused one H04 prominence fix plus conditional H03/H05 navigation guidance.
 The set therefore remains implementation-influencing evidence rather than untouched validation. None of
-these corrections changed candidate generation, comparative classification, or scientific evidence
+these corrections changed mapping generation, comparative classification, or scientific evidence
 semantics.
 
 One non-blocking structured-output follow-up remains: when reverse liftOver is unavailable, the live
-status text can explain why while the durable dossier/JSON may retain only the unavailable state. This
+status text can explain why while the durable detailed report/JSON may retain only the unavailable state. This
 does not prevent the primary mapping assessment from completing and is not an M23 release blocker.
 
 ## Outside-user/domain feedback and final adjudication
@@ -297,10 +297,10 @@ priorities.
   intergenic context, or assembly component/new-sequence history. The evidence collected for H03 does not
   answer those questions. In particular, Segmental Duplications overlap remains descriptive context and is
   not a causal explanation.
-- **Feature disposition:** these questions are post-release evidence candidates, not Milestone 24 features.
+- **Feature disposition:** these questions are post-release evidence features, not Milestone 24 features.
   Point/gap-boundary context is already represented in the Milestone 25 plan. Broader alignment-extent/edge
   context, repeat annotation, gene/transcript feature context, and assembly component/history context are
-  retained as priority-to-be-determined candidates. One outside-user request establishes genuine demand
+  retained as priority-to-be-determined options. One outside-user request establishes genuine demand
   to retain the ideas, not an automatic priority or release commitment.
 - **Biologist-facing meaning/actionability:** later Milestone 24 feedback made the usability gap more
   explicit: reporting that reverse liftOver does not return to the source locus is not enough if the user
@@ -319,7 +319,7 @@ A blocker includes:
 
 - invalid input being rendered as a biological-looking mapping result;
 - a factual headline contradicted by the detailed geometry/structured result;
-- a material point/neighborhood disagreement being hidden or described incorrectly;
+- a material point/flanking-interval disagreement being hidden or described incorrectly;
 - typed contextual overlap being presented as a penalty, proof of error, or causal mechanism;
 - comparative relationships being materially misstated, collapsed into hidden weighting, or presented
   as independent votes despite shared provenance;

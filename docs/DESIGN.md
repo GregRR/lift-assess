@@ -3,15 +3,14 @@
 Status: post-alpha design baseline; redesign approved after the 50-case real-world validation / UX
 program. This document remains the authoritative scientific and architectural specification, not a
 development-status log. See [`ROADMAP.md`](ROADMAP.md) for implementation history, current review
-state, and planned milestones. The released v0.1.0a1 implementation still contains the legacy
-three-verdict model; historical sections may describe that behavior, but the target design defined
-here no longer uses an aggregate verdict taxonomy.
+state, and planned milestones. Historical milestones are described using the current public
+terminology so readers do not need to learn obsolete alpha vocabulary. Literal identifiers are shown
+only when they remain part of a current API or machine-readable interface.
 
 ## 1. Problem
 
 Coordinate liftover (UCSC liftOver, CrossMap, rtracklayer, NCBI Remap, BCFtools/liftover,
-Liftoff, and others) converts coordinates between assemblies but does not explain confidence
-when the result is ambiguous: multiple candidate targets, a placement on an unplaced/alt
+Liftoff, and others) converts coordinates between assemblies but does not by itself explain an ambiguous result: multiple mappings, a placement on an unplaced/alt
 scaffold instead of a named chromosome, a duplicated-region mapping, a split interval, or two
 tools disagreeing on the same input. Existing tools compete on conversion completeness (fewer
 dropped or mis-lifted records). We have not identified an existing tool that ships a transparent,
@@ -34,7 +33,7 @@ competition with one.
 ### Evidence people hit this and ask the exact question (Gate 2 — validated)
 - Biostars: canFam4 (dog) liftOver disagreement between an unplaced scaffold and chr16 for a
   miRNA-region SNP set — "which locus is the true ortholog."
-- Biostars: human liftOver landing on one paralogous FAM72/SRGAP2 neighborhood while the
+- Biostars: human liftOver landing on one paralogous FAM72/SRGAP2 region while the
   historical investigation favored another; responders used flanking genes and reciprocal mapping
   to interpret the discrepancy — exactly the kind of context this tool should expose without
   claiming biological truth.
@@ -50,20 +49,19 @@ competition with one.
 ### Important scope caution (do not overstate)
 The ~12,582 SNVs BCFtools/liftover still drops are evidence the underlying problem is real, not
 12,582 cases this assessor could rescue. Many failures (chain gaps, representation changes) have
-no competing candidate to evaluate — nothing for an assessor to do. The assessor's actual target
+no competing mapping to evaluate — nothing for an assessor to do. The assessor's actual target
 population is narrower: multi-mapped loci, alt/chrUn placements, duplicated-region mappings,
 split mappings, and tool-vs-tool discordance — cases where there is evidence to examine.
 
 ## 2. Philosophy
 
-- **Assessor, not resolver.** Never outputs "correct locus = X." It reports what physically happened
+- **Assessor, not resolver.** Never outputs "correct locus = X." It reports what happened
   to the requested interval, what evidence supports those observations, how that evidence depends on
   upstream sources, and the strongest bounded interpretation those facts justify. A clean coordinate
-  projection is not a claim of biological truth or identity.
-- **No aggregate verdict taxonomy.** The current design does not use `WELL_SUPPORTED`, `CONTESTED`,
-  `INDETERMINATE`, or a replacement one-word verdict. Those labels are legacy v0.1.0a1 behavior.
-  The redesigned result consists of orthogonal factual states, evidence/provenance, a deterministic
-  factual headline, and bounded interpretation.
+  mapping is not a claim of biological truth or identity.
+- **No aggregate result label.** The current design uses orthogonal factual states,
+  evidence/provenance, deterministic factual headlines, and bounded interpretation rather than a
+  one-word aggregate result label.
 - **No composite numeric score.** A number like "0.91" claims a precision that has not been validated
   against ground truth. Show categorical facts and relationships instead. Do not hide weighted
   combinations of chain score, `ali`, `qDup`, net hierarchy, reciprocal-best membership, or other
@@ -88,7 +86,7 @@ split mappings, and tool-vs-tool discordance — cases where there is evidence t
   description *"duplication-associated nonsyntenic placement"*; they do not by themselves prove a
   specific mechanism such as paralogy, processed pseudogene, or assembly error. Promote a named
   mechanism only when additional evidence supports it.
-- **Neutral structural facts stay neutral.** Reverse orientation, interchromosomal projection,
+- **Neutral structural facts stay neutral.** Reverse orientation, interchromosomal mapping,
   alternate targets, and non-reciprocity can be important context but are not automatic error or
   quality labels.
 - **Same species remains the operational envelope for the present UCSC workflow.** Different
@@ -100,7 +98,7 @@ split mappings, and tool-vs-tool discordance — cases where there is evidence t
 A short checklist to test any future implementation decision against:
 
 1. Never count observations that share an upstream alignment or source as independent confirmation.
-2. Absence of evidence for a competing candidate is not proof that no competing candidate exists.
+2. Absence of evidence for a competing mapping is not proof that no competing mapping exists.
 3. Evidence availability is not confidence. `COMPARATIVE` and `LIFTOVER-ONLY` describe what could be
    examined, not how "good" a result is.
 4. Different-individual assemblies may legitimately differ biologically; a disagreement between them
@@ -109,56 +107,54 @@ A short checklist to test any future implementation decision against:
 6. Biological interpretation sits one rung below evidence and is promoted to a named mechanism only
    when independently supported.
 7. Input validity precedes scientific assessment. Invalid sequence names, out-of-range coordinates,
-   and empty future BED intervals must not degrade into biological-looking no-projection results.
+   and empty future BED intervals must not degrade into biological-looking no-mapping results.
 8. A target bounding span is a summary only; it must never imply continuity when the aligned segments
    are fragmented.
-9. Candidate encounter order is reproducibility-only, not rank. Raw chain score is not a substitute
-   for a scientifically defined candidate-rank concept.
-10. Result dimensions are not votes and are not collapsed into a hidden score or single verdict.
+9. Mapping encounter order is reproducibility-only, not rank. Raw chain score is not a substitute
+   for a scientifically defined mapping-rank concept.
+10. Result dimensions are not votes and are not collapsed into a hidden score or single aggregate result label.
 
 ## 4. Result model and deterministic interpretation
 
-### 4.1 No aggregate verdict
+### 4.1 No aggregate result label
 
-The redesigned result model intentionally has **no single aggregate verdict**. The legacy alpha
-labels `WELL_SUPPORTED`, `CONTESTED`, and `INDETERMINATE` are removed from the target model rather
-than renamed or preserved as a parallel policy layer.
+The redesigned result model intentionally has **no single aggregate result label**.
 
 A completed result is a structured profile of factual dimensions plus evidence/provenance and a
 bounded deterministic interpretation. Human rendering may summarize that profile, but it must not
-recreate a hidden aggregate verdict under another name.
+recreate a hidden aggregate result label under another name.
 
 ### 4.2 Orthogonal result dimensions
 
 The profile must be able to represent, as applicable:
 
 1. **Input validity** — valid input; unrecognized source sequence; out-of-range coordinate; empty
-   input; or another explicit preflight failure.
-2. **Projection count** — no chain projection; one chain projection; multiple chain projections.
+   input; or another explicit input-validation failure.
+2. **Mapping count** — no liftOver mapping; one liftOver mapping; multiple chain mappings.
 3. **Source coverage** — complete or partial coverage with exact covered/source-base counts and
    uncovered source intervals.
 4. **Continuity / geometry** — contiguous, fragmented, target-discontinuous, exact mapped segments,
    target bounding span, source gaps, and target gaps.
-5. **Target role** — primary, alternate, unplaced, or another authoritative assembly role when a
-   defined metadata source supports the label.
-6. **Orientation** — same or reverse; mixed across a candidate set when relevant.
-7. **Reverse mapping context** — actual reverse assessment, distinct from reciprocal-best
+5. **Target sequence role** — primary, alternate, unplaced, or another authoritative assembly role
+   when a defined metadata source supports the label.
+6. **Orientation** — same or reverse; mixed across a mapping set when relevant.
+7. **Reverse liftOver** — actual reverse assessment, distinct from reciprocal-best
    membership. Record check state (`NOT_RUN`, `UNAVAILABLE`, or `RUN`) separately from the
-   observed return relationship. A completed run records whether reverse projections are absent,
+   observed return relationship. A completed run records whether reverse mappings are absent,
    touch only the original aligned source geometry, land only elsewhere, or do both; exact
    returned/source-base coverage and exact reconstruction of the original aligned geometry remain
-   separate factual fields. For fragmented forward candidates, reverse each exact mapped target
-   segment rather than the target bounding span across unaligned gaps. Reverse candidate
-   multiplicity is hypothesis-level like forward candidate multiplicity: distinct candidate IDs
+   separate factual fields. For fragmented forward mappings, reverse each exact mapped target
+   segment rather than the target bounding span across unaligned gaps. Reverse mapping
+   multiplicity is hypothesis-level like forward mapping multiplicity: distinct mapping IDs
    must not describe equivalent canonical local mapping geometry.
-8. **Query-scale context** — point result compared with its automatic 101-bp context and any explicit
-   larger context requested by the user.
-9. **Comparative relationship** — filtered/all-chain agreement, additional all-chain placements, and
-   categorical relationships among filtered-chain, net, reciprocal-best, and other comparative
+8. **Flanking-interval context** — point result compared with its automatic 101-bp flanking interval
+   and any explicit larger interval requested by the user.
+9. **Comparative relationship** — standard liftOver/all-chain agreement, additional all-chain mappings, and
+   categorical relationships among the standard liftOver chain, net, reciprocal-best, and other comparative
    observations.
-10. **Batch relationship** — exact target collision, overlapping target projection, neighborhood-level
+10. **Batch relationship** — exact target collision, overlapping target mapping, flanking-interval-level
     collision, or no detected relationship within the assessed batch.
-11. **Typed external context** — resource-specific segmental-duplication/difficult-region,
+11. **Genomic context** — resource-specific segmental-duplication/difficult-region,
     assembly-history, variant identity, gene/transcript identity, or other optional observations when
     explicitly implemented.
 12. **Evidence tier / resource consumption** — `LIFTOVER-ONLY` or `COMPARATIVE`, exactly which
@@ -172,17 +168,17 @@ These dimensions can coexist. No single field is expected to encode the whole sc
 Human output leads with a literal mapping/event headline derived mechanically from the profile. The
 headline vocabulary should describe what happened, for example:
 
-- `NO CHAIN PROJECTION`
-- `ONE COMPLETE CHAIN PROJECTION`
-- `PARTIAL SOURCE COVERAGE`
-- `PARTIAL AND FRAGMENTED PROJECTION`
-- `COMPLETE BUT DISCONTINUOUS PROJECTION`
-- `MULTIPLE CHAIN PROJECTIONS`
-- `SOURCE INTERVAL SPLITS ACROSS MULTIPLE PROJECTIONS`
+- `NO LIFTOVER MAPPING`
+- `ONE LIFTOVER MAPPING`
+- `PARTIAL LIFTOVER MAPPING`
+- `PARTIAL MAPPING ACROSS MULTIPLE ALIGNMENT BLOCKS`
+- `LIFTOVER MAPPING WITH A TARGET GAP`
+- `MULTIPLE LIFTOVER MAPPINGS`
+- `SOURCE INTERVAL MAPS TO MULTIPLE LOCATIONS`
 
 Exact final token spelling is a schema/renderer implementation detail, but headline semantics must be
 factual and testable. Large-region output gives source coverage/fragmentation precedence over raw
-candidate count.
+mapping count.
 
 ### 4.4 Comparative interpretation
 
@@ -194,30 +190,30 @@ support at least:
 - comparative evidence is **mixed/conflicting**.
 
 The first accepted `favors one placement` pattern is the B14-style case: multiple full all-chain
-placements exist; exactly one is retained by ordinary filtered liftOver; that same placement is
+placements exist; exactly one is retained by standard liftOver; that same placement is
 top-net and has full reciprocal-best membership; and no competing full placement has equivalent
 categorical top-net + full reciprocal-best support.
 
 `ali` and `qDup` remain reported observations initially, not hidden weights or thresholds.
 
 When two or more complete placements have equivalent joint depth-1 top-net + full
-reciprocal-best support, a unique ordinary filtered-chain retention does **not** turn that
+reciprocal-best support, a unique standard liftOver chain retention does **not** turn that
 placement into `favors one placement`. The categorical evidence does not separate those
 placements, so the relationship is `does not separate placements` unless another evidence
 family uniquely identifies a conflicting placement. This records the boundary explicitly:
-ordinary filtered retention is one categorical relationship, not a hidden chain-score tie-break.
+standard liftOver retention is one categorical relationship, not a hidden chain-score tie-break.
 
-Filtered/all-chain synthesis requires geometry-safe correspondence. The ordinary UCSC `over.chain`
+Standard liftOver/all-chain synthesis requires geometry-safe correspondence. The ordinary UCSC `over.chain`
 publication is produced by subsetting all-chain records to net fills and can therefore contain a
-clipped portion of an original chain. If a filtered candidate cannot be paired to identical local
+clipped portion of an original chain. If a standard liftOver mapping cannot be paired to identical local
 all-chain geometry, liftAssess must leave the comparative relationship unassessed rather than treat
 the mismatch as scientific disagreement or abort the already-valid primary assessment. Defining a
 future contained/subset-geometry relationship requires a separate explicit rule.
 
 A human-facing result must never stop at a vague statement such as `COMPARATIVE EVIDENCE IS MIXED`.
-It must state *how* the evidence is mixed: which placement is retained by the filtered chain, which
+It must state *how* the evidence is mixed: which placement is retained by the standard liftOver chain, which
 has top-net support, which has reciprocal-best membership, and which observations conflict or fail
-to separate candidates. Automatic CLI results conservatively group UCSC resources for one source/target database
+to separate mappings. Automatic CLI results conservatively group UCSC resources for one source/target database
 direction as dependent evidence so they are not presented as independent votes. That pair-level
 dependency group does **not** verify that separately published files came from one exact UCSC
 processing run; exact consumed files remain independently SHA-256 identified. Retrieval timestamps,
@@ -226,22 +222,22 @@ themselves, evidence that two different resources came from the same provider pr
 liftAssess therefore does not infer cross-resource version coherence from an arbitrary time window.
 A stronger claim requires provider metadata that explicitly identifies a shared run/publication.
 
-### 4.5 Point-query local context
+### 4.5 Point-query flanking-interval context
 
-A 1-bp point query automatically requests a centered 101-bp local-context assessment (±50 bases
+A 1-bp point query automatically requests a centered 101-bp flanking-interval assessment (±50 bases
 when source bounds permit). The exact tested window is always reported. Near a sequence boundary,
 the tested interval is clipped rather than shifted, so its actual width can be less than 101 bases.
 
 Automatic context execution is deliberately limited to the prepared exact-resource forward chain
-index. It uses the same chain publication class as the point assessment (`COMPARATIVE` all-chain or
-filtered `LIFTOVER-ONLY`) and consumes forward-chain-derived evidence only. The result-profile
-boundary enforces that scope: context candidates may carry chain score, mapping coverage, and
-chain-gap observations, but not net, reciprocal-best, or other non-chain evidence. The point/context
-relationship itself is derived from candidate identity and exact coverage, fragmentation, and target
-discontinuity. A completed context check with no chain projection at either the point or neighborhood
+index. It uses the same chain resource class as the point assessment (`COMPARATIVE` all-chain or
+standard `LIFTOVER-ONLY`) and consumes forward-chain-derived evidence only. The result-profile
+boundary enforces that scope: context mappings may carry chain score, mapping coverage, and
+chain-gap observations, but not net, reciprocal-best, or other non-chain evidence. The point/flanking-interval
+relationship itself is derived from mapping identity and exact coverage, fragmentation, and target
+discontinuity. A completed context check with no liftOver mapping at either the point or flanking-interval
 scale is represented explicitly rather than being labeled as mapped agreement. Partial coverage,
 fragmentation, and target discontinuity remain separate factual findings rather than being collapsed
-into one label; raw chain score is not used as rank, threshold, or vote. Net and reciprocal-best resources are not re-run for the neighborhood, even when they were
+into one label; raw chain score is not used as rank, threshold, or vote. Net and reciprocal-best resources are not re-run for the flanking interval, even when they were
 consumed for the point-level `COMPARATIVE`
 assessment; the report labels this evidence scope explicitly. If a usable matching forward chain
 index or a safe indexed source-sequence bound is unavailable, context is `NOT_RUN` rather than
@@ -250,23 +246,23 @@ context scan.
 
 The default 101 bp is a product/context choice, not a confidence threshold, biological universal, or
 calibrated scale. Ordinary interval queries are not automatically widened. `--context-bases N` may
-request a larger odd-width context window explicitly for a 1-bp query. If the tested neighborhood
+request a larger odd-width context window explicitly for a 1-bp query. If the tested flanking interval
 differs materially from the point result, the profile reports that relationship directly; it never
-silently recurses through 1-kb, 10-kb, or other successively wider windows. A clean neighborhood is
+silently recurses through 1-kb, 10-kb, or other successively wider windows. A clean flanking interval is
 local chain-geometry context and does not establish global sequence uniqueness or biological
 identity.
 
-When authoritative source preflight is available, automatic point-context clipping uses the
+When authoritative source validation is available, automatic flanking-interval clipping uses the
 assembly-sequence length from the exact UCSC `chromInfo` metadata. The conservative source-sequence
 query bound recorded in the authenticated chain-index catalog remains only a backward-compatible
-indexed-query fallback for lower-level callers that have not supplied preflight facts; it is not
+indexed-query fallback for lower-level callers that have not supplied validation facts; it is not
 promoted to authoritative assembly metadata or used for general source-name validation.
 
 ### 4.6 Common-use evidence boundaries
 
 The result model preserves six common-use lenses that help prevent overclaiming:
 
-- sequence-coordinate projection;
+- sequence-coordinate mapping;
 - named variant / rsID identity;
 - gene/transcript identity;
 - interval coverage/structure;
@@ -284,17 +280,17 @@ Not addressed in earlier drafts of this design and worth getting right before an
 - **Canonical internal representation: 0-based, half-open intervals** — matches both the BED
   convention and the chain file convention, which is what the tool primarily consumes.
 - A genomic interval is an **unstranded span in forward-reference coordinates**. Mapping
-  orientation is a separate relation on a candidate mapping: `SAME` when source and target are
+  orientation is a separate relation on a mapping: `SAME` when source and target are
   aligned in the same orientation, `REVERSE` when they are aligned in opposite orientations.
   Do not attach alignment orientation to the interval itself. For a reverse-strand UCSC chain
   query, normalize the query coordinates back to forward-reference coordinates before creating
   the target interval.
-- A split mapping produced by one chain remains **one candidate**, not several independent
-  candidates. Preserve its exact aligned structure as ordered source/target mapping segments.
+- A split mapping produced by one chain remains **one mapping**, not several independent
+  mappings. Preserve its exact aligned structure as ordered source/target mapping segments.
   `NormalizedCandidate.target_interval` is the smallest forward-reference span containing all
   mapped target segments; it is a summary/bounding span only and must never imply that bases
   between separated segments are aligned.
-- The core interval type can represent an empty half-open span, but v1 chain candidate generation
+- The core interval type can represent an empty half-open span, but v1 chain mapping generation
   does not assign semantics to zero-length source intervals. Reject them rather than implicitly
   borrowing UCSC liftOver's special zero-width handling; add such support only after the desired
   point/insertion semantics are specified explicitly.
@@ -315,50 +311,50 @@ Not addressed in earlier drafts of this design and worth getting right before an
 **In scope — target mapping/evidence capabilities:**
 
 - **Mapping structure:** source-locus coverage, exact mapped segments, uncovered source intervals,
-  source/target chain gaps, target bounding spans, orientation, and candidate multiplicity.
+  source/target chain gaps, target bounding spans, orientation, and mapping multiplicity.
   `FULL`/complete coverage means every requested source base is represented by an aligned mapping
   segment; partial coverage means one or more requested source bases are not aligned. Preserve exact
   geometry rather than reducing it to a quality-like number.
 - **UCSC chain/net comparative evidence:** chain score, aligned bases (`ali`), duplicated query bases
   (`qDup`), net classification/hierarchy, and reciprocal-best membership. Reciprocal-best membership
-  remains locus-specific to the candidate's aligned source bases and can be `FULL`, `PARTIAL`, or
+  remains locus-specific to the mapping's aligned source bases and can be `FULL`, `PARTIAL`, or
   `NONE` only after a complete relevant resource scope has actually been checked. It is a
   self-consistency observation unless provenance demonstrates an independent upstream lineage.
-- **Filtered-chain versus all-chain comparison:** ordinary directional liftOver output and the broader
-  all-chain candidate inventory become explicit comparative context when both are available.
-- **Actual reverse mapping context:** a reverse assessment is a separate capability from
-  reciprocal-best membership. It preserves check availability, no-projection state, original-source
+- **Standard liftOver versus all-chain comparison:** standard directional liftOver output and the broader
+  all-chain mapping inventory become explicit comparative context when both are available.
+- **Actual reverse liftOver:** a reverse assessment is a separate capability from
+  reciprocal-best membership. It preserves check availability, no-mapping state, original-source
   overlap/coverage, elsewhere returns, and exact original-geometry reconstruction as distinct facts.
   Fragmented forward mappings are reversed through their exact mapped target segments; a target
   bounding span must never manufacture a reverse query across an unaligned gap. Reverse execution
   is chain-only: a prepared reverse chain index provides region-addressable lookup, while the
   lower-level non-indexed path shares one verified chain traversal across the complete segment-query
   set. Net and reciprocal-best resources are not required or consumed merely to establish reverse
-  geometry. The automatic CLI is cache-only and index-only, uses the same chain publication class as
+  geometry. The automatic CLI is cache-only and index-only, uses the same chain resource class as
   the forward assessment, reports an absent matching chain as `UNAVAILABLE`, and reports a cached
   matching chain without usable indexed access as `NOT_RUN`. During an explicit `--refresh`, the
   reverse check is also `NOT_RUN` rather than mixing freshly reacquired forward resources with
   unrefreshed reverse bytes; reverse-direction refresh is never implicit. The CLI never silently
   downloads reverse resources, builds a reverse index, or starts an exhaustive reverse traversal.
-- **Point local context:** 1-bp queries automatically request a centered 101-bp neighborhood
+- **Point flanking-interval context:** 1-bp queries automatically request a centered 101-bp flanking interval
   assessment from the prepared forward chain index, with exact boundary-clipped source geometry,
-  explicit forward-chain-only evidence scope, and deterministic point/context relationship states. Larger
+  explicit forward-chain-only evidence scope, and deterministic point/flanking-interval relationship states. Larger
   odd-width windows are explicit through `--context-bases`; ordinary intervals are not widened, and
   automatic context never falls back to another whole-chain traversal.
-- **Assembly-sequence metadata/preflight:** source sequence validity, source bounds, authoritative
+- **Assembly-sequence metadata and source validation:** source sequence validity, source bounds, authoritative
   aliases, and target sequence role belong to one coherent metadata capability rather than ad-hoc
   naming heuristics. Chain-file names alone are not authoritative proof that an assembly sequence is
   valid.
-- **Batch relationships:** exact collisions and overlapping target projections are relationships among
+- **Batch relationships:** exact collisions and overlapping target mappings are relationships among
   records and belong in a separate batch result layer. BED/simple interval-table input becomes
   first-class with batch support. Cross-record target relationships are computed from the exact mapped
-  target segments after adjacent target coverage is canonicalized, never from a candidate's
-  target bounding span. An exact target collision means two distinct input records have candidate
-  projections covering the same target bases; a positive but non-identical target-base intersection is
-  an overlapping-but-offset projection. Candidate relationships within one input record are not batch
-  relationships. One-base batch rows also receive the approved automatic point-context window from the
+  target segments after adjacent target coverage is canonicalized, never from a mapping's
+  target bounding span. An exact target collision means two distinct input records have mapping
+  mappings covering the same target bases; a positive but non-identical target-base intersection is
+  an overlapping-but-offset mapping. mapping relationships within one input record are not batch
+  relationships. One-base batch rows also receive the approved automatic flanking-interval window from the
   same prepared chain index. Context-scale relationships are stored separately from the submitted-row
-  relationships: identical mapped target coverage at that scale is a neighborhood-level target
+  relationships: identical mapped target coverage at that scale is a flanking-interval-level target
   collision, while positive non-identical overlap remains overlapping-but-offset. Ordinary interval
   rows are never widened automatically, and unavailable indexed source bounds produce explicit
   per-record context `NOT_RUN` rather than a guessed window.
@@ -368,8 +364,8 @@ Not addressed in earlier drafts of this design and worth getting right before an
   duplications meeting the track's alignment/identity criteria; liftAssess therefore reports an
   overlap as that exact provider observation, not as proof that a mapping is wrong, not as a
   generic difficult-region flag, and not as a penalty or vote. The source query is intersected
-  directly with source-assembly rows. Target context is intersected against each candidate's exact
-  mapped target segments, never the candidate bounding span across unaligned target gaps. Reported
+  directly with source-assembly rows. Target context is intersected against each mapping's exact
+  mapped target segments, never the mapping bounding span across unaligned target gaps. Reported
   facts retain the paired interval, strand, UCSC UID, aligned bases (`alignB`), matching-base
   fraction (`fracMatch`), assembly side, and SHA-256-addressed resource provenance. Missing optional
   tables remain explicitly unavailable and do not block coordinate assessment. GIAB stratifications
@@ -392,13 +388,13 @@ Not addressed in earlier drafts of this design and worth getting right before an
 - Large bundled species-support databases.
 - Hosted infrastructure.
 
-Candidate rank remains deferred until a defensible locus-scoped definition exists. Raw chain-score
+mapping rank remains deferred until a defensible locus-scoped definition exists. Raw chain-score
 order, UCSC output order, or encounter order must not be silently promoted into scientific rank.
 
 ## 7. Architecture
 
 ```
-Candidate-generation / evidence engine
+Mapping / evidence engine
         │
         ▼
 NormalizedCandidate[] + evidence + provenance
@@ -415,43 +411,43 @@ Derived result profile (orthogonal factual states)
 Progressive-disclosure human renderer
 ```
 
-- The scientific core knows nothing about how candidates were produced beyond the normalized
-  candidate/evidence/provenance contract. Source-specific mechanical observations that cannot be
+- The scientific core knows nothing about how mappings were produced beyond the normalized
+  mapping/evidence/provenance contract. Source-specific mechanical observations that cannot be
   reconstructed losslessly after normalization must therefore be extracted while the source record
   is still available and carried forward with provenance. Chain-gap evidence is one such case.
 - **The result profile is a dedicated derived boundary.** It converts scientific report/composite
   analysis data into the orthogonal factual states defined in §4. Human renderers consume that
   profile rather than rediscovering semantics independently, and user-facing prose does not belong
-  in core candidate/evidence dataclasses.
-- **The current implementation has exactly one candidate-generation/evidence engine**: an internal,
+  in core mapping/evidence dataclasses.
+- **The current implementation has exactly one mapping generation/evidence engine**: an internal,
   minimal chain/net reader against the documented UCSC chain/net format. Not pyliftover
   (point-converter only, no block/gap detail) and not the UCSC liftOver binary (see §8, licensing).
-- **Chains generate candidate mappings; nets annotate and evaluate those candidates.** These are
+- **Chains generate liftOver mappings; nets annotate and evaluate those mappings.** These are
   distinct responsibilities. For UCSC-generated liftOver map chains specifically, the old/source
   assembly is the chain target (`t*`) side and the new/destination assembly is the query (`q*`)
-  side; candidate generation follows that documented direction explicitly rather than inferring it
+  side; mapping generation follows that documented direction explicitly rather than inferring it
   from assembly names. The LIFTOVER-ONLY evidence tier has no net file and must still be
-  able to generate and report candidates from chain data alone. The implementation may keep both in
+  able to generate and report mappings from chain data alone. The implementation may keep both in
   one reader package, but the two responsibilities stay conceptually — and ideally structurally —
-  separate, so net availability is never accidentally required for candidate generation itself.
-- **UCSC engine orchestration consumes each external record stream once.** Candidate generation
+  separate, so net availability is never accidentally required for mapping generation itself.
+- **UCSC engine orchestration consumes each external record stream once.** mapping generation
   streams chains once; net records are filtered during one pass to fills associated with generated
-  candidate chain IDs; reciprocal-best chains are filtered during one exhaustive pass to the
-  source/target sequence and orientation combinations relevant to those candidates. This avoids
-  rescanning large comparative resources once per candidate or materializing whole-genome files
-  merely to make iterators reusable. Per-candidate matching still applies the stricter geometry and
-  provenance rules defined above; the orchestration layer does not rank candidates or manufacture
-  an aggregate result verdict.
+  mapping chain IDs; reciprocal-best chains are filtered during one exhaustive pass to the
+  source/target sequence and orientation combinations relevant to those mappings. This avoids
+  rescanning large comparative resources once per mapping or materializing whole-genome files
+  merely to make iterators reusable. Per-mapping matching still applies the stricter geometry and
+  provenance rules defined above; the orchestration layer does not rank mappings or manufacture
+  an aggregate result label.
 
 - **Region-addressable/shared resource access becomes enabling architecture immediately after the
   first result-profile/renderer slice.** Milestone-18 prototype/benchmark work selected a reusable
   chain index with 65,536-bp source-coordinate bin memberships and encounter-order chain records
   stored exactly once in independently compressed blocks. The derived index is keyed to the exact
   source-chain SHA-256 and remains an acceleration artifact, not replacement scientific evidence.
-  Automatic reverse mapping, point-context comparison, filtered/all-chain comparison, expanded
+  Automatic reverse mapping, flanking-interval comparison, standard liftOver/all-chain comparison, expanded
   comparative analysis, and batch assessment must not ship by multiplying the current exhaustive
   whole-resource scan. Indexed/preprocessed forms must preserve exact coordinate,
-  evidence-completeness, resource-identity, provenance, and reproducible candidate-order semantics.
+  evidence-completeness, resource-identity, provenance, and reproducible mapping-order semantics.
   A validated exact-resource index may be used transparently for chain-record access when present;
   the CLI falls back to the existing verified full traversal when that derived acceleration
   artifact is absent or unusable. Lower-level library callers receive `ChainIndexCorruptionError`
@@ -461,15 +457,15 @@ Progressive-disclosure human renderer
   normal indexed assessment verifies a compact lookup catalog, validates each queried 65,536-bp
   bin's membership/record-locator rows against catalogued SHA-256 digests, and verifies selected
   compressed record blocks before parsing. It therefore does not reread either the unused original
-  chain or the complete SQLite lookup database on every query. The other cached bundle artifacts
+  chain or the complete SQLite lookup database on every query. The other cached resource set artifacts
   retain their normal direct SHA-256 checks. This distinction matters on slow storage: a measured
-  cold cache-bundle verification on an older iMac HDD took 95.976 seconds, while the same bundle
+  cold cache resource-set verification on an older iMac HDD took 95.976 seconds, while the same resource set
   verification on the M4 Mac mini took about 1.2 seconds. The integrity contract therefore remains
   exact for the query-relevant derived data without forcing storage-sensitive whole-artifact reads.
   Index construction remains an explicit user action rather than an implicit first-query pause.
 - **Local resource-file integration stays a thin streaming boundary.** Plain-text and gzip-compressed
   chain/net files are opened locally and fed directly through the existing parsers into the UCSC
-  engine; they are not materialized as whole-file objects in memory or rescanned once per candidate.
+  engine; they are not materialized as whole-file objects in memory or rescanned once per mapping.
   This layer does not download files or infer provider permissions. Exact local file artifacts are
   identified by SHA-256 over their raw on-disk bytes and represented through the existing
   `ProvenanceIdentifierKind.SHA256` model; the content-addressed file provenance node derives its
@@ -479,7 +475,7 @@ Progressive-disclosure human renderer
   provenance remains caller-supplied because file bytes cannot reveal how the artifact was produced.
   The acquisition/cache layer computes SHA-256 during transfer while recording source URL, retrieval
   metadata, applicable provider terms, and any provider checksum verification. Single-resource
-  acquisition and complete bundle planning/execution are implemented against a caller-supplied cache
+  acquisition and complete resource set planning/execution are implemented against a caller-supplied cache
   root; no repository-local cache is created. For terms-gated mapping resources, after explicit
   provider-terms acknowledgement a separate metadata-inspection step may issue body-free HTTP HEAD
   requests to expose
@@ -495,13 +491,13 @@ Progressive-disclosure human renderer
   and only the private file is atomically published. This prevents another process holding the shared
   partial inode open from mutating an already-published artifact. When the required metadata is absent,
   acquisition remains non-resumable rather than inventing a weaker validator.
-  A fully acquired cached bundle can now bridge directly into the same file-backed engine without
+  A fully acquired cached resource set can now bridge directly into the same file-backed engine without
   re-downloading resources or pre-hashing them a second time: cache-recorded SHA-256 values create
   the file provenance nodes, while the parser still hashes every consumed raw stream and rejects a
-  post-acquisition mutation before candidates return. The bridge requires caller-supplied upstream
-  alignment provenance and validates the bundle's UCSC database strings only against explicit
+  post-acquisition mutation before mappings return. The bridge requires caller-supplied upstream
+  alignment provenance and validates the resource set's UCSC database strings only against explicit
   assembly names/aliases; it does not create a general alias resolver. For `COMPARATIVE`, all five
-  acquired files remain on the bundle, but the v1 engine consumes the all-chain, ordinary net, and
+  acquired files remain in the resource set, but the v1 engine consumes the all-chain, ordinary net, and
   reciprocal-best chain. UCSC's current `doBlastzChainNet.pl` produces the ordinary net through
   `chainNet`/`netSyntenic` and `netClass`, while the optional `*.syn.net.gz` is a subsequent
   `netFilter -syn` derivative; substituting the syntenic net would therefore discard exactly the
@@ -511,17 +507,17 @@ Progressive-disclosure human renderer
   https://raw.githubusercontent.com/ucscGenomeBrowser/kent/refs/heads/master/src/hg/utils/automation/doBlastzChainNet.pl
   and https://raw.githubusercontent.com/ucscGenomeBrowser/kent/refs/heads/master/src/hg/utils/automation/doRecipBest.pl.
 - **Reciprocal-best completeness metadata survives orchestration filtering unchanged.** The
-  engine's source-sequence, target-sequence, and orientation filter is lossless for candidate
+  engine's source-sequence, target-sequence, and orientation filter is lossless for mapping
   membership: it removes only reciprocal-best chains that the downstream geometry matcher would
-  reject for that candidate anyway. Therefore a caller's `COMPLETE_RESOURCE` or
+  reject for that mapping anyway. Therefore a caller's `COMPLETE_RESOURCE` or
   `COMPLETE_CANDIDATE_SUBSET` claim continues to describe the scope that was exhaustively checked
-  and is not rewritten merely because the engine materializes a candidate-relevant subset
+  and is not rewritten merely because the engine materializes a mapping-relevant subset
   internally. `chains_examined` is relevance-filtered audit context, not evidence strength or
   proof that the caller's completeness claim is true.
 - **Net fills are not one-to-one with chains.** UCSC net `fill` records may carry the associated
   chain ID, but the same chain ID can occur on more than one fill in one net (including at
-  different hierarchy positions). Candidate annotation must therefore use the chain association
-  together with target-side overlap against the candidate's actual aligned source segments and
+  different hierarchy positions). mapping annotation must therefore use the chain association
+  together with target-side overlap against the mapping's actual aligned source segments and
   preserve the hierarchy context of every matching fill; it must not treat `chain_id` as a unique
   net-record key or choose a single "best" fill. UCSC defines a fill as a portion of a chain, and
   its own `netToAxt` implementation subsets that chain using the fill's target start/end. This is
@@ -534,14 +530,14 @@ Progressive-disclosure human renderer
   observations cannot be presented as independent confirmation.
 - **Net query coordinates are preserved but not yet used for genomic comparisons.** The current
   parser stores each net record's reported query start/span and relative orientation, but v1
-  candidate matching intentionally uses only the target-side fill span plus the candidate's exact
+  mapping matching intentionally uses only the target-side fill span plus the mapping's exact
   aligned source segments. Do not treat the stored net query coordinates as forward-reference
   genomic coordinates until their strand/origin semantics have been verified against the kent
   chainNet implementation. This is a deferred verification item, not an inferred convention.
-- Reconstruct candidates independently from chain/net resources rather than only grading a
-  converter's already-filtered output (a converter may have discarded a relevant alternative
+- Reconstruct mappings independently from chain/net resources rather than only grading a
+  converter's selected output (a converter may have discarded a relevant alternative
   before the assessor ever sees the locus). A converter's flag ("this looks suspicious") is a
-  trigger to investigate, not the candidate set itself.
+  trigger to investigate, not the mapping set itself.
 - Pluggable is a real requirement for the *interface boundary* only. It does **not** mean a
   plugin manager, registration API, entry points, config system, or dynamic discovery in v1. No
   piece of "extensibility" belongs in v1 unless it makes the one real engine or the assessor
@@ -588,11 +584,11 @@ Progressive-disclosure human renderer
   reuse is based on the retained URL index plus exact content identity and must not be described as
   proof that the remote URL is unchanged; cached provider artifacts retain local SHA-256
   verification except that a validated exact-resource derived index may carry the source-chain
-  identity without rereading unused original chain bytes. An explicit refresh path is required. Whole-bundle
+  identity without rereading unused original chain bytes. An explicit refresh path is required. Whole-resource-set
   retrieval is a second explicit boundary: construct a no-network plan that enumerates every resource
   required by the discovered evidence tier, surface each resource's terms classification, and require a
-  separate acknowledgement of that transfer plan before acquiring any item. A returned cached bundle is
-  complete for its evidence tier; if a later item fails, no partial bundle object is returned, while any
+  separate acknowledgement of that transfer plan before acquiring any item. A returned cached resource set is
+  complete for its evidence tier; if a later item fails, no partial resource-set object is returned, while any
   already-published content-addressed artifacts remain valid cache entries for retry. A separate body-free
   metadata-inspection step can record provider-advertised size and transport headers for the exact plan
   URLs after explicit provider-terms acknowledgement. Live provider verification established the required
@@ -610,12 +606,12 @@ Progressive-disclosure human renderer
   provider provenance; an alias is never invented from a naming pattern and is not silently
   substituted for submitted input. The single-locus execution path discovers and caches the
   provider-observed `chromInfo`/optional `chromAlias` table dumps, re-verifies their exact SHA-256
-  identities while parsing, and completes this preflight before chain-bundle verification or
-  scientific candidate generation. Cache-only batch execution loads that same cached catalog once,
+  identities while parsing, and completes this validation before chain-resource-set verification or
+  scientific mapping generation. Cache-only batch execution loads that same cached catalog once,
   preflights every submitted row before chain/index selection, and carries the authoritative
-  preflight facts and metadata provenance into batch reporting. A valid `chromInfo` sequence with no
-  chain record remains valid input and may truthfully produce no chain projection. Automatic
-  point-context clipping uses the authoritative `chromInfo` length when preflight is available rather
+  validation facts and metadata provenance into batch reporting. A valid `chromInfo` sequence with no
+  chain record remains valid input and may truthfully produce no liftOver mapping. Automatic
+  flanking-interval clipping uses the authoritative `chromInfo` length when source validation metadata is available rather
   than promoting the chain index's conservative query bound into assembly authority.
 - **Target-sequence role/context must come from a defined, version-matched metadata source.** When a
   UCSC assembly description explicitly states an exact versioned NCBI assembly accession, the NCBI
@@ -634,14 +630,14 @@ Progressive-disclosure human renderer
   alternate sequence. Runtime acquisition uses the UCSC database's static assembly description to
   bind the Browser database to an exact versioned NCBI assembly accession, then caches the exact
   NCBI Datasets sequence-report member as a separate SHA-256-addressed metadata artifact. Online
-  single-locus runs may acquire these small target-context resources after the mapping bundle is
+  single-locus runs may acquire these small target-context resources after the mapping resource set is
   resolved. Offline single-locus and batch runs remain provider-free: they reuse cached role/context
   when available, otherwise report `UNAVAILABLE` and infer nothing from target names. A Browser
   database whose description does not state an exact versioned NCBI accession also remains
   `UNAVAILABLE`; liftAssess does not manufacture a binding from nearby release names or naming
   conventions. Missing, corrupt, or provider-inconsistent optional role metadata never blocks the
   already-computed coordinate assessment; it degrades this context dimension to `UNAVAILABLE` with an
-  operational status message. If no target projection exists, the role dimension
+  operational status message. If no target mapping exists, the role dimension
   is `NO_TARGET_PROJECTIONS` rather than an availability judgment. Exact metadata identities and the
   UCSC-description -> NCBI-sequence-report dependency are retained in report provenance.
 - **Batch assessment must reuse resource work across loci.** A batch interface must not be a naive
@@ -650,14 +646,14 @@ Progressive-disclosure human renderer
   representation while preserving the same single-locus mapping/evidence semantics and per-locus
   provenance. The initial M22 execution primitive is index-required: a missing/unusable prepared index
   is an explicit precondition failure rather than permission to fall back to whole-chain traversal.
-  `LIFTOVER-ONLY` batches remain chain-only. For a complete cached COMPARATIVE bundle, submitted-row
-  candidates come from the prepared all-chain index and the ordinary net plus reciprocal-best chain are
-  each consumed exactly once across the complete submitted candidate collection. The all-chain is not
+  `LIFTOVER-ONLY` batches remain chain-only. For a complete cached COMPARATIVE resource set, submitted-row
+  mappings come from the prepared all-chain index and the ordinary net plus reciprocal-best chain are
+  each consumed exactly once across the complete submitted mapping collection. The all-chain is not
   rescanned, and comparative evidence is never approximated from chain data. The batch scope does not
-  run the paired filtered-vs-all-chain inventory comparison or categorical comparative relationship
-  classifier; those dimensions remain explicitly not assessed. Automatic point-context
-  candidates deliberately remain forward-chain-only; net/reciprocal-best observations are not silently
-  promoted to the neighborhood scale. The CLI batch surfaces are `--bed PATH` and
+  run the paired standard liftOver versus all-chain inventory comparison or categorical comparative relationship
+  classifier; those dimensions remain explicitly not assessed. Automatic flanking-interval
+  mappings deliberately remain forward-chain-only; net/reciprocal-best observations are not silently
+  promoted to the flanking-interval scale. The CLI batch surfaces are `--bed PATH` and
   `--interval-table PATH` (each also accepts `-` for stdin) and retain the ordinary single-locus
   positional syntax. BED uses native 0-based, half-open coordinates. The interval-table surface
   requires a tab-delimited `sequence`, `start`, `end` header with optional `label` and uses the same
@@ -665,12 +661,12 @@ Progressive-disclosure human renderer
   canonical 0-based, half-open batch model. Batch execution is cache-only and prepared-index-only:
   `--refresh` is rejected, no provider acquisition or automatic index build occurs, and an unavailable/
   corrupt index fails before assessment. Default publication-class selection prefers a complete cached
-  COMPARATIVE bundle and otherwise the available LIFTOVER-ONLY chain unless `--evidence-tier` requests
+  COMPARATIVE resource set and otherwise the available LIFTOVER-ONLY chain unless `--evidence-tier` requests
   an exact class. Human and JSON batch output use canonical 0-based, half-open intervals. Batch
   scientific assessment also requires verified cached UCSC source metadata: one catalog is parsed for
-  the batch, every row must pass canonical-name and authoritative-bound preflight before chain/index
-  lookup, and a valid row with zero indexed candidates can therefore be reported as a valid source
-  interval with no chain projection. Batch mode does not acquire missing metadata implicitly.
+  the batch, every row must pass canonical-name and authoritative-bound validation before chain/index
+  lookup, and a valid row with zero indexed mappings can therefore be reported as a valid source
+  interval with no liftOver mapping. Batch mode does not acquire missing metadata implicitly.
 - **Portable case packets are constrained by redistribution terms.** A reproducible case manifest
   may record the schema-versioned result, exact resource SHA-256 identities, source URLs,
   retrieval/checksum/terms metadata, and provenance graph. An archive may embed byte-identical
@@ -686,7 +682,7 @@ Progressive-disclosure human renderer
   non-commercial use by independent researchers and nonprofit organizations; other use requires
   a commercial license. Downloading or using those files constitutes acceptance of UCSC's EULA,
   and redistribution must include the applicable UCSC README/license terms.
-- Comparative resources under `source/vsTarget/` are a distinct publication class and must follow
+- Comparative resources under `source/vsTarget/` are a distinct resource class and must follow
   the terms published for that resource directory rather than automatically inheriting the
   `liftOver/*.over.chain.gz` restriction merely because some files use chain format. For the
   established `canFam3` ↔ `canFam4` mechanical fixture, UCSC's `canFam3/vsCanFam4/` README explicitly
@@ -709,12 +705,12 @@ Progressive-disclosure human renderer
   license exists. No-network discovery/planning itself does not require terms acknowledgement, and HEAD
   inspection does not substitute for the separate transfer-plan acknowledgement required to download
   resource bodies.
-- Do not bundle or mirror UCSC chain/net resources in the liftAssess source tree, package,
+- Do not package or mirror UCSC chain/net resources in the liftAssess source tree, package,
   release artifacts, or fixtures. Keep downloaded provider data in a separate local cache,
   preserve source URL, applicable terms/README provenance, retrieval metadata, and content
   checksum, and keep liftAssess's own GPL-licensed code independent of those external files.
-  The acquisition layer now supports individual resources plus explicit complete-bundle transfer plans
-  in a caller-selected external cache. Planning itself performs no network access, and bundle execution
+  The acquisition layer now supports individual resources plus explicit complete-resource-set transfer plans
+  in a caller-selected external cache. Planning itself performs no network access, and resource-set acquisition
   requires a separate transfer-plan acknowledgement before any resource acquisition starts. Terms-gated
   HEAD inspection can expose exact remote size before transfer. When an exact provider checksum, strong ETag, exact identity-encoded
   size, and byte-range support are available, interrupted HTTPS transfers can resume safely; otherwise the
@@ -741,7 +737,7 @@ assessment paths.
 
 Default terminal output is **facts-first**:
 
-1. preflight/input failure, if any;
+1. source validation/input failure, if any;
 2. deterministic factual mapping headline;
 3. the few measured facts needed to understand it;
 4. evidence tier plus material consumed/context resources;
@@ -751,8 +747,8 @@ Default terminal output is **facts-first**:
 
 Uncomplicated results remain compact. The renderer expands when materially unusual states are
 present, initially including partial coverage, fragmented/discontinuous geometry, multiple
-projections, alternate/unplaced targets, reverse disagreement, point/101-bp disagreement,
-filtered/all-chain disagreement, comparative conflict/non-separation, batch collision/overlap, or
+mappings, alternate/unplaced targets, reverse disagreement, point/101-bp disagreement,
+standard liftOver/all-chain disagreement, comparative conflict/non-separation, batch collision/overlap, or
 typed difficult-region context.
 
 For materially unusual results, progressive disclosure must add **meaning and actionability**, not
@@ -774,44 +770,43 @@ common-use lenses remain represented in the profile/details so that absent domai
 mistaken for assessed evidence.
 
 For large intervals, source coverage and fragmentation lead the story. Use a mechanically defined
-maximum candidate source coverage unless a separate rank concept has been explicitly defined.
+maximum mapping source coverage unless a separate rank concept has been explicitly defined.
 
-### Detailed human dossier (`--details`)
+### Detailed human report (`--details`)
 
 Detailed output exposes the complete result profile and supporting evidence, including:
 
 - exact mapped segments and target bounding spans;
 - source coverage and uncovered source intervals;
 - source/target chain gaps;
-- orientation and target-role context;
+- orientation and target sequence-role context;
 - every relevant evidence observation;
-- filtered/all-chain and comparative relationships when available;
+- standard liftOver/all-chain and comparative relationships when available;
 - reciprocal-best membership and actual reverse-result context as distinct concepts;
-- point/neighborhood comparisons when run;
-- typed external-context observations and exact provenance;
+- point/flanking-interval comparisons when run;
+- genomic-context observations and exact provenance;
 - batch relationships when assessing multiple records;
 - resource retrieval/checksum/terms context and actual engine consumption; and
 - the provenance dependency graph.
 
-Candidate encounter order is preserved for reproducibility but is not presented as rank.
+Mapping encounter order is preserved for reproducibility but is not presented as rank.
 
 ### Machine-readable output (`--json`)
 
-The redesign deliberately introduces a **new schema version** rather than preserving the alpha-v1
-verdict schema. Schema v1 remains historical v0.1.0a1 behavior and may be broken by this pre-release
-redesign. Do not retain `verdict`, verdict-derived `decision_reason`, or preferred-candidate semantics
-merely for compatibility with the obsolete aggregate model.
+The redesign deliberately introduces a **new schema version** rather than preserving the earlier
+aggregate-result schema. Obsolete aggregate-result and mapping-selection semantics are not carried
+forward merely for compatibility with the earlier alpha.
 
-Schema v2 is implemented around the derived result profile plus exact candidates/evidence/resources/
+Schema v2 is implemented around the derived result profile plus exact mappings/evidence/resources/
 provenance. The released structure must preserve:
 
 - schema version and report type;
 - source/target assembly identifiers and exact source interval;
 - orthogonal result-profile dimensions from §4;
-- exact candidate geometry and evidence;
+- exact mapping geometry and evidence;
 - resource consumption, retrieval/checksum/terms metadata, and SHA-256 identities;
-- typed external-context observations;
-- composite-analysis results (reverse, neighborhood, comparative, batch) when run;
+- genomic-context observations;
+- composite-analysis results (reverse, flanking interval, comparative, batch) when run;
 - provenance/dependency edges; and
 - explicit scope boundaries for untested identity/workflow domains.
 
@@ -820,8 +815,7 @@ coordinate-system field. Target bounding spans must remain named/described as bo
 fragmented mappings cannot be mistaken for continuous alignment. JSON field/array encounter order
 is reproducibility context unless a field explicitly defines ordering semantics.
 
-The compatibility break must be documented in release notes when the redesigned schema ships. A
-migration layer is not current scope unless real users establish a need.
+The schema change is documented in release notes. A migration layer is not current scope unless real users establish a need.
 
 ### Comparative wording
 
@@ -833,7 +827,7 @@ until an explicit, validated interpretation rule says otherwise.
 ### Process status and automation
 
 Invalid input, usage errors, and operational failures may return nonzero process status. A valid
-completed scientific result—including no chain projection, multiple projections, or unresolved
+completed scientific result—including no liftOver mapping, multiple mappings, or unresolved
 comparative evidence—is not itself a process failure. Automation should branch on structured result
 fields, not prose or exit status for scientific interpretation.
 
@@ -841,14 +835,14 @@ fields, not prose or exit status for scientific interpretation.
 
 - Genome Browser/locus links may be emitted as navigation aids when the required assembly and
   coordinates are known. A link is not new scientific evidence or an identity check.
-- BED12/custom-track export may represent one candidate whose mapped blocks are legally expressible
-  on one target sequence. It must not collapse multiple target sequences/candidates into one BED12
+- BED12/custom-track export may represent one mapping whose mapped blocks are legally expressible
+  on one target sequence. It must not collapse multiple target sequences/mappings into one BED12
   object and does not replace source-coverage reporting.
 - A compact profile-vector string is deferred; structured JSON is the machine interface.
 
 ### CLI/resource behavior retained from the alpha implementation
 
-The common single-locus CLI remains cache-first. A complete verified local bundle can be assessed
+The common single-locus CLI remains cache-first. A complete verified local resource set can be assessed
 without provider access; `--offline` makes zero network access explicit, `--refresh` deliberately
 checks/reacquires current provider resources, `--cache-dir` overrides the user cache, and `--quiet`
 suppresses nonessential progress. Interactive transfer/cache-verification/assessment progress is
@@ -862,9 +856,9 @@ came from one exact UCSC processing run. This prevents chain/net/reciprocal-best
 reading as independent confirmation without claiming provider-process history that liftAssess
 cannot verify from the downloaded resources.
 
-**Legacy implementation note:** v0.1.0a1 emitted schema v1 with
-`WELL_SUPPORTED`/`CONTESTED`/`INDETERMINATE`, `decision_reason`, and the legacy default summary.
-Those facts remain valid implementation history, not current target policy.
+**Earlier-alpha implementation note:** v0.1.0a1 used an aggregate-result schema and a different
+summary format. Those obsolete result semantics are intentionally not retained in the current public
+terminology.
 
 ## 10. Validation strategy — fixtures, real-world corpus, and held-out UX gate
 
@@ -883,14 +877,14 @@ Those facts remain valid implementation history, not current target policy.
     `15123263dbe4f2c1eb670a98c9b0acf2`; the exact downloaded bytes had SHA-256
     `c79c9e7c2a3d546f7a9d7efe27cc8815da611d79adb0da4e4ff1556810f28f48`. The implemented
     file → parser → engine path mapped the 0-based half-open source interval
-    `chr1:12514-12534` to one candidate at `chr1:660-680` with full 20/20 source-base coverage
-    and no chain gaps. No assessment verdict was computed. This establishes real-file mechanical
+    `chr1:12514-12534` to one mapping at `chr1:660-680` with full 20/20 source-base coverage
+    and no chain gaps. No aggregate assessment label was computed. This establishes real-file mechanical
     plumbing under the sparse LIFTOVER-ONLY path; it does not validate comparative evidence or
     biological support.
   - **Full comparative mechanical fixture completed 2026-08-16.** The selected canonical
     0-based half-open source interval is `chrUn_JH373233:1845735-1845835`. Running the exact
-    externally cached five-resource bundle through `build_ucsc_candidates_from_cached_bundle()`
-    produced 170 candidates across 114 target sequences. Chain 573 provides the primary
+    externally cached five-resource set through `build_ucsc_candidates_from_cached_bundle()`
+    produced 170 mappings across 114 target sequences. Chain 573 provides the primary
     evidence-rich mechanical case: reverse orientation to `chr35:925644-925938`, two aligned
     segments, full 100/100 source coverage, one target-side chain gap, chain score 16,617,372,
     `ali=3603`, `qDup=4098`, `nonSyn` net classification at depth 7, and `FULL` reciprocal-best
@@ -898,14 +892,11 @@ Those facts remain valid implementation history, not current target policy.
     absent cases. The production path SHA-256-verifies the consumed resource bytes and preserves
     one caller-declared shared upstream alignment ancestor across chain/net/reciprocal-best file
     provenance. The original completed fixture run verified extraction and provenance wiring only.
-    Earlier versions of the reproducible verifier also contained a legacy-alpha cross-check that
-    independently derived the then-expected `CONTESTED` verdict from extracted candidate evidence
-    without calling `assess_candidates()`; the post-hardening real-data rerun on 2026-08-17 derived
-    that legacy result from 138 material candidates and matched the production alpha assessor. That
-    remains historical regression coverage for v0.1.0a1 semantics, not a target-model requirement.
-    After Milestone 17 replaced the aggregate verdict model, the current verifier instead
+    Earlier versions of the reproducible verifier also cross-checked the then-current aggregate
+    result policy from extracted mapping evidence. After Milestone 17 replaced that aggregate model,
+    the current verifier instead
     cross-checks the factual result profile while retaining exact chain/net/reciprocal-best geometry
-    and provenance checks; it does not run the later filtered/all-chain comparative-relationship
+    and provenance checks; it does not run the later standard liftOver/all-chain comparative-relationship
     classifier. No biological ground-truth claim is made. The verifier lives at `scripts/verify_canFam3_canFam4_mechanical_fixture.py`; the UCSC bulk
     files remain external.
 - **Historical-resolution fixture pedigree (not yet a concrete fixture)** — identifies the right
@@ -934,20 +925,20 @@ The completed 50-case program is design/UX evidence, not a general accuracy benc
 intentionally enriched for historically troublesome liftover/support cases and controls. Its main
 load-bearing conclusions for the current design are:
 
-- a clean single-chain legacy result can omit material context such as non-reciprocity,
-  duplication/paralogy, neighborhood fragmentation, or cross-record collision;
-- coverage/fragmentation explains large-region threshold behavior more clearly than raw candidate
+- a clean single-chain mapping can still omit material context such as non-reciprocity,
+  duplication/paralogy, flanking-interval fragmentation, or cross-record collision;
+- coverage/fragmentation explains large-region threshold behavior more clearly than raw mapping
   count;
 - point widening has a measured clean background in six matched 101-bp controls and can also expose
   local structure missed by a 1-bp query;
-- filtered chains can conceal additional all-chain placements;
+- standard liftOver chains can conceal additional all-chain mappings;
 - comparative net/reciprocal-best observations can sometimes materially distinguish placements,
   but their shared provenance must remain explicit;
 - batch collisions are a separate evidence scale; and
-- input/preflight failures must not masquerade as biological no-projection outcomes.
+- input-validation failures must not masquerade as biological no-mapping outcomes.
 
 The `38 YES / 10 MOSTLY / 2 NO` language replay is same-corpus design acceptance, not independent
-validation. Likewise, counts of legacy `WELL_SUPPORTED` misses in the enriched corpus are not
+validation. Counts of cases where the earlier aggregate model hid important context are likewise not
 population prevalence estimates.
 
 ### Held-out language/usability gate
@@ -973,29 +964,29 @@ validation. This gate evaluates understandability and evidence boundaries, not n
 ## 12. Sequencing
 
 The first public alpha proved the end-to-end UCSC workflow, but the 50-case program showed that the
-legacy aggregate-verdict interface is too easy to overread and omits important explanatory context.
+earlier aggregate-result interface is too easy to overread and omits important explanatory context.
 The post-alpha redesign was implemented in this order:
 
-1. **Factual result profile + renderer.** Replace the target aggregate-verdict model with the
+1. **Factual result profile + renderer.** Replace the target aggregate-result model with the
    orthogonal profile in §4, define the new schema version, add deterministic headlines,
    coverage/fragmentation summaries, evidence boundaries, and progressive disclosure using facts
-   already computed. Do not begin by rewriting candidate generation.
+   already computed. Do not begin by rewriting mapping generation.
 2. **Start indexing/shared traversal immediately after the first renderer slice.** Prototype and
    benchmark a region-addressable/reusable resource path. In parallel, add authoritative assembly
-   metadata/preflight and begin the typed difficult-region pilot (initially UCSC segmental
+   metadata/source validation and begin the typed difficult-region pilot (initially UCSC segmental
    duplications where source/terms/assembly coverage are verified).
-3. **Actual reverse mapping context.** Keep it distinct from reciprocal-best membership.
-4. **Point neighborhood / multi-scale context.** Add automatic centered 101-bp context for 1-bp
+3. **Actual reverse liftOver.** Keep it distinct from reciprocal-best membership.
+4. **Point flanking interval / multi-scale context.** Add automatic centered 101-bp context for 1-bp
    queries plus explicit larger-window controls.
-5. **Comparative expansion/asymmetry.** Pair ordinary filtered liftOver with all-chain inventory and
+5. **Comparative expansion/asymmetry.** Pair standard liftOver with all-chain inventory and
    expose categorical comparative relationships. Mixed/conflicting output must explain the actual
    evidence relationship rather than stop at an opaque label.
 6. **Batch relationships — implemented.** BED/simple interval-table input, indexed/shared-resource
-   assessment, exact collision/overlap relationships, automatic point-context relationships, and shared
+   assessment, exact collision/overlap relationships, automatic flanking-interval relationships, and shared
    submitted-row COMPARATIVE evidence are implemented. Batch scope boundaries remain explicit where
    single-locus capabilities are not run.
 7. **Complete the remaining parallel context work from step 2 — completed.** Authoritative
-   assembly-sequence metadata/preflight, including version-matched target role/context, is implemented.
+   assembly-sequence metadata/source validation, including version-matched target sequence role, is implemented.
    The initial typed UCSC segmental-duplication pilot completed focused review/remediation and motivating-
    case A03/A04 real-data exercise without changing mapping interpretation. Those motivating cases are
    implementation/design evidence, not the held-out validation gate.
@@ -1003,7 +994,7 @@ The post-alpha redesign was implemented in this order:
    review closed on 2026-09-06 with no unresolved release blocker after the actionable presentation
    findings were incorporated and rerun.
 
-Reverse, neighborhood, filtered/all-chain expansion, and batch must not ship by multiplying the
+Reverse, flanking-interval, standard liftOver/all-chain expansion, and batch must not ship by multiplying the
 current exhaustive whole-resource scan. The exact indexing/preprocessing implementation remains a
 measured architecture decision rather than a design-policy commitment.
 
@@ -1035,7 +1026,7 @@ implementation/evidence questions or deliberately deferred domains:
   provenance and redistribution-term constraints in §7 and §8.
 - Add a genuinely independent mapping-evidence source only after verifying independent upstream
   mapping/alignment lineage and defining cross-engine local-hypothesis equivalence.
-- Candidate rank remains deferred. Do not substitute raw chain score, UCSC output order, or encounter
+- mapping rank remains deferred. Do not substitute raw chain score, UCSC output order, or encounter
   order for a defensible locus-scoped rank definition.
 - Variant identity, gene/transcript identity, VCF normalization/allele semantics, assembly-history
   interpretation, and downstream workflow diagnosis remain separate optional evidence domains rather

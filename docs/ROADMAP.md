@@ -4,11 +4,11 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 [`DESIGN.md`](DESIGN.md) remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, result-model semantics, current scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
 
-## Current status — 2026-09-07
+## Current status — 2026-09-12
 
 liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
 
-The post-alpha redesign through Milestone 23 is complete. The development code now reports liftOver mappings through a facts-first schema-v2 result model, uses chain indexes for scalable exact interval lookup, performs reverse liftOver and automatic assessment of a 101-bp flanking interval for point queries, compares ordinary filtered liftOver chains with all-chain alignments when comparative resources are available, supports indexed batch assessment from BED and simple interval tables, validates source sequence names and bounds against authoritative assembly metadata, reports target sequence roles from version-matched metadata, and reports UCSC segmental-duplication overlap as contextual evidence.
+The post-alpha redesign through Milestone 23 is complete. The development code now reports liftOver mappings through a facts-first schema-v2 result model, uses chain indexes for scalable exact interval lookup, performs reverse liftOver and automatic assessment of a 101-bp flanking interval for point queries, compares standard liftOver chains with all-chain alignments when comparative resources are available, supports indexed batch assessment from BED and simple interval tables, validates source sequence names and bounds against authoritative assembly metadata, reports target sequence roles from version-matched metadata, and reports UCSC segmental-duplication overlap as contextual evidence.
 
 The M22 closure gate contained **506 tests** and passed pytest, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`. Subsequent assembly-metadata and genomic-context work has continued to expand the development suite beyond that checkpoint. M22 also has real-data regression coverage against the established B12-B14 COMPARATIVE cases and B15-B18 batch-collision cases. The M22 external review reproduced its checkpoint gate, found no scientific-correctness defect in the reviewed batch core, and its demonstrated reciprocal-best batch-scaling concern was remediated before milestone closure.
 
@@ -16,7 +16,7 @@ The assembly-metadata and segmental-duplication work required before Milestone 2
 
 Milestone 23 is complete. All five pre-registered cases were rechecked against the current default human renderer. H01 outside-user feedback exposed a genuine comprehension failure in the older default output and drove the first renderer slice; H04 drove the compact multiple-mapping/comparative slice. The final H03/H04/H05 outside spot-check found the complex outputs understandable and scientifically bounded, while identifying one H04 prominence gap and one bounded follow-up-navigation improvement. Both were corrected and the affected cases were rerun successfully. Because held-out cases influenced presentation, the five-case set is explicitly not described as untouched validation.
 
-The final M23 reviewer-feedback renderer patch passed 582 tests, Ruff lint, and strict mypy; after formatter-only normalization, Ruff lint/formatting and `git diff --check` were clean. No unresolved M23 scientific-correctness, evidence-boundary, or usability blocker remains.
+Milestone 24 has since completed the runtime terminology and meaning/actionability pass. The current native quality gate contains **585 tests** and passes pytest, Ruff lint, Ruff formatting, strict mypy, and `git diff --check`. Unusual single-locus results now keep interpretation next to the finding it explains, provide bounded next-step guidance, and can include direct UCSC Genome Browser navigation. No unresolved M23 scientific-correctness or evidence-boundary blocker remains; M24 is now completing the public-documentation and release-preparation audit.
 
 The next release sequence is therefore:
 
@@ -37,23 +37,23 @@ Implemented:
 
 - assembly and genomic-interval models;
 - canonical 0-based, half-open internal coordinates;
-- normalized candidate representation;
+- normalized mapping representation;
 - mapping segments and orientation;
 - evidence observations and evidence kinds;
 - provenance sources, typed identifiers, and provenance graph relationships;
 - evidence-availability tiers (`COMPARATIVE`, `LIFTOVER-ONLY`);
-- exact v1 verdict vocabulary (`WELL_SUPPORTED`, `CONTESTED`, `INDETERMINATE`).
+- an initial aggregate-result model, later replaced by the facts-first result profile.
 
-Important boundary established: an `Assessment` model may hold a verdict, but no numeric confidence score exists and no code should claim biological correctness.
+Important boundary established: the initial `Assessment` model used an aggregate result label, but no numeric confidence score exists and no code should claim biological correctness.
 
-### 2. UCSC chain parsing and candidate projection — complete
+### 2. UCSC chain parsing and liftOver mapping — complete
 
 Implemented and reviewed:
 
 - streaming chain parsing;
 - forward- and reverse-strand coordinate handling;
-- source-locus projection into candidate target geometry;
-- split mappings represented as multiple aligned segments under one candidate;
+- source-locus mapping into target geometry;
+- split mappings represented as multiple aligned segments under one mapping;
 - mapping coverage and uncovered-source intervals;
 - source/destination chain-gap characterization;
 - chain score as evidence.
@@ -70,9 +70,9 @@ Implemented and reviewed:
 - aligned-bases (`ali`) evidence;
 - duplicated-query-bases (`qDup`) evidence;
 - net classification and hierarchy evidence;
-- candidate matching against actual aligned segments rather than only a candidate's bounding target span.
+- mapping matching against actual aligned segments rather than only a mapping's bounding target span.
 
-Key design decision: chains generate candidates; nets annotate/evaluate them. Net availability is never required for chain-backed candidate generation.
+Key design decision: chains generate mappings; nets annotate/evaluate them. Net availability is never required for chain-backed mapping generation.
 
 ### 4. Reciprocal-best membership — complete
 
@@ -80,12 +80,12 @@ Implemented and reviewed:
 
 - exact geometry-based reciprocal-best matching rather than chain-ID equality;
 - `FULL`, `PARTIAL`, and `NONE` membership states;
-- aligned candidate bases as the denominator;
+- aligned mapping bases as the denominator;
 - explicit completeness requirements before absence/partial membership can be interpreted;
 - internal-gap handling;
 - provenance linking reciprocal-best evidence to its upstream alignment when appropriate.
 
-The engine's candidate-relevance filter is deliberately lossless with respect to the downstream reciprocal-best matcher, so the caller's declared completeness scope is preserved rather than rewritten by orchestration.
+The engine's mapping-relevance filter is deliberately lossless with respect to the downstream reciprocal-best matcher, so the caller's declared completeness scope is preserved rather than rewritten by orchestration.
 
 ### 5. UCSC resource discovery — complete
 
@@ -103,14 +103,14 @@ The resolver discovers and classifies resources only; it does **not** download t
 
 Implemented and reviewed:
 
-- one public orchestration path from chain records to normalized candidates plus available evidence;
+- one public orchestration path from chain records to normalized mappings plus available evidence;
 - one-shot chain/net/reciprocal-best iterators consumed safely;
-- no whole-resource rescanning per candidate;
+- no whole-resource rescanning per mapping;
 - repeated net fills preserved;
 - reverse-strand and split mappings regression-tested through the orchestration boundary;
-- no ranking, preferred-candidate selection, or verdict assignment in the engine.
+- no ranking, preferred-mapping selection, or aggregate-label assignment in the engine.
 
-At that milestone, this was the boundary between candidate/evidence generation and the not-yet-implemented assessor logic; later milestones replaced the legacy assessor/result model with the factual result-profile path described below.
+At that milestone, this was the boundary between mapping/evidence generation and the not-yet-implemented assessor logic; later milestones replaced the legacy assessor/result model with the factual result-profile path described below.
 
 ### 7. Local resource-file integration — complete
 
@@ -121,7 +121,7 @@ Implemented and reviewed:
 - support for both plain-text and gzip-compressed resources;
 - file adapters that do not infer licensing, download resources, manufacture provenance, or assume reciprocal-best completeness.
 
-This created the first real file → parser → candidate/evidence path.
+This created the first real file → parser → mapping/evidence path.
 
 ### 8. Real LIFTOVER-ONLY smoke run — complete mechanical checkpoint
 
@@ -131,11 +131,11 @@ Measured result:
 
 - exact downloaded-byte SHA-256: `c79c9e7c2a3d546f7a9d7efe27cc8815da611d79adb0da4e4ff1556810f28f48`;
 - test source interval, 0-based half-open: `chr1:12514-12534`;
-- one chain-derived candidate: `chr1:660-680`;
+- one chain-derived mapping: `chr1:660-680`;
 - same orientation, one aligned segment;
 - full 20/20 source-base coverage;
 - no chain gaps;
-- no assessment verdict computed.
+- no aggregate interpretation computed.
 
 This establishes real-file mechanical plumbing under `LIFTOVER-ONLY`. It is **not** the planned full comparative fixture and does not establish biological support or correctness.
 
@@ -157,7 +157,7 @@ Review conclusions retained as design guidance:
 - exact on-disk bytes, including gzip/compression bytes, are the v1 artifact identity;
 - provider MD5 is integrity metadata only, never provenance identity or evidentiary strength;
 - canonical lowercase SHA-256 validation is intentional;
-- content-addressed file IDs are appropriate internally, but human-facing reports should use labels/metadata rather than raw hash-heavy candidate identifiers.
+- content-addressed file IDs are appropriate internally, but human-facing reports should use labels/metadata rather than raw hash-heavy mapping identifiers.
 
 The confirmed hash→parse mismatch was fixed by verifying the raw byte stream actually consumed by parsing against the provenance SHA-256 before a file-backed engine call can return. This preserves the current engine API; producing provenance only after a one-pass parse would require a broader orchestration/model redesign because evidence needs finalized provenance while it is being attached.
 
@@ -173,7 +173,7 @@ Implemented in the resolver:
 - if the exact directional files are absent, checks the sibling/reverse comparative directory's `reciprocalBest/`;
 - accepts the fallback only when the exact `source.target.rbest.{chain,net}.gz` files are actually observed;
 - keeps unit regressions synthetic, including the measured asymmetric layout and an opposite-direction-only negative case;
-- leaves projection and reciprocal-best evidence geometry unchanged because the directional filename and file headers, not the hosting directory, define coordinate semantics.
+- leaves mapping and reciprocal-best evidence geometry unchanged because the directional filename and file headers, not the hosting directory, define coordinate semantics.
 
 Live verification completed on 2026-08-13: `discover_ucsc_resources("canFam3", "canFam4")` returned `COMPARATIVE`, with chain/net/syn-net URLs under `canFam3/vsCanFam4/` and the exact directional reciprocal-best URLs under `canFam4/vsCanFam3/reciprocalBest/`. The unit suite also includes an orchestration-level regression confirming that a transport failure during the sibling lookup propagates as `UCSCResourceDiscoveryError` rather than being misread as absence and silently downgrading the evidence tier.
 
@@ -197,10 +197,10 @@ Implemented in the first acquisition slice:
 Implemented in the second acquisition slice:
 
 - converts a verified `UCSCResourceBundle` into an inspectable, no-network transfer plan containing the exact resource roles/URLs required by its evidence tier and the terms classification for each URL;
-- requires a separate `transfer_plan_acknowledged=True` before bundle execution can call the single-resource acquisition layer, so discovery alone cannot silently trigger a five-resource comparative transfer;
+- requires a separate `transfer_plan_acknowledged=True` before resource-set acquisition can call the single-resource acquisition layer, so discovery alone cannot silently trigger a five-resource comparative transfer;
 - acquires the plan sequentially through the already-reviewed single-resource cache path and returns a `CachedUCSCResourceBundle` only after every required item succeeds or is verified in cache;
 - preserves the no-partial-comparative invariant at the returned-object boundary while deliberately retaining any immutable content-addressed artifacts successfully published before a later item fails, so a retry can reuse them;
-- keeps `LIFTOVER-ONLY` as a one-chain local bundle and `COMPARATIVE` as the exact five-role set: chain, net, syntenic net, reciprocal-best chain, reciprocal-best net;
+- keeps `LIFTOVER-ONLY` as a one-chain local resource set and `COMPARATIVE` as the exact five-role set: chain, net, syntenic net, reciprocal-best chain, reciprocal-best net;
 - binds each plan item's surfaced terms metadata back to its exact URL classification so an inspectable plan cannot display one terms class while executing another URL.
 
 Implemented in the third acquisition slice:
@@ -211,7 +211,7 @@ Implemented in the third acquisition slice:
   `Last-Modified`, `ETag`, and `Content-Encoding` values rather than guessing from directory display
   text; a contrary non-identity content encoding is retained as metadata but excluded from transfer-size
   totals;
-- reports a complete bundle byte total only when every planned resource advertises `Content-Length`, while still exposing the sum of individually known lengths;
+- reports a complete resource set byte total only when every planned resource advertises `Content-Length`, while still exposing the sum of individually known lengths;
 - preserves the existing role/URL/directional-pair validation in the inspection result;
 - does not treat `Accept-Ranges` or any other header as proof of resumable HTTP support and does not begin resource-body acquisition.
 
@@ -228,7 +228,7 @@ Implemented in the fourth acquisition slice:
 
 Measured provider detail checked 2026-08-13: UCSC's `canFam3/vsCanFam4/md5sum.txt` publishes an MD5 for `canFam3.canFam4.all.chain.gz` and `canFam3.canFam4.syn.net.gz` but not `canFam3.canFam4.net.gz`; `canFam4/vsCanFam3/reciprocalBest/md5sum.txt` publishes MD5 values for both directional reciprocal-best chain/net files. Therefore the exact-filename checksum-optional behavior is required by the real fixture resources rather than being hypothetical.
 
-Measured size context checked from the live UCSC directory listings on 2026-08-14: the planned canFam3→canFam4 comparative set includes a roughly 2.5 GB `all.chain.gz`, alongside a roughly 10 MB net, 9.1 MB syntenic net, 5.2 MB directional reciprocal-best chain, and 7.8 MB directional reciprocal-best net. This is why bundle planning and explicit acknowledgement were added before any user-facing automatic comparative transfer. The subsequent HEAD verification below supplied exact machine-readable lengths for all five resources.
+Measured size context checked from the live UCSC directory listings on 2026-08-14: the planned canFam3→canFam4 comparative set includes a roughly 2.5 GB `all.chain.gz`, alongside a roughly 10 MB net, 9.1 MB syntenic net, 5.2 MB directional reciprocal-best chain, and 7.8 MB directional reciprocal-best net. This is why resource-set planning and explicit acknowledgement were added before any user-facing automatic comparative transfer. The subsequent HEAD verification below supplied exact machine-readable lengths for all five resources.
 
 Live provider verification completed 2026-08-14 for the five-resource canFam3→canFam4 comparative plan. HEAD returned exact `Content-Length` values for every resource, totaling 2,686,242,854 bytes; the 2,652,632,416-byte forward all-chain accounts for nearly the entire transfer. Every resource advertised `Accept-Ranges: bytes`, and the large chain supplied both `ETag` and `Last-Modified`. A separate small-range probe against that chain returned `206 Partial Content`, exact `Content-Range` and `Content-Length`, a stable ETag across adjacent requests, successful `If-Range`, and byte-identical reconstruction of adjacent ranges versus one combined range. These checks transferred only a few KiB of the chain and did not execute the full comparative acquisition.
 
@@ -238,12 +238,12 @@ Focused review then reproduced a concurrent-writer corruption bug in the origina
 
 Implemented in the fifth acquisition slice:
 
-- bridges a complete `CachedUCSCResourceBundle` directly into the existing file-backed candidate engine while preserving the lower-level user-supplied-file API unchanged;
+- bridges a complete `CachedUCSCResourceBundle` directly into the existing file-backed mapping engine while preserving the lower-level user-supplied-file API unchanged;
 - builds content-addressed file provenance from the SHA-256 identities already recorded by acquisition, avoiding an extra pre-parse full-file hash while retaining the parser's exact-byte SHA-256 verification on every consumed resource;
 - requires caller-supplied upstream alignment provenance, so acquisition metadata is never mistaken for evidence independence or alignment-process provenance;
-- validates cached bundle `source_db`/`target_db` strings against only the source/target assembly's explicit name or aliases, avoiding speculative general alias resolution;
+- validates cached resource set `source_db`/`target_db` strings against only the source/target assembly's explicit name or aliases, avoiding speculative general alias resolution;
 - maps `LIFTOVER-ONLY` to its chain-only engine path and `COMPARATIVE` to the all-chain, ordinary classified net, and reciprocal-best chain with `COMPLETE_RESOURCE` semantics;
-- deliberately retains the syntenic net and reciprocal-best net on the five-resource comparative bundle without parsing them as current v1 engine inputs. UCSC's current automation confirms that `*.syn.net.gz` is a `netFilter -syn` derivative of the ordinary net, so substituting it would discard non-syntenic placements rather than add evidence.
+- deliberately retains the syntenic net and reciprocal-best net on the five-resource comparative resource set without parsing them as current v1 engine inputs. UCSC's current automation confirms that `*.syn.net.gz` is a `netFilter -syn` derivative of the ordinary net, so substituting it would discard non-syntenic placements rather than add evidence.
 
 This closes the acquisition/cache milestone itself. The future CLI's default cache location, progress/refresh controls, and large-transfer confirmation belong to milestone 15. Presentation of retrieval metadata in the final assessment belongs to milestone 14.
 
@@ -255,7 +255,7 @@ Goal: prove real extraction of the comparative evidence families already impleme
 
 The fixture should exercise, from real UCSC comparative resources after milestone 10's asymmetric reciprocal-best discovery correction:
 
-- multiple candidate mappings where available;
+- multiple liftOver mappings where available;
 - chain score;
 - coverage and gaps;
 - net `ali` and `qDup`;
@@ -265,11 +265,11 @@ The fixture should exercise, from real UCSC comparative resources after mileston
 
 This fixture is mechanical validation only because canFam3 and canFam4 represent different dogs. It must not be described as biological ground truth.
 
-The acquisition path now has measured size preflight plus restart-safe resumable HTTPS, so the multi-gigabyte all-chain can be acquired deliberately for this fixture without treating it as routine unit-test data. Large provider resources must remain outside the repository and must not be committed as fixtures.
+The acquisition path now has measured size inspection plus restart-safe resumable HTTPS, so the multi-gigabyte all-chain can be acquired deliberately for this fixture without treating it as routine unit-test data. Large provider resources must remain outside the repository and must not be committed as fixtures.
 
 Measured fixture setup on 2026-08-14:
 
-- acquired the complete five-resource `canFam3`→`canFam4` comparative bundle into an external cache: 2,686,242,854 compressed bytes total;
+- acquired the complete five-resource `canFam3`→`canFam4` comparative resource set into an external cache: 2,686,242,854 compressed bytes total;
 - verified the 2,652,632,416-byte all-chain as SHA-256 `f10a6b48b5461bb8378ffaff311fb7355b1910511131ce0f5df5402c4db67519` and provider MD5 `8dd10ad24f866e8eb88b5442b1e26742`;
 - verified the ordinary net as SHA-256 `c889134e95ff82741c0092b1673b3e5fe0125aa82f611ee97d91e468b56d51ac`;
 - verified the syntenic net as SHA-256 `39ba8ca12f935755ced5eaa555b9b476460c615cc7d6c0f122ac43194a9fabce`;
@@ -282,72 +282,46 @@ After that compatibility fix, the exploratory fixture scanner streamed the compl
 
 Full comparative fixture verification completed 2026-08-16 through the public `build_ucsc_candidates_from_cached_bundle()` path, using the exact cached resource identities listed above and no network access. The selected source locus is `chrUn_JH373233:1845735-1845835` in canonical 0-based, half-open coordinates. Measured production-path results:
 
-- 170 chain-derived candidates across 114 distinct target sequences;
-- chain 573 maps in reverse orientation to `chr35:925644-925938`, with two aligned segments, full 100/100 source-base coverage, one target-side chain gap, chain score 16,617,372, net `ali=3603`, `qDup=4098`, `nonSyn` classification at hierarchy depth 7, and `FULL` reciprocal-best membership covering 100/100 candidate source bases;
+- 170 chain-derived mappings across 114 distinct target sequences;
+- chain 573 maps in reverse orientation to `chr35:925644-925938`, with two aligned segments, full 100/100 source-base coverage, one target-side chain gap, chain score 16,617,372, net `ali=3603`, `qDup=4098`, `nonSyn` classification at hierarchy depth 7, and `FULL` reciprocal-best membership covering 100/100 mapping source bases;
 - chain 5170 maps to `chrUn_MU018764v1:171661-171760` with partial 99/100 source-base coverage, one gap, and `NONE` reciprocal-best membership;
 - chain 2692 maps to `chrUn_JAAHUQ010000602v1:62326-62622` with full 100/100 source-base coverage, one gap, and `NONE` reciprocal-best membership;
-- an independent preflight over the small reciprocal-best chain counted 3, 1, and 2 relevant source/target/orientation chain records for chains 573, 5170, and 2692 respectively, matching each production `chains_examined` result;
+- an independent validation pass over the small reciprocal-best chain counted 3, 1, and 2 relevant source/target/orientation chain records for chains 573, 5170, and 2692 respectively, matching each production `chains_examined` result;
 - primary chain 573 segment geometry was measured as source `1845735-1845808` → target `925865-925938` and source `1845808-1845835` → target `925644-925671`, with a target-side gap `chr35:925671-925865` at source boundary 1845808;
 - chain, net, and reciprocal-best file provenance preserved one caller-declared shared upstream alignment ancestor. This verifies provenance wiring/dependency handling; it does not independently infer that common ancestry from the resource bytes;
-- reciprocal-best completeness remains the caller's `COMPLETE_RESOURCE` claim from the prior complete acquisition, while the production file path independently SHA-256-verifies every consumed raw stream before returning candidates;
-- no assessment verdict was computed and no biological ground-truth claim was made.
+- reciprocal-best completeness remains the caller's `COMPLETE_RESOURCE` claim from the prior complete acquisition, while the production file path independently SHA-256-verifies every consumed raw stream before returning mappings;
+- no aggregate interpretation was computed and no biological ground-truth claim was made.
 
-The reproducible verifier is `scripts/verify_canFam3_canFam4_mechanical_fixture.py`. It requires the already-acquired external cache and deliberately does not download or commit UCSC bulk resources. This completes the mechanical comparative fixture milestone; the next implementation milestone is the assessor core and deterministic verdict logic.
+The reproducible verifier is `scripts/verify_canFam3_canFam4_mechanical_fixture.py`. It requires the already-acquired external cache and deliberately does not download or commit UCSC bulk resources. This completes the mechanical comparative fixture milestone; the next implementation milestone is the initial interpretation layer.
 
-### 13. Assessor core and deterministic verdict logic — complete
+### 13. Initial interpretation layer — complete and superseded
 
-This was the largest scientific implementation milestone remaining at that stage.
+The first alpha implemented a deterministic aggregate interpretation layer over normalized mappings
+and provenance-aware evidence. That work established several durable scientific boundaries that remain
+part of the current design: no numeric confidence score, no biological-correctness claim, explicit
+source-coverage validation, no hidden weighting of chain score/`ali`/`qDup`, and no treatment of
+multiple related observations as independent votes.
 
-The deterministic assessor core is implemented and reviewed. It transforms normalized
-candidates plus provenance-aware evidence into exactly one of `WELL_SUPPORTED`, `CONTESTED`, or
-`INDETERMINATE` without a numeric score or biological-correctness claim.
+The later 50-case program showed that a single aggregate result label was not an adequate explanation
+of mapping behavior. Milestone 17 therefore replaced that presentation model with the current
+orthogonal factual result profile, deterministic mapping headlines, bounded interpretation, and
+progressive disclosure. The earlier aggregate vocabulary is intentionally not retained in public
+documentation.
 
-The alpha verdict-driving rules are intentionally limited to categorical, locus-specific evidence
-whose direction is already explicit: source-locus mapping coverage and, for `COMPARATIVE`,
-reciprocal-best membership. Raw chain score, `ali`, `qDup`, net classification, and net hierarchy
-remain report context and do not silently become weights or thresholds.
-
-The implementation also:
-
-- keeps evidence availability separate from verdict strength, including allowing a single full
-  `LIFTOVER-ONLY` mapping to be `WELL_SUPPORTED`;
-- treats multiple sparse-tier candidates as `CONTESTED` instead of ranking them by chain score;
-- treats a single full comparative candidate with reciprocal-best `NONE` as `CONTESTED`, while
-  `PARTIAL` remains `INDETERMINATE` because v1 has no threshold for deciding when partial
-  self-consistency disagreement becomes material;
-- never counts multiple observations as votes, and rejects duplicate verdict-driving observations
-  rather than allowing duplication to strengthen a result;
-- validates source geometry, coverage denominators, and reciprocal-best denominators at the
-  assessor boundary so a malformed normalized candidate cannot receive a plausible-looking verdict;
-- sets a preferred candidate only for `WELL_SUPPORTED`.
-
-Adversarial tests cover sparse and comparative ambiguity, partial mappings, internal contradictory
-evidence, irrelevant high-valued score/qDup context, missing/duplicate verdict evidence, multiple
-fully retained candidates, 3+-candidate cases, both exhaustive reciprocal-best completeness bases,
-and inconsistent normalized geometry. Focused review corrected the sparse-tier evidence-role
-classification and narrowed sole-candidate `PARTIAL` reciprocal-best semantics to `INDETERMINATE`.
-It also confirmed that `COMPLETE_CANDIDATE_SUBSET` is exhaustive for the generated candidates, not a
-weaker arbitrary partial scan.
-
-The final candidate-equivalence review item is also resolved. A real audit of the frozen
-`canFam3`→`canFam4` fixture found zero exact-geometry and zero same-bounding duplicate groups among
-its 170 candidates, but synthetic valid-chain checks demonstrated that distinct chain records can
-still project one assessed locus to identical local coordinate geometry. v1 therefore treats
-candidate multiplicity as hypothesis-level rather than record-level: the assessor rejects distinct
-IDs with equivalent canonical local mapping geometry instead of silently merging their
-provenance/evidence or manufacturing a `CONTESTED` verdict. Adjacent collinear segment partitions
-are canonicalized for this check; equal target bounds with genuinely different internal mapping
-geometry remain distinct candidates.
+The mapping-equivalence review from this milestone remains relevant: distinct chain records can map
+one assessed locus to identical local coordinate geometry. Mapping multiplicity is therefore treated
+at the hypothesis/geometry level rather than blindly at the record-ID level; equivalent canonical
+local mapping geometry is not counted as multiple independent alternatives.
 
 ### 14. Assessment/report orchestration — complete
 
 Implemented and reviewed:
 
-- build the full source + target + locus → resources → candidates → evidence → verdict path;
-- create the final `Assessment` object from real engine output;
-- ensure evidence tier is always displayed independently from verdict;
+- build the full source + target + locus → resources → mappings → evidence → result path;
+- create the final assessment/report object from real engine output;
+- ensure evidence tier is always displayed independently from interpretation;
 - expose provenance/dependency detail sufficient for scientific audit;
-- surface cached retrieval metadata (source URLs, retrieval timestamps, provider checksum metadata, and terms references) alongside file/evidence provenance without claiming that unconsumed bundle resources were assessed.
+- surface cached retrieval metadata (source URLs, retrieval timestamps, provider checksum metadata, and terms references) alongside file/evidence provenance without claiming that unconsumed resource-set resources were assessed.
 
 ### 15. CLI and user-facing reports — complete
 
@@ -360,18 +334,18 @@ assess-liftover canFam3 canFam4 chrUn_JH373233:1845736-1845835
 Implemented so far:
 
 - UCSC database identifiers and CLI loci are parsed at an explicit boundary, with 1-based inclusive display coordinates converted immediately to canonical 0-based half-open intervals;
-- concise human-readable summaries show evidence availability before verdict interpretation and always retain the biological-correctness caveat;
+- concise human-readable summaries show the material mapping facts, evidence availability, bounded interpretation, and the biological-correctness caveat;
 - the `assess-liftover` console entry point now composes discovery, terms review, HEAD transfer inspection, separate transfer-plan acknowledgement, cached acquisition, assessment orchestration, and summary rendering;
-- the CLI chooses a platform user-cache default while preserving `--cache-dir`; complete verified bundles are reused cache-first without provider access, `--offline` guarantees zero network access, and `--refresh` explicitly forces a fresh provider check/acquisition;
+- the CLI chooses a platform user-cache default while preserving `--cache-dir`; complete verified resource sets are reused cache-first without provider access, `--offline` guarantees zero network access, and `--refresh` explicitly forces a fresh provider check/acquisition;
 - interactive assessment progress reports measured compressed bytes consumed for Chain, Net, and Reciprocal-best inputs with a visual bar, numeric percentage, and byte counts; `--quiet` suppresses it;
-- interactive cache verification reports one measured aggregate SHA-256 row across the required cached bundle, reusing the same progress rendering primitives and withholding 100% until every required artifact passes integrity; `--quiet` suppresses it;
+- interactive cache verification reports one measured aggregate SHA-256 row across the required cached resource set, reusing the same progress rendering primitives and withholding 100% until every required artifact passes integrity; `--quiet` suppresses it;
 - interactive UCSC acquisition reports measured per-resource transfer progress, starts resumable resources at their retained validator-bound prefix, labels verified cache hits as cache reuse rather than downloaded bytes, and avoids invented percentages when exact transfer size is unavailable; `--quiet` and non-TTY stderr suppress the display;
 - interactive acknowledgements are the default, with explicit `--acknowledge-ucsc-terms` and `--accept-transfer-plan` flags for non-interactive use;
 - automatic UCSC runs use a conservative source/target pair dependency node only to prevent related UCSC observations from being presented as independent confirmation; it does not verify one shared provider processing run, while exact consumed-file identity remains SHA-256-addressed beneath it;
-- the first real CLI smoke run completed 2026-08-16 against the established external `canFam3`→`canFam4` comparative fixture, reporting `COMPARATIVE`, 170 candidates, and `CONTESTED` for display locus `chrUn_JH373233:1845736-1845835`;
-- an independent fixture cross-check derives `CONTESTED` directly from the extracted public evidence without using production verdict logic, identifying 138 material candidates and agreeing with the production assessor;
-- `--details` emits the full human-readable evidence dossier: exact mapped segments, categorical verdict-evidence roles, every observation, resource retrieval/checksum context, consumed-vs-unconsumed status, and the complete provenance dependency graph without implying candidate rank or independent confirmation;
-- `--json` emits schema version 1 from the same assessment/report model, preserving canonical 0-based half-open coordinates, structured evidence roles/values, candidate order without ranking semantics, resource consumption/checksums/terms, provenance dependency edges, and the biological-correctness caveat.
+- the first real CLI smoke run completed 2026-08-16 against the established external `canFam3`→`canFam4` comparative fixture, reporting `COMPARATIVE` evidence and 170 mappings for display locus `chrUn_JH373233:1845736-1845835`;
+- an independent fixture cross-check reproduced the material mapping/evidence facts without relying on the production interpretation layer;
+- `--details` emits the full human-readable detailed evidence report: exact mapped segments, categorical evidence roles, every observation, resource retrieval/checksum context, consumed-vs-unconsumed status, and the complete provenance dependency graph without implying mapping rank or independent confirmation;
+- `--json` emits schema version 1 from the same assessment/report model, preserving canonical 0-based half-open coordinates, structured evidence roles/values, mapping order without ranking semantics, resource consumption/checksums/terms, provenance dependency edges, and the biological-correctness caveat.
 
 Milestone 15 closure review completed:
 - transfer-progress implementation and terminal semantics were reviewed against the code/tests with no confirmed defects; automated coverage now includes a fresh transfer whose real response omits `Content-Length`, proving the acquisition callback preserves an unknown total end to end rather than inventing a percentage;
@@ -379,19 +353,15 @@ Milestone 15 closure review completed:
 
 ### 15.5. Pre-alpha semantic and output hardening — complete
 
-This focused correctness/compatibility slice was discovered during the final project-level review of Milestone 15. It did not reopen transfer-progress work.
+This focused correctness slice fixed edge cases in the first alpha's interpretation/reporting layer,
+strengthened exhaustive branch coverage, finalized the first machine-readable schema, and added the
+important dependence qualification that related UCSC comparative observations must not be presented
+as independent confirmation. The durable scientific and testing lessons were carried into the
+post-alpha redesign; obsolete aggregate-result terminology from that interim model is intentionally
+not retained here.
 
-Implemented and reviewed:
-
-- fixed the confirmed concise-summary bug in which an `INDETERMINATE` comparative assessment with multiple raw candidates but only one material partial candidate can be described as though the evidence failed to distinguish the candidates; the remaining uncertainty is incomplete source-locus coverage, not unresolved material multiplicity;
-- added one required assessor-owned categorical `decision_reason` to every `Assessment`, using the ten exhaustive/mutually-exclusive terminal conditions specified in the pre-alpha design baseline rather than mixing biological findings with evidence-rule names;
-- split the final comparative fallback into `COMPARATIVE_SOLE_MATERIAL_PARTIAL` versus `COMPARATIVE_NO_MATERIAL_CANDIDATE` using the already-defined material-candidate predicate, and regression-tested the exact boundary (`PARTIAL` coverage with reciprocal-best `FULL`/`PARTIAL` is material; reciprocal-best `NONE` is not);
-- made reporting consume the recorded decision reason instead of reconstructing assessor semantics from candidate count, verdict, or evidence values;
-- required every `Assessment` construction to supply a decision reason, handle every declared decision-reason enum member explicitly in reason/verdict/reporting mappings without wildcard fallback, and test that assessor coverage reaches the complete declared reason vocabulary; branch-specific regression tests must still verify that each semantic boundary selects the correct reason;
-- included the required decision reason in human detail and JSON output and finalized schema v1 before alpha; private pre-alpha schema v1 remains mutable, while the first public alpha freezes it as an external compatibility surface and later incompatible structural/semantic changes require a new schema version;
-- added a concise dependence qualification only for `COMPARATIVE` summaries: comparative observations are not assumed to be independent, with dependency provenance available in `--details` / `--json`. `LIFTOVER-ONLY` output should not receive that context-free qualification.
-
-At that historical alpha-hardening point, the slice preserved the legacy three-verdict model, two evidence tiers, no-score policy, and assessor-not-resolver boundary. The routine suite now contains 316 passing tests; Ruff, Ruff formatting, strict mypy, package build, and `git diff --check` all passed. A post-hardening offline CLI run on 2026-08-17 reported `COMPARATIVE`, 170 candidates, and `CONTESTED` with the new dependence qualification and biological-correctness caveat. The independently derived mechanical-fixture verifier then passed against the same cached bundle, deriving `CONTESTED` from 138 material candidates and matching the production assessor without calling its verdict logic.
+The routine suite at that checkpoint contained 316 passing tests, with Ruff, Ruff formatting, strict
+mypy, package build, and `git diff --check` clean.
 
 ### 16. First public alpha milestone
 
@@ -402,46 +372,44 @@ The public-transition milestone is defined by:
 - provenance/resource identity is visible in output;
 - evidence availability and support are clearly separated;
 - README usage commands are real and reproducible;
-- the project clearly labels itself alpha and states that well-supported does not mean biologically correct.
+- the project clearly labels itself alpha and states that coordinate/evidence observations do not establish biological correctness.
 
 As of 2026-08-17, Milestone 16 is complete. v0.1.0a1 was tagged and published to PyPI as the first public alpha, and the documented external PyPI install path was verified successfully. The public-alpha compatibility period began with this release; the post-50-case owner decision below deliberately allows the upcoming redesign to break that early-alpha schema rather than preserve obsolete result semantics.
 
 ## Post-alpha redesign after the 50-case program
 
-The first public alpha proved that liftAssess can discover/acquire UCSC resources, build candidates,
+The first public alpha proved that liftAssess can discover/acquire UCSC resources, build mappings,
 extract comparative evidence, preserve provenance, and produce end-to-end CLI/JSON output. The
 completed 50-case real-world validation / UX program then established that the legacy aggregate
-verdict interface is not an adequate primary explanation of what happened to a locus.
+aggregate-result interface is not an adequate primary explanation of what happened to a locus.
 
 The corpus was deliberately enriched for difficult/support-question cases and controls. It is not a
 prevalence, sensitivity, specificity, or general accuracy benchmark. The `38 YES / 10 MOSTLY / 2 NO`
-language replay is same-corpus design evidence, not held-out validation. Likewise, counts of legacy
-`WELL_SUPPORTED` misses demonstrate that the old label can conceal known failure modes in this
-corpus; they are not estimates of how often arbitrary real-world mappings have hidden problems.
+language replay is same-corpus design evidence, not held-out validation. Likewise, counts of cases where the earlier aggregate model concealed known failure modes are not
+estimates of how often arbitrary real-world mappings have hidden problems.
 
 ### Approved post-alpha policy changes
 
 The owner review on 2026-08-19 closes the main design-policy questions:
 
-- remove `WELL_SUPPORTED`, `CONTESTED`, and `INDETERMINATE` from the target result model; do not
-  introduce a replacement one-word aggregate verdict;
+- remove the aggregate-result model; do not introduce a replacement one-word aggregate label;
 - use orthogonal factual states, evidence/provenance, deterministic factual headlines, and bounded
   interpretation;
 - deliberately make a pre-release machine-schema compatibility break rather than carrying the
-  legacy verdict schema through the redesign;
+  earlier aggregate-result schema through the redesign;
 - use progressive disclosure: keep the full result profile structured, keep uncomplicated terminal
   output compact, and expand materially unusual results;
 - begin indexing/shared-traversal work immediately after the first factual renderer slice while
-  assembly metadata/preflight and contextual-evidence work may proceed in parallel;
+  assembly metadata/source validation and contextual-evidence work may proceed in parallel;
 - use categorical, provenance-aware comparative relationships with no hidden numeric weighting;
   human output must explain *how* mixed/conflicting evidence differs rather than print an opaque
   `MIXED` label alone;
-- initially add automatic centered 101-bp local context to 1-bp point queries once the scalable
+- initially add automatic centered 101-bp flanking-interval context to 1-bp point queries once the scalable
   resource-access path makes it practical;
 - make BED/simple interval-table input first-class with batch support, with batch relationships in a
   separate result layer;
 - treat nonzero exit status as usage/input/operational failure, not as a scientific ambiguity/no-
-  projection classifier;
+  mapping classifier;
 - allow constrained BED12/custom-track export and Genome Browser links as visualization/navigation,
   not evidence; and
 - begin the difficult-region pilot now, modeling each source as typed, provenance-bearing context
@@ -450,39 +418,39 @@ The owner review on 2026-08-19 closes the main design-policy questions:
 
 ### 17. Factual result profile, new schema, and progressive renderer
 
-**Goal:** replace the target aggregate-verdict interface without rewriting candidate generation.
+**Goal:** replace the target aggregate-aggregate-result interface without rewriting mapping generation.
 
 Implement a dedicated derived result-profile/view-model layer over the existing scientific report
-and new composite-analysis results. The profile should represent input validity, projection count,
-source coverage, continuity/geometry, target role, orientation, reverse result, query-scale context,
-comparative relationships, batch relationships, typed external context, evidence tier/resource
-consumption, and provenance/dependence.
+and new composite-analysis results. The profile should represent input validity, mapping count,
+source coverage, continuity/geometry, target sequence role, orientation, reverse result,
+flanking-interval context, comparative relationships, batch relationships, genomic context,
+evidence tier/resource consumption, and provenance/dependence.
 
 First-slice work:
 
 - define the new machine schema version and explicitly document the alpha-v1 compatibility break;
-- remove legacy verdict/`decision_reason`/preferred-candidate semantics from the target model rather
+- remove obsolete aggregate-result and mapping-selection semantics from the target model rather
   than carrying them forward solely for compatibility;
 - derive literal factual headlines from evidence already computed;
-- add coverage/fragmentation and large-region summaries, including maximum candidate source coverage,
+- add coverage/fragmentation and large-region summaries, including maximum mapping source coverage,
   uncovered bases/spans, segment count, target gaps, and alternatives;
 - implement progressive-disclosure default output plus complete detail/JSON output;
 - preserve the six common-use lenses as scope/model concepts without forcing six invariant terminal
   lines on every clean result;
-- reserve explicit input/preflight states in the result-profile/schema so Milestone 18 can populate
+- reserve explicit input-validation states in the result-profile/schema so Milestone 18 can populate
   them from authoritative metadata;
 - retain the no-score, assessor-not-resolver, provenance-dependence, coordinate, and target-bounding-
   span invariants;
 - keep Genome Browser/locus links as optional navigation aids;
 - keep a compact profile-vector string deferred unless real workflow demand appears.
 
-The 50-case work does **not** justify a candidate-generation rewrite. Existing candidate semantics
+The 50-case work does **not** justify a mapping generation rewrite. Existing mapping semantics
 should change only in response to a separately measured defect.
 
 ### 18. Start scalable resource access; assembly metadata and difficult-region context in parallel
 
 **Trigger:** begin this work immediately after the first Milestone-17 renderer/profile slice is
-working. Do not wait until reverse/neighborhood/batch features have already multiplied scans.
+working. Do not wait until reverse/flanking-interval/batch features have already multiplied scans.
 
 Measured performance background (2026-08-17): on the tested implementation, a 2.47-GiB
 canFam3→canFam4 all-chain single-locus run took roughly 10.5 minutes on an Apple M4 regardless of
@@ -495,7 +463,7 @@ Required work:
 
 - **prototype/architecture selection complete:** real M4 benchmarks selected 65,536-bp
   source-coordinate bin memberships plus encounter-order chain records stored exactly once in
-  independently compressed blocks; exact candidate tuples matched the full traversal on both frozen
+  independently compressed blocks; exact mapping tuples matched the full traversal on both frozen
   canFam3→canFam4 probes;
 - **production index core + opportunistic assessment integration complete:** the
   resource-identity-bound reusable index is validated against the exact cached chain and may replace
@@ -504,30 +472,30 @@ Required work:
   choose their own recovery policy; scientific provenance continues to identify the original chain
   bytes;
 - **explicit preparation UX complete:** `prepare-liftassess-index SOURCE_DB TARGET_DB` builds the
-  derived chain index only from an already verified local bundle, never contacts UCSC, reports
+  derived chain index only from an already verified local resource set, never contacts UCSC, reports
   source-byte progress, and keeps the potentially long build out of ordinary first-query behavior;
-- preserve exact coordinate, candidate, evidence-completeness, resource-identity, and provenance
+- preserve exact coordinate, mapping, evidence-completeness, resource-identity, and provenance
   semantics;
 - add authoritative assembly-sequence metadata for source-name validation, bounds, aliases, and
-  target role; chain-file names alone are not sufficient;
+  target sequence role; chain-file names alone are not sufficient;
 - reject invalid source names and out-of-range coordinates before scientific mapping; expose
-  reusable preflight metadata for later BED/batch intake;
+  reusable validation metadata for later BED/batch intake;
 - begin the typed difficult-region pilot, first against the duplication/paralogy cases using UCSC
   segmental-duplication context when its source/terms/assembly coverage are verified;
 - evaluate GIAB stratifications and relevant `excluderanges` categories separately rather than
   treating them as interchangeable.
 
 The chain-access architecture is now selected by measurement: 65,536-bp genomic bin memberships
-identify candidate chain records, while each record is stored once in encounter order inside
+identify mapping chain records, while each record is stored once in encounter order inside
 independently compressed blocks. The index is bound to the source chain's canonical SHA-256.
 Measured M4 follow-up showed that verifying the 1.365-GiB index database took 0.60–1.27 seconds
-and loading/verifying the complete cached COMPARATIVE bundle took about 1.2 seconds on that machine.
-A cold follow-up on the older iMac HDD measured 95.976 seconds for the same full-bundle verification,
+and loading/verifying the complete cached COMPARATIVE resource set took about 1.2 seconds on that machine.
+A cold follow-up on the older iMac HDD measured 95.976 seconds for the same full-resource-set verification,
 showing that repeated whole-artifact validation is strongly storage-sensitive. The production index
 format therefore keeps the full database SHA-256 for explicit deep verification while normal indexed
 queries authenticate a compact lookup catalog, validate only the queried bin membership/locator rows,
 and verify selected compressed blocks. This avoids mandatory full reads of both the unused source
-chain and the large SQLite lookup database on every query; the other cached bundle artifacts retain
+chain and the large SQLite lookup database on every query; the other cached resource set artifacts retain
 their normal direct checks. Chain-index construction remains an explicit cache-only preparation command.
 The remaining access-layer question is how the same reusable principles extend to net and
 reciprocal-best resources where profiling demonstrates a material need.
@@ -539,7 +507,7 @@ Add reverse assessment as its own structured result dimension.
 First model/API slice:
 
 - represent reverse check state independently as `NOT_RUN`, `UNAVAILABLE`, or `RUN`;
-- for a completed run, distinguish no reverse projection, returns touching only the original aligned
+- for a completed run, distinguish no reverse mapping, returns touching only the original aligned
   source geometry, returns only elsewhere, and the presence of both;
 - preserve exact returned/original-source-base coverage and exact reconstruction of the original
   aligned geometry rather than hiding partial returns inside a binary reciprocal label;
@@ -549,47 +517,47 @@ First model/API slice:
 Integrated execution/result behavior:
 
 - current UCSC reciprocal-best membership is never relabeled as actual reverse mapping;
-- non-reciprocity remains factual context, not automatic proof that the forward projection is wrong;
+- non-reciprocity remains factual context, not automatic proof that the forward mapping is wrong;
 - reverse execution is chain-only and carries exact reverse-chain identity and provenance separately
   from the forward evidence-resource set;
 - all exact target segments share one verified reverse-chain traversal in the explicit lower-level
   non-indexed path, while the automatic CLI requires a prepared region-addressable chain index;
 - the automatic CLI resolves the reverse chain from the local cache only, requires the same
-  publication class as the forward assessment, and never performs implicit provider acquisition,
+  resource class as the forward assessment, and never performs implicit provider acquisition,
   reverse-index construction, or exhaustive reverse traversal;
 - absence of a matching reverse chain is `UNAVAILABLE`; presence of the chain without usable indexed
   access is `NOT_RUN`;
 - an explicit forward `--refresh` leaves reverse mapping `NOT_RUN` rather than mixing refreshed
   forward resources with an implicitly unrefreshed reverse chain; and
-- candidate-level reverse facts are attached to the factual result profile and rendered in concise
+- mapping-level reverse facts are attached to the factual result profile and rendered in concise
   human output, full details, and schema-v2 JSON.
 
-### 20. Point neighborhood / multi-scale context
+### 20. Point flanking interval / multi-scale context
 
-Integrated point-context behavior:
+Integrated flanking-interval behavior:
 
 - 1-bp queries automatically request a centered 101-bp window (±50 bases when source bounds permit);
 - the exact tested window is always reported, including boundary clipping when fewer than 101 bases
   can safely be queried;
 - automatic execution reuses only the prepared exact-resource forward chain index and the same
-  publication class as the point assessment; it does not re-run net/reciprocal-best resources or
+  resource class as the point assessment; it does not re-run net/reciprocal-best resources or
   start another whole-chain traversal;
 - absence/unusability of the prepared forward index, or unavailable safe source bounds from that
   index, leaves the context check explicitly `NOT_RUN`; index corruption never falls back to a full
   context scan;
-- point/context relationships are derived as separate factual states for agreement, newly revealed
+- point/flanking-interval relationships are derived as separate factual states for agreement, newly revealed
   partial coverage, fragmentation, target discontinuity, and material change with query scale;
 - 101 bp is described as a product/context default, not a confidence threshold or universal
   biological scale;
 - ordinary interval queries are not automatically widened;
 - `--context-bases N` provides an explicit larger odd-width window for 1-bp queries; and
-- a point/context disagreement is reported directly and never silently triggers recursive 1-kb/
+- a point/flanking-interval disagreement is reported directly and never silently triggers recursive 1-kb/
   10-kb widening.
 
-For `COMPARATIVE` point assessments, neighborhood context is intentionally forward all-chain-derived
-evidence only; its relationship state is based on projection identity and exact structural geometry.
+For `COMPARATIVE` point assessments, flanking-interval context is intentionally forward all-chain-derived
+evidence only; its relationship state is based on mapping identity and exact structural geometry.
 Comparative net/reciprocal-best observations remain point-level unless a later indexed
-comparative capability explicitly assesses them at the neighborhood scale. Authoritative source-sequence metadata now supplies assembly bounds for point-context clipping;
+comparative capability explicitly assesses them at the flanking-interval scale. Authoritative source-sequence metadata now supplies assembly bounds for flanking-interval clipping;
 the chain-index catalog's conservative source-sequence query bound remains only an internal safe-read
 bound and is not an assembly-validity authority.
 
@@ -597,9 +565,9 @@ Corpus B provides six matched clean 101-bp controls showing that widening can re
 local geometry is uncomplicated; difficult cases show that context can also expose fragmentation or
 cross-record relationships. Revisit the default after held-out/outside-user testing.
 
-### 21. Filtered/all-chain comparison and comparative relationships
+### 21. Standard liftOver/all-chain comparison and comparative relationships
 
-Make ordinary filtered liftOver versus all-chain candidate inventory explicit comparative context.
+Make standard liftOver versus all-chain mapping inventory explicit comparative context.
 
 Initial categorical interpretation must support at least:
 
@@ -608,14 +576,14 @@ Initial categorical interpretation must support at least:
 - comparative evidence is mixed/conflicting.
 
 The first accepted `favors one placement` pattern is the B14-style relationship: multiple
-full all-chain placements, exactly one retained by the ordinary filtered chain, that same
+full all-chain mappings, exactly one retained by the standard liftOver chain, that same
 placement top-net + full reciprocal-best, and no competing full placement with equivalent
 categorical top-net + full reciprocal-best support.
 
 Do not create hidden weights from chain score, `ali`, `qDup`, net hierarchy, or reciprocal-best
 membership. `ali`/`qDup` remain descriptive until a separately justified deterministic rule exists.
 When evidence is mixed/conflicting, human output must list the material relationship—what the
-filtered chain retained, what net/rbest supports, and what conflicts—instead of stopping at a vague
+standard liftOver chain retained, what net/rbest supports, and what conflicts—instead of stopping at a vague
 label. Automatic CLI results use a conservative UCSC source/target pair dependency group so
 these observations are not presented as independent votes; that grouping does not verify one exact
 provider processing run, and each consumed file remains independently content-addressed.
@@ -646,35 +614,25 @@ uv run prepare-liftassess-index \
 
 The COMPARATIVE preparation is intentionally a one-time complete pass over the 2.47 GiB all-chain;
 the verifier itself must not trigger that work. On the 2017 Intel iMac validation machine on
-2026-08-26, the filtered-chain index took 9.74 seconds and the comparative index took 4,294.81
+2026-08-26, the standard liftOver chain index took 9.74 seconds and the comparative index took 4,294.81
 seconds (71m 34.81s), producing 9.34 MiB and 3.85 GiB of derived index data respectively.
 
 Recorded expectations for the exact content-addressed fixture are:
 
-- **B12 — `chrX:26956239-26956239`:** one complete all-chain placement and one filtered
-  placement with matching geometry; `FILTERED_AND_ALL_CHAIN_AGREE`;
-  `NO_COMPETING_FULL_PLACEMENTS`; 101-bp context `AGREES_WITH_POINT`.
-- **B13 — `chr28:1484906-1484906`:** one complete all-chain placement and one filtered
-  placement with matching geometry; `FILTERED_AND_ALL_CHAIN_AGREE`;
-  `NO_COMPETING_FULL_PLACEMENTS`; 101-bp context `AGREES_WITH_POINT`.
-- **B14 — `chr5:31705136-31705136`:** nine complete all-chain placements and one filtered
-  placement; `ALL_CHAIN_REVEALS_ADDITIONAL_PLACEMENTS`; `FAVORS_ONE_PLACEMENT`. Chain 4
-  (`chr5:31912777`) is the filtered-retained placement and is the only complete placement with both
-  depth-1 top-net support and full reciprocal-best membership; the eight competing complete
-  placements have neither. The 101-bp context reports partial coverage, fragmentation, target
+- **B12 — `chrX:26956239-26956239`:** one complete all-chain mapping and one standard liftOver
+  mapping with matching geometry; the 101-bp flanking interval agrees with the point mapping.
+- **B13 — `chr28:1484906-1484906`:** one complete all-chain mapping and one standard liftOver
+  mapping with matching geometry; the 101-bp flanking interval agrees with the point mapping.
+- **B14 — `chr5:31705136-31705136`:** nine complete all-chain mappings and one standard liftOver
+  mapping. The standard liftOver mapping at `chr5:31912777` is the only complete mapping with both
+  depth-1 top-net support and full reciprocal-best membership; the eight competing complete mappings
+  have neither. The 101-bp flanking interval reports partial coverage, fragmentation, target
   discontinuity, and a change with query scale among the additional mappings.
 
 These are reproducibility expectations for specific UCSC resource bytes, not biological ground truth
 or an estimate of how frequently these relationships occur. A changed resource hash requires a new
-validation record rather than silently treating the old expectations as current. A successful verifier
-run ends with output of this form:
-
-```text
-PASS B12: all_chain=1 filtered=1 relationship=NO_COMPETING_FULL_PLACEMENTS
-PASS B13: all_chain=1 filtered=1 relationship=NO_COMPETING_FULL_PLACEMENTS
-PASS B14: all_chain=9 filtered=1 relationship=FAVORS_ONE_PLACEMENT
-M21 B12-B14 verification: PASS
-```
+validation record rather than silently treating the old expectations as current. The verifier must
+reproduce these mapping/evidence relationships and finish successfully.
 
 Two low-priority review observations are recorded rather than expanded into M21 scope:
 
@@ -682,7 +640,7 @@ Two low-priority review observations are recorded rather than expanded into M21 
   summary nesting, replace the current binary indentation transform with an explicitly depth-aware
   representation rather than relying on incidental leading spaces;
 - schema v2 keeps the interpreted per-placement comparative facts in `result_profile` and the raw
-  paired inventory in `filtered_all_chain_comparison`, so consumers join them by `candidate_id`; revisit
+  paired standard-liftOver/all-chain inventory; revisit
   that ergonomics only in a deliberate future schema revision rather than changing schema v2 here.
 
 ### 22. BED/table batch input and cross-record relationships — complete
@@ -692,31 +650,31 @@ resource access.
 
 - validate BED semantics at intake, including zero-width/empty intervals;
 - retain the existing single-locus CLI syntax;
-- represent exact target collisions separately from overlapping-but-offset projections;
-- keep batch relationships in a batch result layer rather than candidate-level evidence;
-- support neighborhood-level collision relationships when point-context analysis is available;
+- represent exact target collisions separately from overlapping-but-offset mappings;
+- keep batch relationships in a batch result layer rather than mapping-level evidence;
+- support flanking-interval-level collision relationships when flanking-interval analysis is available;
 - preserve per-record exact resources/provenance and deterministic results;
 - do not implement batch as a naive outer loop that reparses multi-gigabyte resources per row.
 
 Initial M22 foundation slice:
 
 - introduces immutable batch input/record-assessment and cross-record relationship models without
-  changing candidate-level evidence semantics;
+  changing mapping-level evidence semantics;
 - parses BED3-or-later input as native 0-based, half-open intervals, rejects zero-width/empty rows at
   intake, preserves an optional BED name as a non-unique label, and assigns deterministic row IDs;
-- classifies exact target collisions separately from overlapping-but-offset projections using exact
+- classifies exact target collisions separately from overlapping-but-offset mappings using exact
   mapped target segments rather than target bounding spans; and
-- leaves CLI batch execution, shared indexed traversal, batch rendering/JSON, neighborhood-level
+- leaves CLI batch execution, shared indexed traversal, batch rendering/JSON, flanking-interval-level
   relationships, and the simple interval-table surface for subsequent M22 slices.
 
 Second M22 execution slice:
 
 - adds an index-required chain-only batch execution primitive over one exact cached UCSC chain
-  publication class;
-- projects the complete input record set through the existing multi-interval candidate adapter and
-  derives cross-record relationships from those exact candidates;
-- records the exact chain SHA-256 and publication class at the batch-result boundary, while each
-  candidate retains the normal content-addressed chain provenance;
+  resource class;
+- maps the complete input record set through the existing multi-interval mapping adapter and
+  derives cross-record relationships from those exact mappings;
+- records the exact chain SHA-256 and resource class at the batch-result boundary, while each
+  mapping retains the normal content-addressed chain provenance;
 - treats missing indexed access as an explicit precondition failure and never falls back to a
   whole-chain traversal for batch execution; and
 - intentionally does not approximate COMPARATIVE net/reciprocal-best evidence from chain-only facts;
@@ -727,52 +685,52 @@ Third M22 CLI/reporting slice:
 - adds `assess-liftover SOURCE_DB TARGET_DB --bed PATH` while retaining the existing single-locus positional syntax and supporting `--bed -` for stdin;
 - keeps batch execution cache-only and prepared-index-only, rejects `--refresh`, and reports the exact `prepare-liftassess-index` command instead of starting acquisition, index construction, or full traversal implicitly;
 - uses COMPARATIVE-first chain publication-class selection by default, with existing `--evidence-tier` for an exact class, while labeling the current assessment scope explicitly as chain-only;
-- adds compact human batch rendering plus schema-v2 `liftassess.ucsc_batch_result` JSON with per-record candidates, exact collision/overlap relationships, resource identity, provenance, and explicit unassessed-domain boundaries including authoritative assembly-sequence preflight; and
+- adds compact human batch rendering plus schema-v2 `liftassess.ucsc_batch_result` JSON with per-record mappings, exact collision/overlap relationships, resource identity, provenance, and explicit unassessed-domain boundaries including authoritative assembly-sequence validation; and
 - documents BED coordinates as native 0-based half-open in both human and machine batch output.
 
-Fourth M22 point-context relationship slice:
+Fourth M22 flanking-interval relationship slice:
 
-- applies the established automatic 101-bp point-context policy to one-base BED rows, with
+- applies the established automatic 101-bp flanking-interval policy to one-base BED rows, with
   `--context-bases` available as the same explicit odd-width override used by single-locus points;
 - derives every batch context window from the conservative source-sequence bound carried by the
   already-prepared chain index and reports context `NOT_RUN` when that bound is unavailable rather
   than guessing from chain-file naming or starting another traversal;
-- collects all runnable point-context windows and queries them through the same exact-resource index,
+- collects all runnable flanking-interval windows and queries them through the same exact-resource index,
   with no provider access, index build, or whole-chain fallback;
-- keeps submitted-row target relationships and point-context target relationships as separate result
+- keeps submitted-row target relationships and flanking-interval target relationships as separate result
   scales, promoting exact context-scale target equality to `NEIGHBORHOOD_LEVEL_TARGET_COLLISION`
-  while preserving overlapping-but-offset context projections as a distinct relationship; and
-- exposes exact tested context intervals, context candidates, relationship geometry, and per-record
+  while preserving overlapping-but-offset context mappings as a distinct relationship; and
+- exposes exact tested context intervals, context mappings, relationship geometry, and per-record
   run/not-run state in the human summary and schema-v2 batch JSON. Ordinary interval rows remain
   untouched.
 
 Fifth M22 shared-comparative-evidence slice:
 
-- requires a complete cached COMPARATIVE bundle before selecting the all-chain publication class for
+- requires a complete cached COMPARATIVE resource set before selecting the all-chain resource class for
   batch execution; otherwise default selection falls through to an available LIFTOVER-ONLY chain;
-- keeps submitted-row candidate generation on the prepared all-chain index and never rescans that
+- keeps submitted-row mapping generation on the prepared all-chain index and never rescans that
   multi-gigabyte resource;
 - consumes the ordinary net exactly once and the reciprocal-best chain exactly once across the entire
-  submitted-row candidate collection, preserving the existing candidate-level net and reciprocal-best
+  submitted-row mapping collection, preserving the existing mapping-level net and reciprocal-best
   evidence semantics and exact file provenance;
-- keeps automatic point-context candidates chain-only rather than implying that shared comparative
-  evidence was assessed at the neighborhood scale; and
+- keeps automatic flanking-interval mappings chain-only rather than implying that shared comparative
+  evidence was assessed at the flanking-interval scale; and
 - exposes the comparative scope and exact consumed net/reciprocal-best resource identities in compact
-  human output and schema-v2 batch JSON, while explicitly marking filtered-vs-all-chain comparison and
+  human output and schema-v2 batch JSON, while explicitly marking standard liftOver versus all-chain comparison and
   categorical comparative relationship interpretation as not assessed.
 
 Internal M22 review hardening:
 
-- replaces the all-record-pair relationship cross product with a target-local candidate sweep, preserving
-  exact mapped-segment collision/overlap semantics and deterministic input/candidate ordering while
-  avoiding quadratic work for large sparse or zero-candidate batches.
+- replaces the all-record-pair relationship cross product with a target-local mapping sweep, preserving
+  exact mapped-segment collision/overlap semantics and deterministic input/mapping ordering while
+  avoiding quadratic work for large sparse or zero-mapping batches.
 
 External M22 review remediation:
 
-- partitions the one-pass reciprocal-best candidate-relevant subset by exact source-sequence,
-  target-sequence, and orientation key before candidate annotation, so candidates do not rescan
+- partitions the one-pass reciprocal-best mapping-relevant subset by exact source-sequence,
+  target-sequence, and orientation key before mapping annotation, so mappings do not rescan
   reciprocal-best chains that cannot apply to them;
-- keeps point-context per-record schema-v2 fields consistent across `RUN`, `NOT_RUN`, and
+- keeps flanking-interval per-record schema-v2 fields consistent across `RUN`, `NOT_RUN`, and
   `NOT_APPLICABLE` states; and
 - adds regression coverage for touching/multi-way target relationships and the one-net/one-rbest-read
   batch execution contract.
@@ -789,27 +747,27 @@ Sixth M22 interval-table input slice:
 - completes the required BED/simple interval-table M22 intake scope while leaving optional BED12/custom-
   track export outside milestone closure.
 
-Optional BED12/custom-track export may visualize one candidate whose blocks share a target sequence;
-it must not collapse multiple candidates/target sequences or replace source-coverage reporting.
+Optional BED12/custom-track export may visualize one mapping whose blocks share a target sequence;
+it must not collapse multiple mappings/target sequences or replace source-coverage reporting.
 
 M22 closure checks completed on 2026-08-28:
 
 - native gate: **506 tests passed**, Ruff lint/formatting clean, strict mypy clean, and
   `git diff --check` clean;
 - real B12-B14 COMPARATIVE batch regression preserved the established submitted-row net and
-  reciprocal-best evidence while keeping point context chain-only;
+  reciprocal-best evidence while keeping flanking-interval context chain-only;
 - real B15-B18 interval-table input normalized to the same physical intervals, point-level collision
-  relationships, and 101-bp neighborhood relationships previously validated through BED input; and
+  relationships, and 101-bp flanking-interval relationships previously validated through BED input; and
 - the targeted external M22 review found no scientific-correctness defect in the batch relationship,
-  point-context, shared-COMPARATIVE, or provenance/consumption paths. Its demonstrated reciprocal-best
+  flanking-interval, shared-COMPARATIVE, or provenance/consumption paths. Its demonstrated reciprocal-best
   batch-scaling finding and low-level schema/test-hardening findings were remediated and regression-tested
   before closure.
 
 ### Remaining Milestone-18 parallel prerequisite before Milestone 23
 
-The authoritative assembly-sequence metadata/preflight capability is now implemented end to end.
+The authoritative assembly-sequence metadata/source validation capability is now implemented end to end.
 Source-side UCSC `chromInfo`/optional `chromAlias` metadata provide canonical names, authoritative
-bounds, exact alias suggestions, cache/provenance identity, single-locus preflight, and one shared
+bounds, exact alias suggestions, cache/provenance identity, single-locus source validation, and one shared
 batch catalog. Target-side role/context binds a UCSC Browser database to an exact versioned NCBI
 assembly accession only when the UCSC assembly description explicitly states that binding, then caches
 the matching NCBI sequence report by SHA-256, preserves provider-native `role` and `assemblyUnit`,
@@ -826,7 +784,7 @@ optional context.
 
 The initial UCSC segmental-duplication slice uses the assembly-scoped `genomicSuperDups` table as typed
 contextual observation data, with verified provider semantics/terms, exact source-query overlap, exact
-mapped-target-segment overlap, and content-addressed provenance. It does not alter candidate generation,
+mapped-target-segment overlap, and content-addressed provenance. It does not alter mapping generation,
 factual headline, comparative interpretation, or any quality/correctness judgment. Missing or unusable
 optional context degrades to `UNAVAILABLE` rather than aborting the primary assessment or being inferred
 from mapping geometry or sequence names.
@@ -836,14 +794,14 @@ remediation of optional-context failure boundaries, independent follow-up verifi
 real-data exercise against SHA-256-identified hg19/hg38 `genomicSuperDups` resources. The motivating-case
 results were intentionally treated as implementation/design checks, not held-out validation:
 
-- **A03 (FAM72/SRGAP2):** the 1-bp projection remained complete, while automatic reverse mapping returned
+- **A03 (FAM72/SRGAP2):** the 1-bp mapping remained complete, while automatic reverse mapping returned
   elsewhere and the 101-bp context became partial/fragmented. The source point overlapped two hg19
-  segmental-duplication rows and the projected hg38 point overlapped two hg38 rows; the contextual
+  segmental-duplication rows and the mapped hg38 point overlapped two hg38 rows; the contextual
   observations did not change the mapping headline or interpretation.
 - **A04 (documented chr22 problematic liftOver case):** the forward point and 101-bp context remained
   complete and contiguous, while reverse mapping returned the historical hg19 chr14 locus. The hg19
   source point overlapped a `genomicSuperDups` row with `fracMatch=0.994191` whose paired chr14 interval
-  contains that reverse locus; the projected hg38 point overlapped a row with `fracMatch=0.992693`. These
+  contains that reverse locus; the mapped hg38 point overlapped a row with `fracMatch=0.992693`. These
   remain descriptive duplication-context observations, not proof of a causal mechanism or biological
   correctness.
 
@@ -886,7 +844,7 @@ Release requirements:
   findings resolved;
 - the release version is `0.2.0a1`;
 - the schema/result-model break from `v0.1.0a1` is documented explicitly, including removal of the
-  legacy aggregate verdict interface rather than silently redefining it;
+  earlier aggregate-result interface rather than silently redefining it;
 - the full native quality gate passes for the release candidate, including pytest, Ruff, Ruff
   formatting, strict mypy, and `git diff --check`;
 - wheel and source-distribution artifacts build successfully and a clean-environment install/smoke
@@ -894,9 +852,9 @@ Release requirements:
 - README, user documentation, release notes/changelog, package metadata, and examples describe the
   behavior actually shipped in `v0.2.0a1`;
 - a dedicated public-language audit confirms that README, GitHub About text, CLI help, release notes,
-  current-facing DESIGN/ROADMAP prose, examples, and command descriptions use standard
+  DESIGN/ROADMAP prose, examples, and command descriptions use standard
   bioinformatics/genomics and UCSC liftOver terminology, preserve the M23 facts-first evidence
-  boundaries, and do not expose obsolete aggregate-verdict language or unnecessary internal
+  boundaries, and do not expose obsolete aggregate-result language or unnecessary internal
   implementation vocabulary in normal user-facing text;
 - a meaning/actionability audit confirms that materially unusual default results explain why the
   highlighted observation matters, state only the bounded implication supported by the evidence, and
@@ -921,7 +879,7 @@ Planned scope:
   as typed, provenance-bearing context where the provider source, terms, assembly scope, and
   resource semantics are verified. Report relevant same-assembly alignments for the submitted locus
   and, where useful, exact mapped target segments. Self-chain evidence may expose duplicated or
-  paralogous sequence context, but it must not be described as proof that a projection is wrong, as
+  paralogous sequence context, but it must not be described as proof that a mapping is wrong, as
   proof of a biological predecessor, or as an orthology call. Corpus A Case 10 is the initial
   historical motivating case because UCSC used a strong self-chain match to explain why novel hg38
   sequence could project to an older-assembly locus.
@@ -937,9 +895,9 @@ Planned scope:
 - **Flanking-gene synteny/orthology context:** select and verify a real source, define explicit
   provenance/dependence and fallback behavior, and add it only as optional context. The feature may
   report the relationship supported by the selected source but must not automatically declare the
-  projected locus to be the biologically correct ortholog.
+  mapped locus to be the biologically correct ortholog.
 
-Candidate follow-ups from post-M23 outside feedback, with priority not yet assigned:
+Mapping follow-ups from post-M23 outside feedback, with priority not yet assigned:
 
 - **Alignment extent/edge context:** consider whether the mapped locus lies near the edge of a chain or
   alignment block, or whether the supporting alignment is unusually local for the query. Report only literal
@@ -989,14 +947,14 @@ Planned scope:
   links to longer explanations of observations such as non-reciprocal liftOver, fragmented mappings,
   duplicated-sequence context, and target sequence roles. Documentation may explain plausible causes
   and follow-up strategies but must distinguish them from causes established in the current result.
-- **BED12/custom-track export:** export one candidate's mapped blocks when they can be represented
-  legally on one target sequence. Never collapse multiple candidates or multiple target sequences
+- **BED12/custom-track export:** export one mapping's mapped blocks when they can be represented
+  legally on one target sequence. Never collapse multiple mappings or multiple target sequences
   into one BED12 feature, and never replace exact source-coverage/uncovered-source reporting with a
   target bounding span.
 - **Named-variant guidance/navigation:** when rsID or equivalent identifier metadata is explicitly
   available, provide an actionable target-assembly dbSNP/identifier-aware next step or navigation
   link. Do not infer an rsID from coordinates, and do not present database identity as evidence that
-  the coordinate projection itself is correct.
+  the coordinate mapping itself is correct.
 - **UCSC `unMapped` terminology crosswalk:** document the familiar UCSC liftOver failure categories
   such as `Deleted in new`, `Partially deleted in new`, `Split in new`, `Duplicated in new`, and
   `Boundary problem` alongside the exact liftAssess observations that can explain similar geometry.
@@ -1024,7 +982,7 @@ These remain useful but should not disrupt the sequence above:
   turn the historical-resolution pedigree into a truth-bearing sanity fixture;
 - define portable case manifests and any later byte-containing packets under provenance and
   redistribution-term constraints;
-- revisit candidate-rank evidence only when a defensible locus-scoped semantics exists.
+- revisit mapping-rank evidence only when a defensible locus-scoped semantics exists.
 
 The source-selection work for flanking-gene synteny/orthology now belongs to Milestone 25, and the
 worked-examples gallery now belongs to Milestone 26 rather than remaining unassigned research work.
@@ -1034,7 +992,7 @@ worked-examples gallery now belongs to Milestone 26 rather than remaining unassi
 The following should not distract from making the first version scientifically useful:
 
 - plugin registry, entry-point discovery, or general engine configuration framework;
-- automatic support for many candidate-generation engines before a real second engine exists;
+- automatic support for many mapping generation engines before a real second engine exists;
 - a second mapping-evidence source/provider until a concrete source is verified to come from a genuinely independent upstream mapping/alignment process and the cross-engine hypothesis-equivalence semantics are defined; when that exists, independent agreement/disagreement becomes an evidence capability rather than a reason to add speculative plugin infrastructure;
 - fresh minimap2/lastz alignment by default;
 - machine-learning confidence models;

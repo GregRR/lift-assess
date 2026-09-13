@@ -1,32 +1,32 @@
 # liftAssess
 
-**liftAssess** is a Python command-line tool and library for assessing ambiguous genomic coordinate liftOver mappings between genome assemblies. It reports factual projection geometry, evidence availability, provenance, and bounded interpretation without collapsing those facts into a single confidence verdict.
+**liftAssess** is a Python command-line tool and library for assessing genomic coordinate liftOver mappings between genome assemblies. It reports exact mapping geometry, evidence availability, provenance, and bounded interpretation without collapsing those facts into a single confidence label.
 
-> **Status:** Early public alpha development. Core candidate generation, evidence extraction, cached-bundle orchestration, a derived factual result profile, progressive human reporting, and schema-v2 JSON reporting are implemented and tested. The current redesign intentionally breaks the original alpha result schema; this remains early scientific software.
+> **Status:** Early public alpha development. Core mapping generation, comparative evidence extraction, verified UCSC resource caching, a derived factual result profile, progressive human reporting, and schema-v2 JSON reporting are implemented and tested. The current redesign intentionally breaks the original alpha result schema; this remains early scientific software.
 
 **New to liftAssess?** Start with [`GETTING_STARTED.md`](docs/GETTING_STARTED.md). See [`FEATURES.md`](docs/FEATURES.md) for the complete catalog of implemented capabilities, expert APIs, and current limitations.
 
 ## Why liftAssess exists
 
-Coordinate liftOver tools answer an important question: *where can this interval map in another assembly?* They do not, by themselves, explain exact source coverage, split or discontinuous geometry, competing projections, which comparative resources were examined, or how those observations depend on one another.
+Coordinate liftOver tools answer an important question: *where can this interval map in another assembly?* They do not, by themselves, explain exact source coverage, split or discontinuous alignment geometry, multiple mappings, which comparative resources were examined, or how those observations depend on one another.
 
-Use liftAssess when genome assembly or genome build coordinate conversion produces one-to-many mappings, split mappings, surprising target spans, or other cases where a coordinate alone does not tell the whole story.
+Use liftAssess when genome assembly or genome build coordinate conversion produces one-to-many mappings, split mappings, surprising target spans, non-reciprocal mappings, or other cases where a coordinate alone does not tell the whole story.
 
 liftAssess is intended to sit downstream of or alongside coordinate-conversion tools and answer a different question:
 
-> **What physically happened to this interval in the consumed mapping resources, what evidence was examined, and what does that evidence not establish?**
+> **What happened to this interval in the mapping resources, why do the reported observations matter, what can I inspect next, and what does the evidence not establish?**
 
 liftAssess is an **assessor, not a resolver**. It does not claim that a locus is biologically “correct,” and it does not produce a composite numeric confidence score.
 
 ## Result model
 
-The current result model is facts-first rather than verdict-first. It derives orthogonal factual states from the scientific report, including projection count, exact source coverage, mapped-segment geometry, target discontinuity, orientation, evidence availability, resource consumption, and provenance.
+The current result model is facts-first rather than label-first. It derives orthogonal factual states from the scientific report, including the number of mappings, exact source coverage, mapped alignment-block geometry, target discontinuity, orientation, evidence availability, resource consumption, and provenance.
 
-A deterministic factual headline summarizes the dominant mapping event, for example `ONE COMPLETE CHAIN PROJECTION`, `PARTIAL SOURCE COVERAGE`, or `MULTIPLE CHAIN PROJECTIONS`. A bounded interpretation explains that event without turning it into a claim of biological truth or candidate correctness.
+A deterministic factual headline summarizes the dominant mapping event, for example `ONE LIFTOVER MAPPING`, `PARTIAL LIFTOVER MAPPING`, or `MULTIPLE LIFTOVER MAPPINGS`. For unusual findings, the human report keeps interpretation next to the observation it explains and gives a bounded next step without turning the result into a claim of biological truth or a preferred mapping.
 
-The result profile also carries actual reverse-mapping context when a matching reverse-direction chain and its prepared index are already available in the local cache. Reverse mapping is chain-only, is reported separately from reciprocal-best membership, and preserves exact original-source return geometry. The automatic CLI uses the same chain publication class as the forward assessment. If no matching reverse chain is cached, the check is `UNAVAILABLE`; if the chain exists but scalable indexed access is not prepared or is unusable, the check is `NOT_RUN`. An explicit forward `--refresh` also leaves reverse mapping `NOT_RUN` rather than mixing freshly reacquired forward resources with an unrefreshed reverse chain. Normal assessment does not silently contact UCSC, refresh reverse resources, build a reverse index, or start another exhaustive reverse-chain scan.
+The result profile also carries reverse liftOver context when a matching reverse-direction chain and its prepared index are already available in the local cache. Reverse liftOver is chain-only, is reported separately from reciprocal-best membership, and preserves exact return geometry. A non-reciprocal result means the source and mapped loci do not have a one-to-one reciprocal correspondence under the available forward and reverse chain mappings; it does not by itself prove the forward mapping is wrong. The automatic CLI uses the same chain resource class as the forward assessment and never silently downloads reverse resources or builds a reverse index. See [`REFERENCES.md`](docs/REFERENCES.md) for literature supporting this interpretation boundary.
 
-For 1-bp point queries, the profile additionally carries automatic local-context chain evidence when the prepared forward chain index is available. The default window is centered at 101 bp (boundary-clipped when needed), its exact tested interval is reported, and factual states distinguish mapped agreement, no projection at either tested scale, newly revealed partial coverage, fragmentation, target discontinuity, or other query-scale change. `--context-bases N` requests another odd-width point window explicitly. This context reuses the same forward chain publication class and does not re-run net/reciprocal-best evidence or fall back to another full chain scan. BED3+ batch input is also available through prepared chain indexes; COMPARATIVE batches attach ordinary-net and reciprocal-best-chain observations to submitted rows with one shared pass over each resource, while point-context remains chain-only. Authoritative UCSC source metadata now preflights source names and bounds before mapping. Version-matched UCSC/NCBI metadata can report target sequence role/context, and single-locus runs can attach typed UCSC `genomicSuperDups` overlap context. These dimensions remain separate from mapping quality and biological correctness.
+For 1-bp point queries, the profile additionally carries an automatic flanking-interval check when the prepared forward chain index is available. The default window is centered at 101 bp (boundary-clipped when needed), its exact tested interval is reported, and the result distinguishes agreement with the point mapping from newly revealed partial coverage, fragmentation, target discontinuity, or other query-scale changes. `--context-bases N` requests another odd-width point window explicitly. This check reuses the same forward chain resource class and does not re-run net/reciprocal-best evidence or fall back to another full chain scan. BED3+ batch input is also available through prepared chain indexes; COMPARATIVE batches attach ordinary-net and reciprocal-best-chain observations to submitted rows with one shared pass over each resource, while flanking-interval checks remain chain-only. Authoritative UCSC source metadata validates source names and bounds before mapping. Version-matched UCSC/NCBI metadata can report target sequence roles, and single-locus runs can attach UCSC Segmental Duplications context. These dimensions remain separate from mapping quality and biological correctness.
 
 ## Scientific principles
 
@@ -43,24 +43,24 @@ A few rules are central to the project:
 
 The current development code includes:
 
-- typed assembly, interval, candidate, evidence, result-profile, and provenance models;
+- typed assembly, interval, mapping, evidence, result-profile, and provenance models;
 - a minimal streaming UCSC chain reader;
 - forward- and reverse-strand chain geometry with 0-based half-open internal coordinates;
-- chain-backed candidate projection, including split mappings;
-- authoritative source-sequence name/alias/bounds preflight before mapping;
-- version-bound target sequence role/context when exact UCSC/NCBI metadata supports it;
-- typed source/target UCSC segmental-duplication overlap context with exact provenance;
-- actual chain-only reverse-mapping context from an exact-class cached reverse chain, with explicit `RUN`, `UNAVAILABLE`, and `NOT_RUN` states and no implicit reverse acquisition or index build;
-- automatic indexed 101-bp local chain context for 1-bp queries, with exact tested geometry, explicit query-scale findings, and `--context-bases` for a different odd-width window;
+- chain-backed liftOver mapping, including split mappings;
+- authoritative source-sequence name/alias/bounds validation before mapping;
+- version-bound target sequence roles when exact UCSC/NCBI metadata supports them;
+- source/target UCSC Segmental Duplications context with exact provenance;
+- actual chain-only reverse liftOver context from an exact-class cached reverse chain, with explicit performed, unavailable, and not-run states and no implicit reverse acquisition or index build;
+- automatic indexed 101-bp flanking-interval context for 1-bp queries, with exact tested geometry, explicit query-scale findings, and `--context-bases` for a different odd-width window;
 - mapping-coverage and chain-gap evidence;
 - a minimal streaming UCSC net reader with hierarchy preservation;
 - net evidence for aligned bases (`ali`), duplicated query bases (`qDup`), net classification, and hierarchy;
 - dependency-aware provenance linking chain- and net-derived observations;
-- reciprocal-best membership evidence with `FULL`, `PARTIAL`, and `NONE` states;
+- reciprocal-best membership evidence that distinguishes full, partial, and absent membership;
 - explicit completeness requirements for reciprocal-best absence/partial evidence;
 - UCSC resource discovery and evidence-availability tier detection, including verified reciprocal-best lookup across asymmetric pair-directory publication layouts;
-- single-pass UCSC engine orchestration that generates candidates and attaches available net and
-  reciprocal-best evidence without rescanning whole comparative resources per candidate;
+- single-pass UCSC engine orchestration that generates mappings and attaches available net and
+  reciprocal-best evidence without rescanning whole comparative resources per mapping;
 - streaming local-file adapters for plain-text or gzip-compressed chain/net resources, including
   direct parser-to-engine orchestration for user-supplied or cached files;
 - content-addressed SHA-256 provenance for exact local resource-file bytes, with separate optional
@@ -68,11 +68,11 @@ The current development code includes:
 - UCSC acquisition into a caller-selected external cache, with explicit provider-terms acknowledgement
   before network access, exact-filename MD5 and HTTP-length verification when available, atomic
   content-addressed storage, retrieval metadata, offline cache reuse, and refresh;
-- cache-first CLI reuse of complete verified bundles with zero provider access, plus explicit `--offline` and `--refresh` modes so offline analysis and freshness checks are never conflated;
+- cache-first CLI reuse of complete verified resource sets with zero provider access, plus explicit `--offline` and `--refresh` modes so offline analysis and freshness checks are never conflated;
 - interactive assessment progress based on exact compressed bytes consumed during SHA-256-verified parsing, with Chain/Net/Reciprocal-best progress bars and numeric byte percentages;
-- interactive cache-verification progress based on exact artifact bytes hashed across the required cached bundle, with one aggregate row that reaches 100% only after all required SHA-256 checks pass;
+- interactive cache-verification progress based on exact artifact bytes hashed across the required cached resource set, with one aggregate row that reaches 100% only after all required SHA-256 checks pass;
 - interactive resource-transfer progress for fresh and resumable UCSC acquisition, using measured exact bytes, retained-prefix-aware resume state, explicit cache-hit labeling, and byte-only display rather than invented percentages when the provider size is unknown;
-- explicit bundle transfer planning and complete-or-error bundle acquisition for discovered
+- explicit resource-set transfer planning and complete-or-error acquisition for discovered
   `COMPARATIVE` and `LIFTOVER-ONLY` resource sets, with a separate transfer-plan acknowledgement before
   any planned resource acquisition begins;
 - terms-gated, body-free remote metadata inspection using HTTP HEAD with identity encoding requested,
@@ -82,11 +82,11 @@ The current development code includes:
   support, and a strong ETag; retained partials are bound to that exact URL/size/validator and resumed with
   `Range` + `If-Range`, while contract mismatches restart fresh rather than splicing representations;
 - regression coverage for forward/reverse mappings, split mappings, gaps, repeated net chain IDs, provenance diamonds, reciprocal-best subsetting, and resource-discovery failure modes.
-- a real `canFam3`→`canFam4` comparative mechanical fixture, replayed through the production cached-bundle path from exact externally cached UCSC resources without committing provider data to the repository.
-- a dedicated derived result-profile layer that validates durable candidate/evidence invariants and deterministically summarizes projection count, coverage, geometry, orientation, evidence availability, and scope boundaries without an aggregate verdict.
-- progressive human rendering that stays compact for uncomplicated results and surfaces material geometry, reverse/query-context, comparative, target-role, and typed external-context states when relevant.
-- schema-v2 JSON reporting from the same result profile, retaining exact candidates, evidence, resources, and provenance while removing the legacy `verdict`, verdict-derived `decision_reason`, and preferred-candidate fields.
-- cached-bundle orchestration that connects acquired UCSC resources to candidate/evidence generation and result-profile derivation while preserving evidence tier, resource-consumption metadata, retrieval context, and shared provenance.
+- a real `canFam3`→`canFam4` comparative mechanical fixture, replayed through the production verified-cache path from exact externally cached UCSC resources without committing provider data to the repository.
+- a dedicated derived result-profile layer that validates durable mapping/evidence invariants and deterministically summarizes mapping count, coverage, geometry, orientation, evidence availability, and scope boundaries without an aggregate result label.
+- progressive human rendering that stays compact for uncomplicated results and surfaces material geometry, reverse/flanking-interval, comparative, target-sequence-role, and genomic-context states when relevant.
+- schema-v2 JSON reporting from the same result profile, retaining exact mappings, evidence, resources, and provenance without carrying forward obsolete aggregate-result or mapping-selection fields.
+- verified-cache orchestration that connects acquired UCSC resources to mapping/evidence generation and result-profile derivation while preserving evidence tier, resource-consumption metadata, retrieval context, and shared provenance.
 
 ## Not implemented yet
 
@@ -94,7 +94,7 @@ The project now implements the common-case CLI, concise summary, human-readable 
 
 - a future truth-bearing historical-resolution locus for the planned `canFam3.1`→`canFam6` sanity-check pedigree;
 - optional flanking-gene orthology/synteny evidence;
-- defensible candidate-rank evidence with explicit locus-scoped semantics;
+- defensible mapping-rank evidence with explicit locus-scoped semantics;
 - reverse context across batch loci;
 - reproducible case manifests and, where redistribution terms permit, portable resource packets.
 
@@ -105,17 +105,17 @@ The project now implements the common-case CLI, concise summary, human-readable 
 liftAssess distinguishes **which evidence resources are available** from the factual mapping result.
 
 - `COMPARATIVE` — a full comparative resource set is available, including chain/net context and reciprocal-best resources needed by the v1 UCSC evidence path.
-- `LIFTOVER-ONLY` — only a liftOver chain resource is available, so candidate generation and chain-derived evidence can still proceed but comparative evidence is unavailable.
+- `LIFTOVER-ONLY` — only a liftOver chain resource is available, so mapping generation and chain-derived evidence can still proceed but comparative evidence is unavailable.
 
 These are evidence-availability tiers, **not confidence tiers**.
 
 ## Architecture
 
 ```text
-Candidate/evidence engine
+Mapping/evidence engine
         |
         v
-NormalizedCandidate[] + evidence/provenance
+Normalized mapping records + evidence/provenance
         |
         v
 UCSC scientific report
@@ -128,16 +128,16 @@ Derived ResultProfile
 Human renderer        Schema-v2 JSON
 ```
 
-Candidate generation and evidence extraction remain separate from result-language synthesis. The derived result profile is the single boundary used by both human and machine renderers, so renderers do not independently rediscover result semantics.
+Mapping generation and evidence extraction remain separate from result-language synthesis. The derived result profile is the single boundary used by both human and machine renderers, so renderers do not independently rediscover result semantics.
 
-The candidate/evidence engine is designed around normalized candidates plus explicit provenance. The current implementation intentionally has **one** concrete candidate-generation engine: an internal minimal UCSC chain/net reader. liftAssess does not include a plugin registry, engine auto-discovery, or other speculative plugin infrastructure.
+The mapping/evidence engine is designed around normalized mappings plus explicit provenance. The current implementation intentionally has **one** concrete mapping-generation engine: an internal minimal UCSC chain/net reader. liftAssess does not include a plugin registry, engine auto-discovery, or other speculative plugin infrastructure.
 
 Chains and nets have different responsibilities:
 
-- **chains generate candidate mappings**;
-- **nets annotate those candidates with comparative context**.
+- **chains generate mappings**;
+- **nets annotate those mappings with comparative context**.
 
-Net availability is therefore not required for basic chain-backed candidate generation.
+Net availability is therefore not required for basic chain-backed mapping generation.
 
 ## Installation
 
@@ -165,13 +165,29 @@ assess-liftover canFam3 canFam4 chr1:10000001-10000100 --evidence-tier LIFTOVER-
 
 CLI loci use the familiar UCSC-style 1-based, inclusive display convention and are converted immediately to liftAssess's canonical 0-based, half-open internal representation.
 
-Before mapping-evidence resource acquisition, the command displays the applicable UCSC terms and requires explicit acknowledgement. It then performs body-free HEAD inspection of the exact transfer plan, displays provider-advertised resource sizes and the cache destination, and requires a separate transfer-plan acknowledgement before downloading or verifying cached mapping resources. The displayed size is the provider resource-set size, not a promise that all bytes will be transferred: verified cache hits can avoid body transfer unless `--refresh` is used. `--acknowledge-ucsc-terms` and `--accept-transfer-plan` provide explicit non-interactive acknowledgements; `--cache-dir`, `--refresh`, `--offline`, `--details`, `--json`, `--quiet`, `--context-bases`, `--bed PATH`, and `--interval-table PATH` control cache placement, provider access, report format, progress output, local-context width for one-base queries, and batch input.
+### Ways to supply mapping resources
 
-The default cache is the platform user cache (`~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` or `~/.cache/liftassess` on other platforms). Before a single-locus scientific assessment begins, liftAssess now validates the submitted source sequence and interval against the UCSC database's authoritative `chromInfo` metadata. When available, exact `chromAlias` correspondences are used only to suggest the canonical UCSC name; submitted aliases are not silently rewritten. These small database-table artifacts use the same content-addressed cache and exact SHA-256 provenance as other external resources but are not mapping evidence. UCSC's database download directories explicitly mark their files and tables as freely usable, so these metadata/context tables do not use the mapping-evidence acknowledgement gate. A normal online run discovers/acquires them when missing; `--offline` requires a verified cached `chromInfo` artifact before assessment can proceed. After the mapping bundle is resolved, an online single-locus run may also acquire version-matched target sequence role/context: the UCSC assembly description supplies the exact NCBI assembly accession and the matching NCBI Datasets sequence report supplies provider-native sequence `role` and `assemblyUnit`. This optional context is cached separately with exact SHA-256 provenance and never becomes a mapping-quality score. If it is unavailable, mapping continues and liftAssess explicitly infers no role from names such as `_alt`, `_random`, or `chrUn`; offline runs use it only when already cached.
+liftAssess supports several distinct operating scenarios:
 
-The beginner command above explicitly selects the ordinary directional `LIFTOVER-ONLY` chain publication class. During the 2026-08-30 release-readiness check, UCSC advertised a 5.4 MiB `canFam3ToCanFam4.over.chain.gz` transfer for that exact example; provider resources can change, so always review the displayed transfer plan. `LIFTOVER-ONLY` describes evidence availability, not lower confidence.
+| Scenario | Interface | Provider access |
+| --- | --- | --- |
+| First run using the standard UCSC liftOver chain | CLI with `--evidence-tier LIFTOVER-ONLY` | Contacts UCSC only when required resources are not already cached |
+| First run using comparative UCSC alignment resources | CLI default or `--evidence-tier COMPARATIVE` | Contacts UCSC when the comparative resources are not already cached |
+| Repeat an assessment from verified cache | Same CLI command | Cache-first; missing optional/provider metadata can still require access unless `--offline` is used |
+| Guarantee a completely local run | CLI with `--offline` | No provider access; all required resources must already be cached |
+| Assess local BED or interval-table files | CLI batch mode with a prepared chain index | No provider access; batch mode is cache-only and index-only |
+| Use explicit local UCSC chain/net files | Public Python API | No automatic provider access; the caller supplies the files and provenance |
+| Deliberately check current UCSC resources | CLI with `--refresh` | Provider access is required |
 
-The real `canFam3`→`canFam4` comparative mechanical fixture remains `chrUn_JH373233:1845736-1845835` using the default COMPARATIVE-preferred resource selection. It requires a complete approximately 2.50 GiB UCSC comparative bundle and is an advanced validation example rather than the recommended first run. Once that bundle is cached, `--offline` reuses it without contacting UCSC. Unindexed runs re-verify the source chain directly; when a validated exact-resource chain index exists, liftAssess verifies its compact lookup-integrity catalog, the queried bin metadata, and selected compressed record blocks instead of rereading either the unused multi-gigabyte source chain or the complete SQLite lookup database, while the other cached bundle artifacts retain their normal direct integrity checks.
+The automatic CLI and the explicit-local-file Python API use the same underlying UCSC chain/net parsers and mapping model. The difference is who supplies and manages the resource files. The explicit-local-file route is a lower-level integration boundary: callers compose any source validation, reverse liftOver, target sequence-role, or other contextual checks they need rather than receiving the complete automatic CLI workflow for free. See [`GETTING_STARTED.md`](docs/GETTING_STARTED.md#15-usage-scenarios) for complete examples, including chain-only, comparative, offline, batch, and explicit-local-file workflows.
+
+Before mapping-evidence resource acquisition, the command displays the applicable UCSC terms and requires explicit acknowledgement. It then performs body-free HEAD inspection of the exact transfer plan, displays provider-advertised resource sizes and the cache destination, and requires a separate transfer-plan acknowledgement before downloading or verifying cached mapping resources. The displayed size is the provider resource-set size, not a promise that all bytes will be transferred: verified cache hits can avoid body transfer unless `--refresh` is used. `--acknowledge-ucsc-terms` and `--accept-transfer-plan` provide explicit non-interactive acknowledgements; `--cache-dir`, `--refresh`, `--offline`, `--details`, `--json`, `--quiet`, `--context-bases`, `--bed PATH`, and `--interval-table PATH` control cache placement, provider access, report format, progress output, flanking-interval width for one-base queries, and batch input.
+
+The default cache is the platform user cache (`~/Library/Caches/liftassess` on macOS, `%LOCALAPPDATA%\liftassess\Cache` on Windows, and `$XDG_CACHE_HOME/liftassess` or `~/.cache/liftassess` on other platforms). Before a single-locus scientific assessment begins, liftAssess now validates the submitted source sequence and interval against the UCSC database's authoritative `chromInfo` metadata. When available, exact `chromAlias` correspondences are used only to suggest the canonical UCSC name; submitted aliases are not silently rewritten. These small database-table artifacts use the same content-addressed cache and exact SHA-256 provenance as other external resources but are not mapping evidence. UCSC's database download directories explicitly mark their files and tables as freely usable, so these metadata/context tables do not use the mapping-evidence acknowledgement gate. A normal online run discovers/acquires them when missing; `--offline` requires a verified cached `chromInfo` artifact before assessment can proceed. After the mapping resource set is resolved, an online single-locus run may also acquire version-matched target sequence metadata: the UCSC assembly description supplies the exact NCBI assembly accession and the matching NCBI Datasets sequence report supplies provider-native sequence `role` and `assemblyUnit`. This optional context is cached separately with exact SHA-256 provenance and never becomes a mapping-quality score. If it is unavailable, mapping continues and liftAssess explicitly infers no role from names such as `_alt`, `_random`, or `chrUn`; offline runs use it only when already cached.
+
+The beginner command above explicitly selects the ordinary directional `LIFTOVER-ONLY` chain resource class. During the 2026-08-30 release-readiness check, UCSC advertised a 5.4 MiB `canFam3ToCanFam4.over.chain.gz` transfer for that exact example; provider resources can change, so always review the displayed transfer plan. `LIFTOVER-ONLY` describes evidence availability, not lower confidence.
+
+The real `canFam3`→`canFam4` comparative mechanical fixture remains `chrUn_JH373233:1845736-1845835` using the default COMPARATIVE-preferred resource selection. It requires a complete approximately 2.50 GiB UCSC comparative resource set and is an advanced validation example rather than the recommended first run. Once that resource set is cached, `--offline` reuses it without contacting UCSC. Unindexed runs re-verify the source chain directly; when a validated exact-resource chain index exists, liftAssess verifies its compact lookup-integrity catalog, the queried bin metadata, and selected compressed record blocks instead of rereading either the unused multi-gigabyte source chain or the complete SQLite lookup database, while the other cached resource set artifacts retain their normal direct integrity checks.
 
 For repeated work on a large assembly pair, an optional one-time preparation command builds a reusable chain index from the already verified local cache and **never contacts UCSC**:
 
@@ -179,10 +195,10 @@ For repeated work on a large assembly pair, an optional one-time preparation com
 prepare-liftassess-index canFam3 canFam4
 ```
 
-When both UCSC publication classes exist,
-`assess-liftover --evidence-tier LIFTOVER-ONLY` can explicitly acquire/use the ordinary
-filtered liftOver chain instead of the default COMPARATIVE-preferred selection. This is
-useful when preparing the filtered-chain side of a paired comparison; provider terms and
+When both UCSC chain resource classes exist,
+`assess-liftover --evidence-tier LIFTOVER-ONLY` can explicitly acquire/use the standard
+liftOver chain instead of the default COMPARATIVE-preferred selection. This is useful
+when preparing the standard-liftOver side of a paired comparison; provider terms and
 transfer-plan acknowledgement remain unchanged.
 
 Index construction parses the complete chain once and can take many minutes and several GiB of additional local cache space for very large resources. Later `assess-liftover` CLI runs automatically reuse the exact-resource index when present. The CLI falls back to the original verified full traversal when the index is absent or unusable; lower-level library calls surface `ChainIndexCorruptionError` so callers can choose their own recovery policy. The index is a derived acceleration artifact; scientific provenance continues to identify the original UCSC chain bytes. See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for measured examples and scope.
@@ -205,9 +221,9 @@ chr2	500	500	point-b
 assess-liftover SOURCE_DB TARGET_DB --interval-table loci.tsv --json > batch.json
 ```
 
-Both batch input forms support `-` for stdin. Batch output uses canonical 0-based, half-open intervals. Batch mode is cache-only and index-required in this milestone: it does not contact UCSC, refresh resources, build an index, or fall back to a whole-chain traversal. It also requires verified cached UCSC `chromInfo` source metadata; one catalog is reused across the batch, every row is checked for a canonical source sequence and authoritative bounds before chain lookup, and exact `chromAlias` matches are reported as suggestions rather than silently rewritten. If the preferred exact publication class lacks a prepared index, prepare it explicitly with `prepare-liftassess-index`. `LIFTOVER-ONLY` batches remain chain-only. When a complete cached `COMPARATIVE` bundle is available, submitted-row candidates use the prepared all-chain index and then receive ordinary-net and reciprocal-best-chain observations from one shared full pass over each of those two comparatively small resources; the all-chain itself is not rescanned. The current batch COMPARATIVE scope does not run the paired filtered-vs-all-chain inventory comparison or categorical comparative relationship classifier used by single-locus results; those dimensions are reported as not assessed. Exact target collisions remain separate from overlapping-but-offset projections using exact mapped target segments. One-base batch rows automatically receive the same 101-bp point-context check as single-locus points, using authoritative `chromInfo` bounds when preflight is present; those context candidates remain chain-only, exact context-scale collisions are reported separately as neighborhood-level target collisions, and `--context-bases` selects another odd-width point window. Ordinary interval rows are not widened. Reverse batch evidence is not yet assessed. Target role/context is cache-only in batch mode: when the target UCSC sequence catalog plus its version-matched NCBI sequence report are already cached, one catalog is reused across all projected target sequences; otherwise the batch reports the role dimension as unavailable and does not infer roles from sequence names. Use `--evidence-tier` when the filtered `LIFTOVER-ONLY` publication class is required.
+Both batch input forms support `-` for stdin. Batch output uses canonical 0-based, half-open intervals. Batch mode is cache-only and index-required in this milestone: it does not contact UCSC, refresh resources, build an index, or fall back to a whole-chain traversal. It also requires verified cached UCSC `chromInfo` source metadata; one catalog is reused across the batch, every row is checked for a canonical source sequence and authoritative bounds before chain lookup, and exact `chromAlias` matches are reported as suggestions rather than silently rewritten. If the selected chain resource class lacks a prepared index, prepare it explicitly with `prepare-liftassess-index`. `LIFTOVER-ONLY` batches remain chain-only. When a complete cached `COMPARATIVE` resource set is available, submitted-row mappings use the prepared all-chain index and then receive ordinary-net and reciprocal-best-chain observations from one shared full pass over each of those two comparatively small resources; the all-chain itself is not rescanned. The current batch COMPARATIVE scope does not run the paired standard liftOver versus all-chain inventory comparison or categorical comparative relationship classifier used by single-locus results; those dimensions are reported as not assessed. Exact target collisions remain separate from overlapping-but-offset mappings using exact mapped target segments. One-base batch rows automatically receive the same 101-bp flanking-interval check as single-locus points, using authoritative `chromInfo` bounds when source validation metadata is present; those flanking-interval mappings remain chain-only, exact flanking-interval collisions are reported separately as flanking-interval target collisions, and `--context-bases` selects another odd-width point window. Ordinary interval rows are not widened. Reverse batch evidence is not yet assessed. Target sequence-role metadata is cache-only in batch mode: when the target UCSC sequence catalog plus its version-matched NCBI sequence report are already cached, one catalog is reused across all mapped target sequences; otherwise the batch reports the role dimension as unavailable and does not infer roles from sequence names. Use `--evidence-tier` when the standard `LIFTOVER-ONLY` chain resource class is required.
 
-The default command emits a concise facts-first summary headed by a deterministic mapping headline. Uncomplicated results stay compact; material partial/fragmented/discontinuous geometry, multiple projections, reverse/query-context relationships, comparative relationships, target-role context, and typed external context are surfaced under the current progressive-disclosure rules. `COMPARATIVE` summaries also state that UCSC-derived observations are conservatively treated as dependent, not independent votes, and exact shared processing-run provenance is not verified. For single-locus runs, `--details` emits the complete currently available factual profile, exact mapped segments and gaps, evidence observations, resource URLs/checksums and consumed-vs-unconsumed status, scope boundaries, and the provenance dependency graph. `--json` emits schema version 2 using canonical 0-based, half-open interval objects; batch JSON uses the separate `liftassess.ucsc_batch_result` report type. Schema v2 intentionally omits the legacy aggregate `verdict`, verdict-derived `decision_reason`, and preferred-candidate fields. `--details` is not yet available with batch input; `--details` and `--json` remain mutually exclusive. All completed report modes retain the explicit caveat that coordinate/evidence observations do not establish biological correctness.
+The default command emits a concise facts-first summary headed by a deterministic mapping headline. Uncomplicated results stay compact; material partial/fragmented/discontinuous geometry, multiple mappings, reverse/flanking-interval relationships, comparative relationships, target sequence-role context, and genomic context are surfaced under the current progressive-disclosure rules. `COMPARATIVE` summaries also state that UCSC-derived observations are conservatively treated as dependent, not independent votes, and exact shared processing-run provenance is not verified. For single-locus runs, `--details` emits the complete currently available factual profile, exact mapped segments and gaps, evidence observations, resource URLs/checksums and consumed-vs-unconsumed status, scope boundaries, and the provenance dependency graph. `--json` emits schema version 2 using canonical 0-based, half-open interval objects; batch JSON uses the separate `liftassess.ucsc_batch_result` report type. Schema v2 intentionally omits obsolete aggregate-result and mapping-selection fields from the earlier alpha schema. `--details` is not yet available with batch input; `--details` and `--json` remain mutually exclusive. All completed report modes retain the explicit caveat that coordinate/evidence observations do not establish biological correctness.
 
 For machine use, stdout remains the JSON document while status/progress stays on stderr, so normal shell redirection is safe:
 
@@ -221,7 +237,7 @@ Validation uses two complementary tracks.
 
 ### Mechanical evidence fixture
 
-`canFam3` ↔ `canFam4` is now the real mechanical fixture for verifying extraction of chain/net/reciprocal-best evidence. The selected source interval is `chrUn_JH373233:1845735-1845835` in 0-based, half-open coordinates (CLI display locus `chrUn_JH373233:1845736-1845835`). The production cached-bundle path reproduces 170 candidate mappings across 114 target sequences, including a reverse, split, net-annotated, reciprocal-best-supported candidate and contrasting partial/reciprocal-best-absent alternatives. A historical pre-redesign run on 2026-08-17 reported the legacy `CONTESTED` result and 170 candidates; that legacy label is retained only as benchmark history. The durable fixture facts are the candidate/evidence/provenance observations themselves. These assemblies come from different dogs, so the fixture establishes **mechanical correctness of evidence extraction and deterministic result derivation**, not biological ground truth.
+`canFam3` ↔ `canFam4` is now the real mechanical fixture for verifying extraction of chain/net/reciprocal-best evidence. The selected source interval is `chrUn_JH373233:1845735-1845835` in 0-based, half-open coordinates (CLI display locus `chrUn_JH373233:1845736-1845835`). The production verified-cache path reproduces 170 mappings across 114 target sequences, including a reverse, split, net-annotated, reciprocal-best-supported mapping and contrasting partial/reciprocal-best-absent mappings. A historical pre-redesign run on 2026-08-17 also produced 170 mappings. The durable fixture facts are the mapping, evidence, and provenance observations themselves; obsolete aggregate labels are not retained in the public documentation. These assemblies come from different dogs, so the fixture establishes **mechanical correctness of evidence extraction and deterministic result derivation**, not biological ground truth.
 
 The exact multi-gigabyte UCSC resources remain outside the repository. Developers with the acquired cache can replay the frozen verification with `scripts/verify_canFam3_canFam4_mechanical_fixture.py`.
 
@@ -260,13 +276,13 @@ liftAssess does not bundle UCSC chain/net resources or depend on the UCSC liftOv
 
 UCSC resource terms are not uniform simply because multiple resources use chain format. In particular, UCSC's dedicated `liftOver/*.over.chain.gz` files are subject to UCSC's liftOver chain-file terms, including non-commercial-use restrictions unless an applicable commercial license has been obtained. Comparative `vsTarget/` chain/net resources follow the terms published for their own download directory. The established `canFam3/vsCanFam4/` mechanical-fixture directory states that its files are freely available for public use.
 
-The resolver and acquisition layers remain separate. The acquisition API can retrieve one explicitly requested UCSC resource or execute an explicit plan for a complete discovered resource bundle into a caller-selected cache outside the source tree. Planning is no-network and enumerates every required URL plus its provider-terms classification; bundle execution additionally requires explicit acknowledgement of that transfer plan before any resource acquisition begins. This is deliberately separate from terms acknowledgement. Dedicated `liftOver/*.over.chain.gz` files are identified separately because UCSC applies additional liftOver-chain restrictions. Provider `md5sum.txt` entries are verified when an exact filename entry exists, while liftAssess SHA-256 remains the canonical artifact identity. Verified cached URL→artifact reuse is intentionally available offline and does not claim remote freshness; callers request an explicit refresh to contact UCSC and reacquire current bytes. A separate body-free metadata-inspection step can query provider HTTP headers after explicit terms acknowledgement and before transfer-plan acknowledgement. It does not create cache artifacts or transfer resource bodies. A live canFam3→canFam4 check on 2026-08-14 verified exact `Content-Length` values for all five comparative resources and `Accept-Ranges: bytes`; a separate small-range probe verified `206 Partial Content`, exact `Content-Range`, stable `ETag`, and `If-Range` behavior without downloading the full chain.
+The resolver and acquisition layers remain separate. The acquisition API can retrieve one explicitly requested UCSC resource or execute an explicit plan for a complete discovered resource set into a caller-selected cache outside the source tree. Planning is no-network and enumerates every required URL plus its provider-terms classification; resource-set execution additionally requires explicit acknowledgement of that transfer plan before any resource acquisition begins. This is deliberately separate from terms acknowledgement. Dedicated `liftOver/*.over.chain.gz` files are identified separately because UCSC applies additional liftOver-chain restrictions. Provider `md5sum.txt` entries are verified when an exact filename entry exists, while liftAssess SHA-256 remains the canonical artifact identity. Verified cached URL→artifact reuse is intentionally available offline and does not claim remote freshness; callers request an explicit refresh to contact UCSC and reacquire current bytes. A separate body-free metadata-inspection step can query provider HTTP headers after explicit terms acknowledgement and before transfer-plan acknowledgement. It does not create cache artifacts or transfer resource bodies. A live canFam3→canFam4 check on 2026-08-14 verified exact `Content-Length` values for all five comparative resources and `Accept-Ranges: bytes`; a separate small-range probe verified `206 Partial Content`, exact `Content-Range`, stable `ETag`, and `If-Range` behavior without downloading the full chain.
 
 The acquisition layer now uses that verified transport contract opportunistically. If UCSC publishes an exact checksum and HEAD supplies an exact identity-encoded size, explicit byte-range support, and a strong ETag, an interrupted download retains a partial whose cache path is bound to the exact URL, total size, and validator. A later attempt resumes with `Range` + `If-Range`; a `200` response, malformed/mismatched `Content-Range`, or changed validator is never appended and instead triggers a fresh transfer. Shared resumable partials are never promoted directly into the content-addressed store: completion is copied into a unique private snapshot and independently MD5/SHA-256 verified before atomic publication, so a concurrent stale writer cannot mutate a published artifact. If the required resume metadata is unavailable, acquisition keeps the existing non-resumable streaming behavior.
 
 A live interrupted acquisition check on 2026-08-14 exercised the full resume path against the 5,403,921-byte `canFam3.canFam4.rbest.chain.gz`: the first transfer was stopped after 262,144 bytes, retry revalidated with HEAD and requested `Range: bytes=262144-` plus `If-Range`, and the completed file matched both UCSC's published MD5 and the previously measured liftAssess SHA-256 identity.
 
-A fully cached bundle can now feed the existing file-backed candidate engine directly while preserving content-addressed SHA-256 provenance and explicit shared upstream alignment provenance. `LIFTOVER-ONLY` consumes its chain. A complete `COMPARATIVE` bundle retains all five acquired resources, but the current v1 engine consumes only the all-chain, ordinary classified net, and reciprocal-best chain. UCSC's current automation produces the optional syntenic net by filtering the ordinary net for synteny, so liftAssess does not substitute it for the ordinary net evidence stream; the syntenic net and reciprocal-best net remain available on the cached bundle as retrieval/provenance context. The bridge validates the bundle's UCSC source/target database names against explicitly recorded assembly names or aliases rather than performing general alias resolution.
+A fully cached resource set can now feed the existing file-backed mapping engine directly while preserving content-addressed SHA-256 provenance and explicit shared upstream alignment provenance. `LIFTOVER-ONLY` consumes its chain. A complete `COMPARATIVE` resource set retains all five acquired resources, but the current v1 engine consumes only the all-chain, ordinary classified net, and reciprocal-best chain. UCSC's current automation produces the optional syntenic net by filtering the ordinary net for synteny, so liftAssess does not substitute it for the ordinary net evidence stream; the syntenic net and reciprocal-best net remain available on the cached resource set as retrieval/provenance context. The cache bridge validates the resource set's UCSC source/target database names against explicitly recorded assembly names or aliases rather than performing general alias resolution.
 
 Automatic UCSC discovery is intended as a convenience, not a permanent hard dependency. User-supplied resources are part of the v1 design and remain subject to their own provider terms.
 

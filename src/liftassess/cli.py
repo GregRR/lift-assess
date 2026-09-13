@@ -1500,8 +1500,8 @@ def _attach_cached_filtered_all_chain_comparison(
 
     if args.refresh:
         _status(
-            "Filtered/all-chain comparison not run during --refresh: the ordinary "
-            "filtered liftOver chain was not refreshed automatically.",
+            "Standard liftOver/all-chain comparison not run during --refresh: the "
+            "standard liftOver chain was not refreshed automatically.",
             quiet=args.quiet,
             stderr=stderr,
             indent=4,
@@ -1516,7 +1516,7 @@ def _attach_cached_filtered_all_chain_comparison(
     )
     if structural is None:
         _status(
-            "Filtered/all-chain comparison not run: no cached ordinary filtered "
+            "Standard liftOver/all-chain comparison not run: no cached standard "
             "liftOver chain is available; UCSC was not contacted.",
             quiet=args.quiet,
             stderr=stderr,
@@ -1528,7 +1528,8 @@ def _attach_cached_filtered_all_chain_comparison(
         filtered_index = load_cached_chain_index(cache_root, structural.chain)
     except ChainIndexCorruptionError as exc:
         _status(
-            "Filtered/all-chain comparison not run: cached filtered-chain index is "
+            "Standard liftOver/all-chain comparison not run: cached standard "
+            "liftOver chain index is "
             f"unusable ({exc}). Rebuild it with prepare-liftassess-index "
             f"{report.source_db} {report.target_db} --evidence-tier LIFTOVER-ONLY "
             "--rebuild.",
@@ -1540,10 +1541,11 @@ def _attach_cached_filtered_all_chain_comparison(
 
     if filtered_index is None:
         _status(
-            "Filtered/all-chain comparison not run: the ordinary filtered liftOver "
+            "Standard liftOver/all-chain comparison not run: the standard liftOver "
             "chain is cached but no prepared index is available. Run "
             f"prepare-liftassess-index {report.source_db} {report.target_db} "
-            "--evidence-tier LIFTOVER-ONLY; no full filtered-chain scan was started.",
+            "--evidence-tier LIFTOVER-ONLY; no full standard liftOver chain scan "
+            "was started.",
             quiet=args.quiet,
             stderr=stderr,
             indent=4,
@@ -1559,8 +1561,8 @@ def _attach_cached_filtered_all_chain_comparison(
     )
     if filtered_chain is None:
         _status(
-            "Filtered/all-chain comparison not run: cached filtered chain does not "
-            "match the validated index identity.",
+            "Standard liftOver/all-chain comparison not run: cached standard "
+            "liftOver chain does not match the validated index identity.",
             quiet=args.quiet,
             stderr=stderr,
             indent=4,
@@ -1582,10 +1584,11 @@ def _attach_cached_filtered_all_chain_comparison(
         )
     except ChainIndexCorruptionError as exc:
         _status(
-            "Filtered/all-chain comparison not run: cached filtered-chain index "
+            "Standard liftOver/all-chain comparison not run: cached standard "
+            "liftOver chain index "
             f"failed during lookup ({exc}). Rebuild it with prepare-liftassess-index "
             f"{report.source_db} {report.target_db} --evidence-tier LIFTOVER-ONLY "
-            "--rebuild; no full filtered-chain scan was started.",
+            "--rebuild; no full standard liftOver chain scan was started.",
             quiet=args.quiet,
             stderr=stderr,
             indent=4,
@@ -1593,7 +1596,8 @@ def _attach_cached_filtered_all_chain_comparison(
         return report
     except FilteredAllChainCorrespondenceError as exc:
         _status(
-            "Filtered/all-chain comparison not run: filtered-chain geometry could "
+            "Standard liftOver/all-chain comparison not run: standard liftOver "
+            "chain geometry could "
             f"not be paired safely to the all-chain inventory ({exc}). The primary "
             "assessment remains valid; no comparative relationship was synthesized.",
             quiet=args.quiet,

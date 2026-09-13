@@ -14,11 +14,11 @@ A normal liftOver operation asks:
 
 liftAssess asks a different follow-up question:
 
-> What physically happened to this interval in the consumed mapping resources, what evidence was examined, and what does that evidence not establish?
+> What happened to this interval in the mapping resources, why do the reported observations matter, what can I inspect next, and what does the evidence not establish?
 
-The current result is a factual profile rather than a single quality verdict. It reports dimensions such as source-input validity, projection count, exact source coverage, split/discontinuous geometry, orientation, actual reverse-mapping context when cached reverse resources are available, target sequence role/context, typed external context, evidence availability, resource consumption, and provenance.
+The current result is a factual profile rather than a single quality label. It reports dimensions such as source-input validity, number of mappings, exact source coverage, split/discontinuous alignment geometry, orientation, reverse liftOver when prepared reverse resources are available, target sequence role, genomic context, evidence availability, resource consumption, and provenance.
 
-The default human report begins with a deterministic factual headline such as `ONE COMPLETE CHAIN PROJECTION`, `PARTIAL SOURCE COVERAGE`, or `MULTIPLE CHAIN PROJECTIONS`. It then gives the few facts needed to understand that headline and a bounded interpretation.
+The default human report begins with a deterministic factual headline such as `ONE LIFTOVER MAPPING`, `PARTIAL LIFTOVER MAPPING`, or `MULTIPLE LIFTOVER MAPPINGS`. Routine results stay compact. When an unusual observation is important, its explanation is kept next to that finding and the report gives a bounded next step.
 
 liftAssess does **not** claim that a target is the biologically correct locus, and it does not produce a numeric confidence score.
 
@@ -94,7 +94,7 @@ and prefix the assessment commands below with `uv run`.
 ## 4. Your first assessment
 
 Start with the ordinary directional liftOver chain rather than the much larger
-comparative resource bundle:
+comparative resource set:
 
 ```bash
 assess-liftover \
@@ -121,17 +121,37 @@ assess-liftover \
 ```
 
 That comparative fixture currently requires an approximately 2.50 GiB compressed
-bundle and can require substantial runtime. See [`PERFORMANCE.md`](PERFORMANCE.md)
+resource set and can require substantial runtime. See [`PERFORMANCE.md`](PERFORMANCE.md)
 before using it as a speed test.
+
+### Choose a resource workflow
+
+The CLI does not require the same network behavior for every run. Choose the workflow
+that matches where your resources already live:
+
+| What you want to do | Recommended path | UCSC/provider access |
+| --- | --- | --- |
+| Let liftAssess obtain the ordinary directional liftOver chain | `--evidence-tier LIFTOVER-ONLY` | Used only when the required resources are not already cached |
+| Let liftAssess obtain comparative chain/net/reciprocal-best resources | default selection or `--evidence-tier COMPARATIVE` | Used when the comparative resources are not already cached |
+| Repeat work from the verified cache | rerun the same command | Cache-first; missing metadata/context may still be acquired unless `--offline` is used |
+| Guarantee zero provider access | add `--offline` | None; required resources must already be cached |
+| Force a freshness check | add `--refresh` | Provider access required |
+| Assess local BED/TSV records | `--bed` or `--interval-table` after `prepare-liftassess-index` | None during batch assessment |
+| Use chain/net files you already have outside the liftAssess cache | public Python API | None automatically; you provide files and provenance explicitly |
+
+`LIFTOVER-ONLY` and `COMPARATIVE` describe which UCSC alignment resources are used.
+They are not low- and high-confidence modes. The explicit-local-file API is separate from
+the CLI: there is currently no `--chain-file` or `--net-file` option. Full examples are in
+[Usage scenarios](#15-usage-scenarios).
 
 A first automatic single-locus run goes through these high-level stages:
 
-1. **Preflight the source interval.** Authoritative UCSC `chromInfo` metadata validates
+1. **Validate the source interval.** Authoritative UCSC `chromInfo` metadata validates
    the submitted source sequence and bounds before mapping is attempted; exact
    `chromAlias` matches may be suggested but are never silently rewritten.
-2. **Check the local mapping-resource cache.** If a complete verified bundle already
-   exists, liftAssess can use it without contacting UCSC for mapping resources.
-3. **Discover UCSC mapping resources** if no reusable mapping bundle is available.
+2. **Check the local mapping-resource cache.** If a complete verified mapping resource set
+   already exists, liftAssess can use it without contacting UCSC for mapping resources.
+3. **Discover UCSC mapping resources** if no reusable mapping resource set is available.
 4. **Show the applicable UCSC mapping-resource terms.** You must explicitly acknowledge
    them before provider metadata inspection or acquisition for those resources.
 5. **Inspect transfer metadata.** liftAssess uses body-free HTTP HEAD requests to show
@@ -140,17 +160,17 @@ A first automatic single-locus run goes through these high-level stages:
    before acquisition begins.
 7. **Acquire and verify mapping resources.** Verified artifacts are stored outside the
    source tree in the liftAssess cache.
-8. **Prepare optional target-role context.** When an exact versioned UCSC/NCBI assembly
-   binding is available, target sequence role/context is attached; inability to obtain
+8. **Prepare optional target sequence-role context.** When an exact versioned UCSC/NCBI assembly
+   binding is available, target sequence role is attached; inability to obtain
    this optional context does not invalidate the mapping assessment.
-9. **Assess the locus.** Candidate mappings and the evidence available for the selected
-   publication class are extracted and passed to deterministic result-profile derivation.
+9. **Assess the locus.** Mappings and the evidence available for the selected
+   resource class are extracted and passed to deterministic result-profile derivation.
    `LIFTOVER-ONLY` uses chain evidence; `COMPARATIVE` can additionally attach supported
    net/reciprocal-best observations.
 10. **Attach available post-assessment context.** Depending on prepared/cached resources
-    and run mode, liftAssess can attach the filtered-versus-all-chain comparison, point
-    context, actual reverse mapping, and typed UCSC segmental-duplication observations.
-    These dimensions have explicit `NOT_RUN`/`UNAVAILABLE` boundaries and do not become
+    and run mode, liftAssess can attach the standard liftOver-versus-all-chain comparison, flanking-interval
+    context, reverse liftOver, and UCSC Segmental Duplications observations.
+    These dimensions report clearly when a check was not run or its resources were unavailable and do not become
     confidence votes or biological-mechanism claims.
 11. **Print the report.** The default is the concise human-readable summary.
 
@@ -159,48 +179,55 @@ operation.
 
 ## 5. How to read the default result
 
-The tested beginner example produces this compact result shape:
+A routine successful mapping now has this general shape. Exact coordinates and optional
+context depend on the assembly pair, locus, selected resources, and prepared cache:
 
 ```text
-* ONE COMPLETE CHAIN PROJECTION *
+* ONE LIFTOVER MAPPING *
+
 Source:
-    chr1:10000001-10000100 (1-based inclusive)
-Source coverage:
-    100/100 source bases
-Target:
-    chr1:10027740-10027839 (1-based inclusive; same orientation)
-Reverse mapping:
-    unavailable from the current prepared reverse resources
-UCSC segmental-duplication context:
-    unavailable; no duplication overlap was inferred from sequence naming or mapping geometry.
-Evidence:
-    LIFTOVER-ONLY — consumed CHAIN; chain mapping evidence only
-Interpretation:
-    One chain projects every requested source base; this describes coordinate geometry, not biological identity or correctness.
-Scope:
-    coordinate projection/structure assessed; named-variant and gene/transcript identity not assessed.
+    canFam3 chr1:10000001-10000100
+
+Mapped interval:
+    canFam4 chr1:10027740-10027839
+
+= KEY FINDINGS =
+
+Mapping:
+    One liftOver chain maps 100/100 bp.
+
+= LIMITATIONS =
+
+This result does not establish that the mapped coordinate represents the same variant,
+gene, transcript, or other biological feature.
+
 Details:
-    use --details for the full profile/evidence or --json for schema v2.
-This does not establish biological correctness.
+    Use --details for alignment blocks, gaps, evidence, and provenance;
+    use --json for machine-readable output.
 ```
 
-Optional context can differ with the prepared cache and available provider metadata,
-but the mapping and evidence statements retain the same factual boundaries.
+Unusual findings expand in place. For example, if reverse liftOver does not return to
+the source locus, the report explains immediately under that finding why the lack of a
+one-to-one reciprocal correspondence matters for biological interpretation. If a mapping
+overlaps UCSC Segmental Duplications, that finding likewise carries its own interpretation
+boundary. A later `NEXT STEP` section can then combine those observations into concrete
+follow-up actions such as Genome Browser review or target-assembly-specific feature
+verification.
 
 The default summary keeps each reported item label on its own line and indents the
 corresponding value by four spaces so the result remains easy to scan.
 
 ### Factual headline
 
-Names the observed mapping event. It is deterministic result language, not a confidence rating or biological verdict.
+Names the observed mapping event. It is deterministic result language, not a confidence rating or biological judgment.
 
-### `Source` and `Source coverage`
+### `Source` and mapping coverage
 
-Confirm exactly what interval was assessed and how many requested source bases are represented. For unusual results, the summary expands with uncovered source intervals, mapped-segment counts, target gaps, or multiple projections as needed.
+Confirm exactly what interval was assessed and how many requested source bases are represented. For unusual results, the summary expands with uncovered source intervals, mapped-segment counts, target gaps, or multiple mappings as needed.
 
 ### `Target`
 
-Shows the target coordinate for a single projection. When a projection contains multiple mapped segments, the report explicitly identifies the displayed target interval as a **bounding span** rather than implying continuous alignment.
+Shows the target coordinate for a single mapping. When a mapping contains multiple mapped segments, the report explicitly identifies the displayed target interval as a **bounding span** rather than implying continuous alignment.
 
 ### `Evidence`
 
@@ -211,27 +238,29 @@ Tells you what kind of evidence liftAssess examined for this assembly pair and w
 
 These are evidence-availability concepts, **not confidence tiers**. For `COMPARATIVE`, the report also warns that UCSC-derived observations are conservatively treated as dependent, not independent votes, and exact shared processing-run provenance is not verified.
 
-### `Reverse mapping`
+### `Reverse liftOver`
 
-When a reverse-direction chain of the same publication class as the forward assessment and its prepared chain index are already in the local cache, liftAssess reverses each exact mapped target segment through that chain and reports whether those projections reconstruct the original aligned source geometry, land elsewhere, do both, or produce no reverse projection. Fragmented forward mappings are reversed segment-by-segment; the target bounding span is never used to manufacture a query across an unaligned gap. Net and reciprocal-best artifacts are not required for this reverse geometry.
+When a matching reverse-direction chain and its prepared index are already in the local cache, liftAssess maps each exact target alignment segment back toward the source assembly. This asks whether the forward mapping participates in a one-to-one reciprocal coordinate relationship under the available forward and reverse chain mappings. Fragmented forward mappings are checked segment-by-segment; the target bounding span is never used to manufacture a query across an unaligned gap. Net and reciprocal-best resources are not required for this reverse geometry.
 
-This is distinct from UCSC reciprocal-best membership. If no matching reverse chain is cached, the result reports `UNAVAILABLE`. If the matching chain is cached but its prepared index is absent or unusable, the result reports `NOT_RUN`; normal assessment does not fall back to a surprise exhaustive scan. During an explicit `--refresh`, reverse mapping is also `NOT_RUN` rather than combining freshly reacquired forward resources with an unrefreshed reverse chain; reverse-direction refresh is never implicit. Prepare the exact reverse chain class explicitly with `prepare-liftassess-index TARGET_DB SOURCE_DB --evidence-tier COMPARATIVE` or `--evidence-tier LIFTOVER-ONLY`, matching the forward result. Normal assessment does not silently download reverse resources or build an index.
+Why this matters: if a mapped coordinate does **not** return to the original locus, the source and mapped loci do not have a one-to-one reciprocal correspondence under those available chain mappings. The forward mapping is not necessarily wrong, but coordinate conversion alone is then weaker evidence for treating the target coordinate as the same variant, gene, transcript, or other biological feature. This interpretation is grounded in the genome-build conversion literature summarized in [`REFERENCES.md`](REFERENCES.md).
 
-### `Local context`
+Reverse liftOver is distinct from UCSC reciprocal-best membership. If no matching reverse chain is cached, the check is unavailable. If the matching chain is cached but its prepared index is absent or unusable, the check is not run; normal assessment does not fall back to a surprise exhaustive scan. During an explicit `--refresh`, reverse liftOver is also not run rather than combining freshly reacquired forward resources with an unrefreshed reverse chain. Prepare the matching reverse-direction index explicitly with `prepare-liftassess-index TARGET_DB SOURCE_DB --evidence-tier COMPARATIVE` or `--evidence-tier LIFTOVER-ONLY`. Normal assessment does not silently download reverse resources or build an index.
 
-For a 1-bp query, liftAssess automatically requests a centered 101-bp neighborhood from the same
-prepared forward chain index used for fast candidate lookup. The summary always states the exact
-source window actually tested. Near a sequence boundary, the tested window may be shorter than 101
+### Flanking-interval context for point queries
+
+For a 1-bp query, liftAssess automatically requests a centered 101-bp flanking interval from the same
+prepared forward chain index used for fast mapping lookup. The summary always states the exact
+source interval actually tested. Near a sequence boundary, the tested window may be shorter than 101
 bases because it is clipped rather than shifted.
 
-This automatic neighborhood is **forward chain only**. Its point/context relationship is derived
-from projection identity and structural geometry, not from chain-score ranking or a hidden
+This automatic flanking-interval check is **forward chain only**. Its point/flanking-interval relationship is derived
+from mapping identity and structural geometry, not from chain-score ranking or a hidden
 threshold. For a `COMPARATIVE` point, net and reciprocal-best evidence may be available for the point
 itself, but those resources are not re-run
-for the neighborhood. If the matching forward chain index is missing, unusable, or cannot provide a
-safe source bound, local context reports `NOT_RUN` and does not start another whole-chain scan.
+for the flanking interval. If the matching forward chain index is missing, unusable, or cannot provide a
+safe source bound, the flanking-interval check reports that it was not run and does not start another whole-chain scan.
 
-The 101-bp default is context, not a confidence threshold. To request a different larger odd-width
+The 101-bp default is contextual evidence, not a confidence threshold. To request a different larger odd-width
 window for a point, use for example:
 
 ```bash
@@ -241,13 +270,13 @@ assess-liftover hg19 hg38 chr1:120904787-120904787 --context-bases 1001
 Ordinary interval queries are not widened automatically, and liftAssess never recursively expands a
 point from 101 bp to 1 kb or 10 kb because the first context result looks unusual.
 
-### `Target role and typed external context`
+### Target sequence role and genomic context
 
-When UCSC's assembly description provides an exact versioned NCBI assembly accession, liftAssess can attach provider-native target sequence role/context from the matching NCBI Datasets sequence report. If the exact binding cannot be established, the role stays `UNAVAILABLE`; liftAssess does not guess from names such as `_alt`, `_random`, or `chrUn`.
+When UCSC's assembly description provides an exact versioned NCBI assembly accession, liftAssess can attach provider-native target sequence role from the matching NCBI Datasets sequence report. If the exact binding cannot be established, the role remains unavailable; liftAssess does not guess from names such as `_alt`, `_random`, or `chrUn`.
 
-Single-locus runs can also report exact source and projected-target overlap with UCSC's assembly-specific `genomicSuperDups` table. Those observations are descriptive context only. They do not penalize a projection, prove that duplication caused the mapping behavior, or establish which locus is biologically correct.
+Single-locus runs can also report exact source and mapped-target overlap with UCSC's assembly-specific `genomicSuperDups` table. Those observations are descriptive context only. They do not penalize a mapping, prove that duplication caused the mapping behavior, or establish which locus is biologically correct.
 
-Both context families preserve exact resource provenance. If optional context is missing or unusable, the already-valid primary coordinate assessment continues and the unavailable dimension is reported explicitly.
+Both context sources preserve exact resource provenance. If optional context is missing or unusable, the already-valid primary coordinate assessment continues and the unavailable dimension is reported explicitly.
 
 ### `Interpretation`
 
@@ -255,26 +284,26 @@ A deterministic sentence that stays close to the measured geometry/evidence. It 
 
 ### `Scope`
 
-States important evidence boundaries so an untested identity question is not implied to have been answered by coordinate projection.
+States important evidence boundaries so an untested identity question is not implied to have been answered by coordinate mapping.
 
 ## 6. Progressive disclosure
 
-Routine one-complete-projection results stay compact. The current progressive renderer surfaces material facts when present, including:
+Routine one-mapping results stay compact. The current progressive renderer surfaces material facts when present, including:
 
 - partial source coverage;
-- fragmented or target-discontinuous projection geometry;
-- multiple chain projections;
-- actual reverse-mapping relationships;
-- point-versus-local-context relationships;
-- comparative placement relationships;
-- target sequence role/context; and
-- typed external-context observations.
+- fragmented or target-discontinuous mapping geometry;
+- multiple liftOver mappings;
+- reverse liftOver relationships;
+- point-versus-flanking-interval relationships;
+- comparative mapping relationships;
+- target sequence role; and
+- genomic-context observations.
 
-For large intervals and multiple projections, source coverage leads the story. The report gives actual measured coverage; it does not apply a built-in 90% or other quality threshold.
+For large intervals and multiple mappings, source coverage leads the story. The report gives actual measured coverage; it does not apply a built-in 90% or other quality threshold.
 
-Actual reverse-mapping context is reported when the matching prepared reverse index is available. For 1-bp point queries, liftAssess also requests automatic 101-bp local chain context when the prepared forward chain index is available. Batch mode reports cross-record exact target collisions and overlapping-but-offset projections from indexed chain candidates, and one-base rows from either supported batch format receive the same automatic point context from that index. Context-scale exact collisions are reported separately as neighborhood-level target collisions. COMPARATIVE batches now attach shared net/reciprocal-best evidence to submitted rows. Target-role metadata is cache-only in batch mode; reverse batch evidence and typed external context are not currently assessed there and are not silently implied by the output.
+Reverse liftOver context is reported when the matching prepared reverse index is available. For 1-bp point queries, liftAssess also requests automatic 101-bp flanking-interval context when the prepared forward chain index is available. Batch mode reports cross-record exact target collisions and overlapping-but-offset mappings from indexed chain records, and one-base rows from either supported batch format receive the same automatic flanking-interval context from that index. Context-scale exact collisions are reported separately as flanking-interval target collisions. COMPARATIVE batches now attach shared net/reciprocal-best evidence to submitted rows. Target sequence-role metadata is cache-only in batch mode; reverse batch evidence and genomic context are not currently assessed there and are not silently implied by the output.
 
-## 7. Ask for the full human-readable dossier
+## 7. Ask for the full human-readable report
 
 Use `--details` when you need to understand or audit the evidence behind the summary:
 
@@ -289,13 +318,13 @@ assess-liftover \
 The detailed report includes:
 
 - the complete currently available factual result profile;
-- authoritative source-preflight metadata and provenance;
+- authoritative source-validation metadata and provenance;
 - explicit states for result dimensions that were not run or are not yet assessed;
-- every candidate and exact mapped segment;
+- every mapping and exact mapped segment;
 - exact uncovered source intervals and target gaps;
 - mapping orientation;
-- target sequence role/context when available;
-- typed external-context observations and provenance when available;
+- target sequence role when available;
+- genomic-context observations and provenance when available;
 - every evidence observation;
 - chain/net/reciprocal-best detail;
 - resource URLs, cache paths, retrieval metadata, and checksums;
@@ -318,9 +347,9 @@ assess-liftover \
 
 The JSON document goes to **stdout**. Status and progress messages go to **stderr**, so
 normal shell redirection does not mix progress text into the JSON file. Schema v2 carries
-the same factual profile, exact candidates/evidence, resources, and provenance used by the
-human renderer. It intentionally omits the legacy aggregate `verdict`, verdict-derived
-`decision_reason`, and preferred-candidate field. Detailed and JSON reports include local
+the same factual profile, exact mappings/evidence, resources, and provenance used by the
+human renderer. It intentionally omits obsolete aggregate-result and mapping-selection fields from
+the earlier alpha schema. Detailed and JSON reports include local
 cache paths as run context, so inspect that metadata before publishing a report if local
 filesystem paths are information you do not want to share.
 
@@ -351,14 +380,14 @@ assess-liftover \
 ```
 
 Cache reuse is verified: liftAssess hashes the stored artifact bytes before accepting a
-complete bundle for assessment.
+complete resource set for assessment.
 
 The cache is content-addressed by SHA-256. The local path is run context; the digest is
 the exact artifact identity recorded in provenance.
 
 ## 10. Run with guaranteed zero provider access
 
-Once the needed resource bundle is cached, use `--offline`:
+Once the needed resource set is cached, use `--offline`:
 
 ```bash
 assess-liftover \
@@ -368,9 +397,9 @@ assess-liftover \
 ```
 
 `--offline` is a guarantee, not merely a preference. liftAssess will fail instead of
-contacting UCSC if it cannot find a complete verified local bundle for that direction.
+contacting UCSC if it cannot find a complete verified local resource set for that direction.
 
-A normal cache-first run also avoids UCSC when a complete verified bundle is present,
+A normal cache-first run also avoids UCSC when a complete verified mapping resource set is present,
 but `--offline` makes that requirement explicit.
 
 ## 11. Deliberately check current provider resources
@@ -427,42 +456,101 @@ flags.
 | --- | --- | --- |
 | `-h`, `--help` | Shows the command syntax and option help | Quick command reference |
 | `--cache-dir PATH` | Uses a specific resource cache | Shared storage, testing, or keeping large resources on another disk |
-| `--evidence-tier {COMPARATIVE,LIFTOVER-ONLY}` | Requires one exact UCSC mapping-resource publication class instead of the default COMPARATIVE-preferred selection | Reproducible tier selection or preparing the filtered-chain side of a comparison |
+| `--evidence-tier {COMPARATIVE,LIFTOVER-ONLY}` | Requires one exact UCSC mapping-resource class instead of the default COMPARATIVE-preferred selection | Reproducible resource selection or preparing the standard-liftOver side of a comparison |
 | `--offline` | Guarantees zero provider access and requires a complete verified cache | Reproducible offline analysis or restricted network environments |
 | `--refresh` | Contacts UCSC and reacquires current resources instead of cache-first reuse | Explicit freshness checks |
 | `--acknowledge-ucsc-terms` | Supplies the explicit terms acknowledgement without a prompt | Non-interactive workflows after terms review |
 | `--accept-transfer-plan` | Supplies the separate transfer-plan acknowledgement without a prompt | Non-interactive workflows after reviewing the planned transfer |
 | `--bed PATH` | Reads BED3-or-later batch input using native 0-based, half-open coordinates; `-` reads stdin | Indexed BED batch assessment |
 | `--interval-table PATH` | Reads a tab-delimited `sequence/start/end[/label]` batch table using 1-based, inclusive coordinates; `-` reads stdin | Spreadsheet-style indexed batch assessment |
-| `--details` | Prints the full single-locus human-readable evidence/resource/provenance dossier; not yet available with batch input | Scientific inspection and debugging |
+| `--details` | Prints the full single-locus human-readable evidence/resource/provenance report; not yet available with batch input | Scientific inspection and debugging |
 | `--json` | Prints schema-v2 machine-readable output | Scripts, archives, downstream analysis |
 | `--quiet` | Suppresses nonessential terminal progress/status | Logs, scripts, or less terminal output |
-| `--context-bases N` | Uses another odd-width local-context window for 1-bp point queries, including one-base batch rows | Explicitly testing a point at a scale other than the automatic 101-bp default |
+| `--context-bases N` | Uses another odd-width flanking-interval window for 1-bp point queries, including one-base batch rows | Explicitly testing a point at a scale other than the automatic 101-bp default |
 
 `--offline` and `--refresh` are mutually exclusive. `--details` and `--json` are also
 mutually exclusive.
 
-## 15. Common workflows
+## 15. Usage scenarios
 
-### Normal first run
+The examples below separate **where the mapping resources come from** from **how you want
+the result rendered**. You can add `--details`, `--json`, `--quiet`, `--context-bases`, or a
+custom `--cache-dir` to the compatible CLI scenarios without changing their scientific
+meaning.
+
+### Scenario A: first run, let liftAssess obtain the standard UCSC liftOver chain
+
+Use the ordinary directional liftOver chain when you want the smallest mapping-resource
+workflow:
+
+```bash
+assess-liftover \
+  SOURCE_DB TARGET_DB CHR:START-END \
+  --evidence-tier LIFTOVER-ONLY
+```
+
+If the required files are not cached, liftAssess displays the applicable UCSC terms,
+inspects provider transfer metadata, shows the exact transfer plan, and asks for the two
+explicit acknowledgements before acquisition. Verified files are stored in the liftAssess
+cache for reuse.
+
+### Scenario B: first run, use comparative UCSC alignment resources
+
+Request the comparative resource set explicitly:
+
+```bash
+assess-liftover \
+  SOURCE_DB TARGET_DB CHR:START-END \
+  --evidence-tier COMPARATIVE
+```
+
+Or omit `--evidence-tier` to use the default COMPARATIVE-preferred selection when a
+complete comparative set is available. Comparative assessment can add ordinary-net and
+reciprocal-best observations and, for single loci with the required prepared indexes, a
+standard-liftOver-versus-all-chain comparison. These related UCSC resources are not treated
+as independent votes.
+
+### Scenario C: repeat an assessment from verified cache
+
+Rerun the same command:
 
 ```bash
 assess-liftover SOURCE_DB TARGET_DB CHR:START-END
 ```
 
-Discover resources if needed, review terms and the transfer plan, cache verified
-artifacts, and print the summary.
+The default CLI is cache-first. Mapping resources that are already complete and verified
+are reused instead of being downloaded again. A normal cache-first run can still contact a
+provider for missing metadata or optional context; use `--offline` when zero provider
+access is a requirement.
 
-### Repeat a previous analysis using the cache
+### Scenario D: guarantee a completely local CLI run
 
 ```bash
-assess-liftover SOURCE_DB TARGET_DB CHR:START-END
+assess-liftover \
+  SOURCE_DB TARGET_DB CHR:START-END \
+  --evidence-tier LIFTOVER-ONLY \
+  --offline
 ```
 
-If a complete verified bundle is already cached, the default path uses it without
-contacting UCSC.
+`--offline` guarantees zero provider access. The command fails rather than silently
+contacting UCSC or another provider if required cached resources are missing.
 
-### Prepare a reusable chain index for repeated work
+Use `--cache-dir PATH` in both the acquisition run and the later offline run when you keep
+liftAssess resources on shared storage or another disk.
+
+### Scenario E: deliberately refresh from UCSC
+
+```bash
+assess-liftover \
+  SOURCE_DB TARGET_DB CHR:START-END \
+  --evidence-tier LIFTOVER-ONLY \
+  --refresh
+```
+
+`--refresh` deliberately contacts UCSC and reacquires current resource bytes instead of
+accepting cache-first reuse. It is mutually exclusive with `--offline`.
+
+### Scenario F: prepare an index for repeated local work
 
 After the assembly-pair resources have been acquired and verified at least once:
 
@@ -470,59 +558,40 @@ After the assembly-pair resources have been acquired and verified at least once:
 prepare-liftassess-index SOURCE_DB TARGET_DB
 ```
 
-This command is cache-only: it never contacts UCSC and does not require a locus. It verifies the
-existing cached bundle, then parses the complete source chain once to build a reusable local index
-bound to that chain's exact SHA-256 identity. Large resources can take many minutes and several GiB
-of additional cache space to prepare, so this is an explicit action rather than an automatic
-first-query pause. Later `assess-liftover` runs use the matching index automatically when present. A
-validated index establishes the exact source-chain identity for indexed lookup, so the original
-chain file is not redundantly reread merely to rehash unused bytes. Normal indexed queries verify a
-compact lookup catalog, authenticate the exact genomic-bin membership/record-locator rows they use,
-and verify selected compressed record blocks rather than hashing the complete SQLite lookup database
-on every run; the other cached bundle artifacts retain their normal direct integrity verification.
-Without a usable index, the original
-full-verification/full-traversal behavior remains unchanged.
+This command is cache-only: it never contacts UCSC and does not require a locus. It parses
+the selected chain once to build a reusable local index bound to that chain's exact
+SHA-256 identity. Large chains can take many minutes and several GiB of additional cache
+space to prepare, so index construction is explicit rather than an automatic first-query
+pause.
 
-Use the same custom cache location when applicable:
-
-```bash
-prepare-liftassess-index SOURCE_DB TARGET_DB --cache-dir PATH
-```
-
-When both UCSC chain publication classes are cached, select the exact one explicitly:
+Select the exact resource class when both are cached:
 
 ```bash
 prepare-liftassess-index SOURCE_DB TARGET_DB --evidence-tier COMPARATIVE
 prepare-liftassess-index SOURCE_DB TARGET_DB --evidence-tier LIFTOVER-ONLY
 ```
 
-If the exact chain class is not cached yet, acquire it through the normal assessment workflow
-first. `--evidence-tier` disables automatic tier fallback, so this can retrieve the filtered
-chain even when a complete comparative bundle is also published:
+Automatic reverse liftOver requires a matching reverse-direction index. For a forward
+`SOURCE_DB` → `TARGET_DB` assessment, prepare `TARGET_DB` → `SOURCE_DB` with the same
+resource class if you want the reverse check to run.
 
-```bash
-assess-liftover SOURCE_DB TARGET_DB CHR:START-END --evidence-tier LIFTOVER-ONLY
-```
-
-The usual UCSC terms and transfer-plan acknowledgement still apply.
-
-Automatic reverse mapping requires the reverse-direction index whose publication class
-matches the forward assessment.
-
-A valid existing index is reused. `--rebuild` explicitly discards and regenerates only the derived
-index; the original verified UCSC resource remains untouched.
-
-### Assess a batch with the prepared index
+### Scenario G: assess a local BED file as a batch
 
 BED3-or-later input keeps native **0-based, half-open** coordinates:
 
 ```bash
-assess-liftover SOURCE_DB TARGET_DB --bed loci.bed
+assess-liftover \
+  SOURCE_DB TARGET_DB \
+  --bed loci.bed
 ```
 
-The BED parser ignores blank/comment/`track`/`browser` lines, preserves the optional fourth-column name as a label, and rejects zero-width or reversed intervals before assessment. Use `--bed -` to read BED from stdin.
+Use `--bed -` for stdin. Batch mode is deliberately cache-only and index-only. It never
+contacts UCSC, runs `--refresh`, builds an index automatically, or falls back to a full
+chain traversal.
 
-For spreadsheet-style input, use a simple tab-delimited interval table with a required header:
+### Scenario H: assess a local interval table as a batch
+
+For spreadsheet-style input, use a tab-delimited table with a required header:
 
 ```text
 sequence	start	end	label
@@ -531,31 +600,145 @@ chr2	500	500	point-b
 ```
 
 ```bash
-assess-liftover SOURCE_DB TARGET_DB --interval-table loci.tsv
+assess-liftover \
+  SOURCE_DB TARGET_DB \
+  --interval-table loci.tsv
 ```
 
-The table's `start` and `end` are **1-based and inclusive**, matching the single-locus CLI; `start == end` is therefore a valid one-base point. The optional `label` column must be declared in the header. Table rows are normalized immediately to canonical 0-based, half-open intervals, which is the coordinate form shown in batch JSON and the current batch human report. Blank lines and `#` comments are ignored. Use `--interval-table -` to read the table from stdin.
+The table uses **1-based, inclusive** coordinates like the single-locus CLI. `start == end`
+is therefore a valid one-base point. Use `--interval-table -` for stdin.
 
-Batch mode is deliberately cache-only and index-only. It does not contact UCSC, honor `--refresh`, build an index automatically, or fall back to a full chain traversal if the prepared index is missing or unusable. Prepare the exact selected chain class first:
+For both batch formats, prepare the selected chain index first. Without an explicit
+`--evidence-tier`, batch mode prefers a complete cached COMPARATIVE resource set with a
+prepared all-chain index and otherwise uses an available LIFTOVER-ONLY chain. COMPARATIVE
+batches attach ordinary-net and reciprocal-best observations to submitted rows but do not
+run the single-locus standard liftOver-versus-all-chain comparison or reverse liftOver per row.
 
-```bash
-prepare-liftassess-index SOURCE_DB TARGET_DB --evidence-tier COMPARATIVE
-prepare-liftassess-index SOURCE_DB TARGET_DB --evidence-tier LIFTOVER-ONLY
+### Scenario I: use an explicit local UCSC chain file through Python
+
+If you already have a UCSC chain file and do not want liftAssess to discover or acquire it,
+use the public Python API. There is currently no `--chain-file` CLI option.
+
+The local-file boundary accepts plain-text or gzip-compressed resources. It computes and
+verifies SHA-256 provenance for the exact bytes consumed. This is a lower-level integration
+path: it does not automatically perform the CLI's UCSC source-metadata validation, provider
+resource discovery/acquisition, reverse-index preparation, target sequence-role lookup, or
+Segmental Duplications acquisition. Callers can compose those public APIs separately when
+needed. `GenomicInterval` uses canonical **0-based, half-open** coordinates:
+
+```python
+from pathlib import Path
+
+from liftassess import (
+    AssemblyIdentifier,
+    EvidenceAvailabilityTier,
+    GenomicInterval,
+    build_result_profile,
+    build_ucsc_candidates_from_files,
+    provenance_source_for_file,
+)
+
+source = AssemblyIdentifier(name="hg38", provider="UCSC")
+target = AssemblyIdentifier(name="hg19", provider="UCSC")
+interval = GenomicInterval(source, "chr10", 10708, 10709)
+chain_path = Path("/data/hg38ToHg19.over.chain.gz")
+
+chain_provenance = provenance_source_for_file(
+    chain_path,
+    label="local hg38 to hg19 liftOver chain",
+    derived_from=(),
+)
+
+mappings = build_ucsc_candidates_from_files(
+    interval,
+    chain_path,
+    target_assembly=target,
+    chain_provenance=chain_provenance,
+)
+
+profile = build_result_profile(
+    interval,
+    mappings,
+    evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+    consumed_resource_roles=("CHAIN",),
+)
+
+print(profile.interpretation)
 ```
 
-Without an explicit `--evidence-tier`, batch mode prefers a complete cached COMPARATIVE bundle with a prepared all-chain index and otherwise uses the available `LIFTOVER-ONLY` chain class. `LIFTOVER-ONLY` batches assess the chain only. COMPARATIVE batches generate submitted-row candidates from the prepared all-chain index, then scan the ordinary net once and reciprocal-best chain once across the complete submitted candidate collection; the indexed all-chain is not rescanned. This preserves the single-locus net/reciprocal-best evidence semantics without a per-row whole-resource loop. The current batch COMPARATIVE scope does not run the paired filtered-vs-all-chain inventory comparison or categorical comparative relationship classifier used by single-locus results; both are reported as not assessed. Before chain assessment, batch mode requires cached authoritative source `chromInfo`/`chromAlias` metadata and preflights every submitted row against one shared catalog. Invalid names and bounds fail as input rather than becoming biological-looking no-projection results, while a zero-candidate row means that a valid source interval had no candidate in the selected chain index. One-base rows receive an automatic centered 101-bp point-context query through the same prepared chain index, clipped by authoritative source sequence length. Use `--context-bases N` to request another odd-width point window. Ordinary interval rows are not widened. Submitted-row relationships and context-scale relationships stay separate; exact equality at the context scale is reported as `NEIGHBORHOOD_LEVEL_TARGET_COLLISION`, while offset overlaps remain `OVERLAPPING_TARGET_PROJECTIONS`. Point-context candidates remain forward-chain-only even in COMPARATIVE batches; net/reciprocal-best observations are not silently promoted to the neighborhood scale. Target sequence role/context is also cache-only and provider-free in batch mode: cached version-bound UCSC/NCBI role metadata is shared across records when available; otherwise that dimension is explicitly `UNAVAILABLE` and no role is inferred from a target sequence name. Reverse mapping is not re-run per batch row.
+The exact public API name `build_ucsc_candidates_from_files()` retains the package's
+internal model vocabulary; the returned objects represent the liftOver mappings described
+throughout the user documentation.
 
-`--json` emits schema-v2 `liftassess.ucsc_batch_result` output suitable for downstream automation. `--details` is not yet implemented for batch mode and fails explicitly rather than implying that the full batch dossier exists.
+`derived_from=()` means that you are making **no claim about shared upstream alignment
+provenance**. If you know that several local resources derive from one upstream alignment
+process, create a shared `ProvenanceSource` and pass it as `derived_from=(alignment,)` for
+each file instead of pretending the files are independent evidence.
 
-### Require offline reproducibility
+### Scenario J: use local chain, net, and reciprocal-best files
 
-```bash
-assess-liftover SOURCE_DB TARGET_DB CHR:START-END --offline
+The same Python boundary accepts comparative resources you already have:
+
+```python
+from pathlib import Path
+
+from liftassess import (
+    AssemblyIdentifier,
+    GenomicInterval,
+    ProvenanceSource,
+    ReciprocalBestResourceCompleteness,
+    build_ucsc_candidates_from_files,
+    provenance_source_for_file,
+)
+
+source = AssemblyIdentifier(name="canFam3", provider="UCSC")
+target = AssemblyIdentifier(name="canFam4", provider="UCSC")
+interval = GenomicInterval(source, "chr9", 49_252_490, 49_252_493)
+
+alignment = ProvenanceSource(
+    source_id="local-canFam3-canFam4-alignment",
+    label="shared upstream canFam3 to canFam4 alignment",
+)
+
+chain_path = Path("/data/canFam3.canFam4.all.chain.gz")
+net_path = Path("/data/canFam3.canFam4.net.gz")
+rbest_path = Path("/data/canFam3.canFam4.rbest.chain.gz")
+
+mappings = build_ucsc_candidates_from_files(
+    interval,
+    chain_path,
+    target_assembly=target,
+    chain_provenance=provenance_source_for_file(
+        chain_path,
+        label="local all-chain alignment",
+        derived_from=(alignment,),
+    ),
+    net_path=net_path,
+    net_provenance=provenance_source_for_file(
+        net_path,
+        label="local net alignment",
+        derived_from=(alignment,),
+    ),
+    reciprocal_best_chain_path=rbest_path,
+    reciprocal_best_provenance=provenance_source_for_file(
+        rbest_path,
+        label="local reciprocal-best chain",
+        derived_from=(alignment,),
+    ),
+    reciprocal_best_completeness=(
+        ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE
+    ),
+)
 ```
 
-Fail rather than use the network.
+Supplying local files bypasses automatic provider discovery, terms prompting, download
+planning, and cache acquisition. It does **not** waive the provider's license or usage
+terms; the caller remains responsible for using those files under the applicable terms.
+The API also cannot infer upstream alignment/process provenance from file bytes alone.
 
-### Save the complete machine-readable report
+### Scenario K: choose the report form
+
+For a complete machine-readable single-locus or batch report:
 
 ```bash
 assess-liftover \
@@ -563,7 +746,7 @@ assess-liftover \
   --json > assessment.json
 ```
 
-### Inspect the complete factual profile and evidence
+For the complete human-readable single-locus evidence/provenance report:
 
 ```bash
 assess-liftover \
@@ -571,12 +754,16 @@ assess-liftover \
   --details
 ```
 
+`--details` is not yet implemented for batch input. `--details` and `--json` are mutually
+exclusive. Status and progress go to stderr while JSON goes to stdout, so ordinary shell
+redirection is safe.
+
 ## 16. Common mistakes
 
 ### Swapping source and target
 
 The first assembly is where the input coordinates currently live. The second is where
-candidate mappings are assessed. Reverse the arguments and you are asking a different
+mappings are assessed. Reverse the arguments and you are asking a different
 question.
 
 ### Using the wrong coordinate convention
@@ -591,16 +778,16 @@ end.
 It is only an evidence-availability tier. Read the factual mapping profile and exact
 evidence separately.
 
-### Treating one complete projection as biological truth
+### Treating one complete mapping as biological truth
 
-A complete chain projection means every requested source base is represented in that
+A complete chain mapping means every requested source base is represented in that
 chain relationship. It is not an orthology call, identity check, uniqueness claim, or
 proof that the locus is biologically correct.
 
-### Assuming candidate order is rank
+### Assuming mapping order is rank
 
-Current candidate order is retained for reproducibility. liftAssess does not yet define
-or emit candidate-rank evidence.
+Current mapping order is retained for reproducibility. liftAssess does not yet define
+or emit mapping-rank evidence.
 
 ### Expecting `--offline` to work before the resources are cached
 
@@ -621,7 +808,7 @@ an estimate of how close the scientific computation is to completion.
 Without a prepared chain index, single-locus assessment still streams and parses the complete
 chain resource. Measured work on the `canFam3` → `canFam4` pair showed that this can dominate runtime
 even for a small, ordinary locus. `prepare-liftassess-index` turns that repeated whole-chain parse
-into a one-time explicit preparation step; later candidate lookup is region-addressable while the
+into a one-time explicit preparation step; later mapping lookup is region-addressable while the
 original chain remains the scientific provenance source.
 
 Net and reciprocal-best evidence are still read through their existing resource paths when required,
@@ -642,7 +829,7 @@ The current tool also does **not**:
 - use machine learning;
 - produce a numeric confidence score;
 - provide flanking-gene synteny evidence yet;
-- define candidate-rank evidence yet; or
+- define mapping-rank evidence yet; or
 - attach reverse evidence across batches yet.
 
 See [`FEATURES.md`](FEATURES.md) for the complete implemented/non-implemented catalog.
@@ -650,15 +837,15 @@ See [`FEATURES.md`](FEATURES.md) for the complete implemented/non-implemented ca
 ## 19. Expert Python use
 
 The CLI is the easiest entry point. The package also exposes lower-level Python APIs
-for callers that already have normalized candidates, local chain/net resources, or a
-verified cached resource bundle.
+for callers that already have normalized mappings, local chain/net resources, or a
+verified cached resource set.
 
 The main boundaries are:
 
-- `build_result_profile()` — derive the factual profile from normalized candidates and evidence;
-- `build_ucsc_candidates_from_files()` — build candidates from explicit local UCSC
+- `build_result_profile()` — derive the factual profile from normalized mappings and evidence;
+- `build_ucsc_candidates_from_files()` — build mappings from explicit local UCSC
   resources plus provenance;
-- `assess_ucsc_cached_bundle()` — assess a verified cached bundle;
+- `assess_ucsc_cached_bundle()` — assess a verified cached resource set;
 - `discover_ucsc_resources()` — discover provider resources; and
 - the resource planning/acquisition, cache, checksum, and provenance helpers documented
   in [`FEATURES.md`](FEATURES.md).

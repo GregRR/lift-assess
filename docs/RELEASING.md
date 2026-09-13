@@ -21,15 +21,15 @@ current renderer and established bioinformatics/genomics terminology. At minimum
 - GitHub About text;
 - CLI help and human-readable report labels;
 - changelog/release-note wording;
-- current-facing DESIGN/ROADMAP prose; and
+- DESIGN/ROADMAP prose, including implementation history; and
 - examples and command descriptions.
 
 Prefer established UCSC/liftOver and genomics terms such as mapping, alignment block,
 source interval, target sequence, reverse mapping, and segmental duplication. Internal
-model/schema vocabulary may remain where an API or machine-readable field is being
+model/schema vocabulary may remain where a current API or machine-readable field is being
 documented, but normal user-facing text should not expose implementation terms when a
-standard community term exists. Historical documentation may retain obsolete result
-terminology when it is explicitly describing an older release.
+standard community term exists. Historical milestones must also be described using the current
+public terminology; obsolete alpha vocabulary is not retained merely to reproduce earlier wording.
 
 Confirm that the audited wording remains facts-first, states evidence boundaries clearly,
 and does not imply biological identity or correctness beyond the evidence assessed.

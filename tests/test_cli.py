@@ -1575,7 +1575,7 @@ def test_comparative_cli_skips_filtered_comparison_without_prepared_index(
         is ComparativeRelationshipState.NOT_ASSESSED
     )
     assert "no prepared index is available" in stderr.getvalue()
-    assert "no full filtered-chain scan was started" in stderr.getvalue()
+    assert "no full standard liftOver chain scan was started" in stderr.getvalue()
 
 
 def test_comparative_cli_refresh_does_not_mix_unrefreshed_filtered_chain(

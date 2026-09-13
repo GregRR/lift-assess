@@ -1572,7 +1572,7 @@ def _comparative_detail_lines(report: UCSCAssessmentReport) -> list[str]:
         ),
         f"  Comparative result: {_detail_comparative_relationship_text(profile.state)}",
         (
-            "  Favored mapping: "
+            "  Distinguished mapping: "
             + (
                 relationship.favored_candidate_id
                 if relationship.favored_candidate_id is not None
@@ -1588,7 +1588,8 @@ def _comparative_detail_lines(report: UCSCAssessmentReport) -> list[str]:
         ),
         "  Exact shared processing-run provenance: not verified",
         (
-            "  Dependency note: filtered chain, net, and reciprocal-best observations "
+            "  Dependency note: standard liftOver chain, net, and reciprocal-best "
+            "observations "
             "are conservatively grouped as dependent UCSC-derived evidence, not "
             "independent votes; the pair group does not prove that the files came from one "
             "processing run."
@@ -1604,7 +1605,7 @@ def _comparative_detail_lines(report: UCSCAssessmentReport) -> list[str]:
             + _comparative_candidate_label(report, item.candidate_id)
             + "; complete source coverage="
             + _yes_no(item.complete_source_coverage)
-            + "; retained by filtered chain="
+            + "; retained by standard liftOver chain="
             + _yes_no(item.retained_by_filtered_chain)
             + "; depth-1 top-net="
             + _yes_no(item.depth1_top_net)
@@ -1775,7 +1776,7 @@ def _detail_comparative_relationship_text(
         ComparativeRelationshipState.NO_COMPETING_FULL_PLACEMENTS: (
             "no competing complete mappings"
         ),
-        ComparativeRelationshipState.FAVORS_ONE_PLACEMENT: "favors one mapping",
+        ComparativeRelationshipState.FAVORS_ONE_PLACEMENT: "distinguishes one mapping",
         ComparativeRelationshipState.DOES_NOT_SEPARATE_PLACEMENTS: (
             "does not separate mappings"
         ),
@@ -1946,7 +1947,7 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
         )
 
     if report.reverse_mapping_resource is not None:
-        lines.extend(("", "Reverse mapping resource"))
+        lines.extend(("", "Reverse liftOver resource"))
         reverse_resource = report.reverse_mapping_resource
         resource = reverse_resource.resource
         lines.extend(
@@ -1973,14 +1974,14 @@ def render_assessment_details(report: UCSCAssessmentReport) -> str:
         )
 
     if report.filtered_chain_comparison_resource is not None:
-        lines.extend(("", "Filtered-chain comparison resource"))
+        lines.extend(("", "Standard liftOver comparison resource"))
         comparison_resource = report.filtered_chain_comparison_resource
         resource = comparison_resource.resource
         lines.extend(
             (
                 (
-                    f"{report.source_db}->{report.target_db} ordinary filtered "
-                    "liftOver chain [consumed for paired comparison]"
+                    f"{report.source_db}->{report.target_db} standard liftOver chain "
+                    "[consumed for paired comparison]"
                 ),
                 f"  Source URL: {resource.source_url}",
                 f"  Cache path: {resource.path}",
@@ -2976,7 +2977,7 @@ def _candidate_detail_lines(
     if include_reverse_mapping:
         reverse = profile.reverse_mapping
         lines.append(
-            f"  Reverse mapping check: {_detail_state_text(reverse.check_state.value)}"
+            f"  Reverse liftOver check: {_detail_state_text(reverse.check_state.value)}"
         )
         if reverse.check_state is ReverseCheckState.RUN:
             assert reverse.relationship is not None

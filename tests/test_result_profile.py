@@ -462,7 +462,7 @@ def test_comparative_relationship_profile_preserves_b14_style_support() -> None:
     assert (
         profile.interpretation
         == "More than one liftOver mapping exists; available categorical comparative "
-        "evidence favors one placement, but mapping order is not a scientific rank "
+        "evidence distinguishes one mapping, but mapping order is not a scientific rank "
         "and this result does not establish a biological locus."
     )
     assert comparative.additional_all_chain_candidate_ids == ("competitor",)

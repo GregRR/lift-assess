@@ -182,7 +182,7 @@ def test_reverse_context_is_rendered_in_details_and_schema_v2_json(
     assert "Reverse liftOver: performed" in details
     assert "Reverse result: returns only to the source locus" in details
     assert "Exact original aligned geometry reconstructed: yes" in details
-    assert "Reverse mapping resource" in details
+    assert "Reverse liftOver resource" in details
 
     payload = json.loads(render_assessment_json(enriched))
     assert payload["schema_version"] == 2
