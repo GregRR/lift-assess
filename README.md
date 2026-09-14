@@ -6,6 +6,11 @@
 
 **New to liftAssess?** Start with [`GETTING_STARTED.md`](https://github.com/GregRR/lift-assess/blob/main/docs/GETTING_STARTED.md). See [`FEATURES.md`](https://github.com/GregRR/lift-assess/blob/main/docs/FEATURES.md) for the complete catalog of implemented capabilities, expert APIs, and current limitations.
 
+### Summary of Features
+**Now:** target coordinates and number of mappings, mapped and unmapped source bases, split mappings and gaps between alignment blocks, strand orientation, whether reverse liftOver returns to the original locus, whether surrounding sequence maps consistently with a single-base position, standard UCSC liftOver results versus all-chain alignment results, UCSC net placement and reciprocal-best chain membership, chromosome or contig name and coordinate validation, target sequence role, overlap with UCSC Segmental Duplications, input intervals mapping to the same or overlapping target loci, data sources and versions, what the evidence does and does not establish, suggested follow-up checks
+
+**Coming:** UCSC self-chain matches and duplicated-sequence context, GIAB difficult-region and exclusion-region annotations, single-base positions at alignment-block or gap boundaries, flanking-gene synteny and orthology evidence, richer UCSC Genome Browser links, BED12 and UCSC custom-track export, dbSNP/rsID guidance, comparison with UCSC liftOver unMapped categories, clearer CNV and large-interval reports, worked examples
+
 ## Why liftAssess exists
 
 Coordinate liftOver tools answer an important question: *where can this interval map in another assembly?* They do not, by themselves, explain exact source coverage, split or discontinuous alignment geometry, multiple mappings, which comparative resources were examined, or how those observations depend on one another.
