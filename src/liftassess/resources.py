@@ -7,7 +7,7 @@ corresponding to entries that were actually observed.  Directory links are
 resolved against the listing URL before comparison so discovery does not depend
 on whether UCSC renders an entry as a relative or absolute ``href``.
 
-Implementation references (checked through 2026-08-12):
+Implementation references (checked through 2026-09-25):
 
 - UCSC Golden Path canFam3/canFam4 comparative directory and README:
   https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/
@@ -18,6 +18,8 @@ Implementation references (checked through 2026-08-12):
 - UCSC liftOver download README, which defines
   ``<db1>To<Db2>.over.chain.gz`` naming:
   https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/
+- UCSC hg38 self-chain directory, README, and exact all-chain publication:
+  https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/
 - UCSC Kent ``doRecipBest.pl``.  The download step uses ``vs$QDb`` where
   ``$QDb = ucfirst($qDb)`` and publishes ``$tDb.$qDb.rbest.*`` files under
   ``reciprocalBest/``:
@@ -76,6 +78,53 @@ class UCSCSegmentalDuplicationResource:
             raise ValueError(
                 "UCSC segmental-duplication resource URL must not be empty"
             )
+
+
+@dataclass(frozen=True)
+class UCSCSelfChainCoverage:
+    """README-declared sequence coverage for one UCSC self-chain resource.
+
+    Directory discovery alone cannot establish which assembly sequences were included
+    in a self-alignment. ``sequence_names`` therefore records only an explicit provider
+    declaration associated with the exact directory README. Absence of this metadata
+    means coverage is unknown; callers must not infer coverage from missing chain rows.
+    """
+
+    readme_url: str
+    sequence_names: frozenset[str]
+
+    def __post_init__(self) -> None:
+        if not self.readme_url:
+            raise ValueError("UCSC self-chain coverage README URL must not be empty")
+        if not self.sequence_names:
+            raise ValueError("UCSC self-chain coverage must name at least one sequence")
+        if any(not name for name in self.sequence_names):
+            raise ValueError(
+                "UCSC self-chain coverage sequence names must not be empty"
+            )
+
+
+@dataclass(frozen=True)
+class UCSCSelfChainResource:
+    """Verified UCSC ``vsSelf`` all-chain URL for one assembly.
+
+    The chain entry itself must be observed in the assembly directory listing.
+    ``readme_url`` binds later terms and coverage metadata to that exact publication
+    directory; discovery does not claim to have parsed its contents.
+    """
+
+    db: str
+    chain_url: str
+    readme_url: str
+
+    def __post_init__(self) -> None:
+        _validate_ucsc_db(self.db)
+        base = urljoin(_UCSC_GOLDEN_PATH, f"{self.db}/vsSelf/")
+        expected_chain = urljoin(base, f"{self.db}.{self.db}.all.chain.gz")
+        if self.chain_url != expected_chain:
+            raise ValueError("UCSC self-chain resource URL does not match database")
+        if self.readme_url != urljoin(base, "README.txt"):
+            raise ValueError("UCSC self-chain README URL does not match database")
 
 
 @dataclass(frozen=True)
@@ -155,6 +204,34 @@ class _HrefParser(HTMLParser):
 
 
 ListingReader = Callable[[str], frozenset[str] | None]
+
+
+def discover_ucsc_self_chain_resource(db: str) -> UCSCSelfChainResource | None:
+    """Discover one assembly's exact UCSC ``vsSelf`` all-chain publication.
+
+    A reachable directory without the exact ``{db}.{db}.all.chain.gz`` entry returns
+    ``None``. Transport failures remain errors rather than becoming false provider
+    absence. README contents and declared sequence coverage are verified separately.
+    """
+
+    return _discover_ucsc_self_chain_resource(db, _read_directory_links)
+
+
+def _discover_ucsc_self_chain_resource(
+    db: str,
+    read_listing: ListingReader,
+) -> UCSCSelfChainResource | None:
+    _validate_ucsc_db(db)
+    self_base = urljoin(_UCSC_GOLDEN_PATH, f"{db}/vsSelf/")
+    links = read_listing(self_base)
+    chain_name = f"{db}.{db}.all.chain.gz"
+    if links is None or not _listing_contains(self_base, links, chain_name):
+        return None
+    return UCSCSelfChainResource(
+        db=db,
+        chain_url=urljoin(self_base, chain_name),
+        readme_url=urljoin(self_base, "README.txt"),
+    )
 
 
 def discover_ucsc_segmental_duplication_resource(

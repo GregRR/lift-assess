@@ -10,9 +10,11 @@ from liftassess.resources import (
     UCSCResourceBundle,
     UCSCResourceDiscoveryError,
     UCSCSegmentalDuplicationResource,
+    UCSCSelfChainResource,
     _discover_ucsc_assembly_metadata,
     _discover_ucsc_resources,
     _discover_ucsc_segmental_duplication_resource,
+    _discover_ucsc_self_chain_resource,
     _ucsc_title_db,
 )
 
@@ -65,6 +67,51 @@ def test_discovers_segmental_duplication_table_only_when_observed() -> None:
         _reader({database: frozenset({"chromInfo.txt.gz"})}),
     )
     assert absent is None
+
+
+def test_discovers_self_chain_only_from_observed_exact_entry() -> None:
+    self_directory = "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/"
+
+    result = _discover_ucsc_self_chain_resource(
+        "hg38",
+        _reader(
+            {
+                self_directory: frozenset(
+                    {
+                        f"{self_directory}hg38.hg38.all.chain.gz",
+                        "hg38.hg38.net.gz",
+                        "md5sum.txt",
+                    }
+                )
+            }
+        ),
+    )
+
+    assert result == UCSCSelfChainResource(
+        db="hg38",
+        chain_url=f"{self_directory}hg38.hg38.all.chain.gz",
+        readme_url=f"{self_directory}README.txt",
+    )
+
+    absent = _discover_ucsc_self_chain_resource(
+        "hg38",
+        _reader({self_directory: frozenset({"hg38.hg38.net.gz"})}),
+    )
+    assert absent is None
+
+
+def test_self_chain_resource_rejects_cross_assembly_filename() -> None:
+    with pytest.raises(ValueError, match="does not match database"):
+        UCSCSelfChainResource(
+            db="hg38",
+            chain_url=(
+                "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/"
+                "hg19.hg19.all.chain.gz"
+            ),
+            readme_url=(
+                "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/README.txt"
+            ),
+        )
 
 
 def test_assembly_metadata_discovery_requires_observed_chrom_info() -> None:

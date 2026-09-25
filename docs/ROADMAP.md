@@ -966,10 +966,21 @@ UCSC self-chain source contract verified 2026-09-25:
   cross-assembly comparative resources. Source- and target-assembly self-chain context will remain
   optional, independent, descriptive, and prepared-index-only.
 
-The first self-chain implementation slice will add typed discovery and resource/cache metadata for
-one assembly-side resource, including observed-file verification, README-bound terms/coverage, and
-exact checksum metadata. It will not yet add result observations or reporting; that keeps provider
-identity and availability semantics reviewable before scientific output depends on them.
+The first self-chain implementation slice completed 2026-09-25:
+
+- assembly-scoped discovery returns a typed resource only after observing the exact
+  `vsSelf/{database}.{database}.all.chain.gz` directory entry;
+- self-chain context has its own resource class rather than being mistaken for cross-assembly
+  comparative data, and provider access requires review of the exact assembly directory terms;
+- cached metadata preserves the existing provider-MD5 transfer check and SHA-256 content identity,
+  while optional sequence coverage can be attached only to the matching directory README; and
+- the slice adds no assessment observations or reporting, so provider identity, terms, cache
+  integrity, and unknown-coverage behavior remain reviewable before scientific output depends on
+  them.
+
+The next self-chain slice will define explicit preparation of the large chain plus its README-bound
+coverage metadata. It must preserve the transfer-plan acknowledgement boundary and must not trigger
+an implicit download, index build, or whole-resource traversal during assessment.
 
 Release gate: `v0.3.0a1` ships only after the new context families exercised in the release have
 source-specific semantics, failure-boundary tests, provenance coverage, and representative real-data

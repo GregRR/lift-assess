@@ -10,13 +10,14 @@ The cache root is always supplied by the caller.  liftAssess does not create a c
 inside the source tree; the CLI supplies the platform-specific default cache root at
 its boundary.
 
-Primary provider references checked 2026-08-13:
+Primary provider references checked through 2026-09-25:
 
 - UCSC data/software licensing: https://genome.ucsc.edu/license/
 - restricted canFam3 liftOver-chain terms: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/
 - canFam3/canFam4 comparative terms and files: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/
 - comparative MD5 metadata: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/md5sum.txt
 - reciprocal-best MD5 metadata: https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/reciprocalBest/md5sum.txt
+- hg38 self-chain README and MD5 metadata: https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/
 - UCSC download guidance: https://genome.ucsc.edu/goldenpath/help/ftp.html
 
 The canFam3/canFam4 comparison demonstrates why checksum lookup is exact-filename
@@ -55,7 +56,11 @@ from .resource_identity import (
     compute_resource_checksum,
     sha256_hex_from_identifier,
 )
-from .resources import UCSCResourceBundle
+from .resources import (
+    UCSCResourceBundle,
+    UCSCSelfChainCoverage,
+    UCSCSelfChainResource,
+)
 
 ResourcePath: TypeAlias = str | os.PathLike[str]
 CacheVerificationProgressCallback: TypeAlias = Callable[[int, int, bool], None]
@@ -91,6 +96,7 @@ class UCSCResourceClass(str, Enum):
 
     ASSEMBLY_METADATA = "ASSEMBLY_METADATA"
     CONTEXT = "CONTEXT"
+    SELF_CHAIN_CONTEXT = "SELF_CHAIN_CONTEXT"
     COMPARATIVE = "COMPARATIVE"
     LIFTOVER_CHAIN = "LIFTOVER_CHAIN"
 
@@ -117,11 +123,12 @@ class UCSCResourceTerms:
     ``restricted_liftover_chain`` distinguishes UCSC's dedicated
     ``liftOver/*.over.chain.gz`` files, for which UCSC currently states that
     downloading/using indicates EULA acceptance and that free use is limited to the
-    described non-commercial/nonprofit cases. Comparative resources are a distinct
-    publication class and retain their own directory terms URL instead. UCSC database
-    table dumps used for assembly metadata and typed contextual tracks are separately
-    documented as freely usable and therefore do not require an acknowledgement gate
-    before retrieval.
+    described non-commercial/nonprofit cases. Comparative and self-chain resources are
+    distinct publication classes and retain their own directory terms URL instead.
+    Self-chain retrieval still requires review of the exact assembly directory terms;
+    one assembly's terms are not generalized to another. UCSC database table dumps used
+    for assembly metadata and typed contextual tracks are separately documented as
+    freely usable and therefore do not require an acknowledgement gate before retrieval.
     """
 
     resource_class: UCSCResourceClass
@@ -175,6 +182,26 @@ class CachedUCSCChainResource:
             target_db=self.target_db,
             evidence_tier=self.evidence_tier,
         )
+
+
+@dataclass(frozen=True)
+class CachedUCSCSelfChainResource:
+    """One cached assembly-scoped UCSC self-chain and its coverage metadata."""
+
+    resource: UCSCSelfChainResource
+    chain: CachedResource
+    coverage: UCSCSelfChainCoverage | None = None
+
+    def __post_init__(self) -> None:
+        if self.chain.source_url != self.resource.chain_url:
+            raise ValueError("cached self-chain does not match discovered resource")
+        expected_terms = ucsc_resource_terms(self.chain.source_url)
+        if self.chain.terms != expected_terms:
+            raise ValueError("cached self-chain terms do not match resource URL")
+        if self.coverage is not None and (
+            self.coverage.readme_url != self.resource.readme_url
+        ):
+            raise ValueError("self-chain coverage does not match resource README")
 
 
 @dataclass(frozen=True)
@@ -442,6 +469,22 @@ def ucsc_resource_terms(url: str) -> UCSCResourceTerms:
             directory_terms_url=_directory_url(parts, segments, 2),
             restricted_liftover_chain=False,
         )
+
+    if (
+        len(segments) == 4
+        and segments[0] == "goldenPath"
+        and segments[2] == "vsSelf"
+        and filename == f"{segments[1]}.{segments[1]}.all.chain.gz"
+    ):
+        return UCSCResourceTerms(
+            resource_class=UCSCResourceClass.SELF_CHAIN_CONTEXT,
+            general_terms_url=_UCSC_LICENSE_URL,
+            directory_terms_url=_directory_url(parts, segments, 2),
+            restricted_liftover_chain=False,
+        )
+
+    if "vsSelf" in segments[:-1]:
+        raise ValueError("unsupported UCSC self-chain resource URL or filename")
 
     if (
         len(segments) == 4
@@ -1392,6 +1435,28 @@ def load_cached_ucsc_resource(
         _url_index_path(root, url),
         source_url=url,
         terms=terms,
+    )
+
+
+def load_cached_ucsc_self_chain_resource(
+    cache_root: ResourcePath,
+    resource: UCSCSelfChainResource,
+    *,
+    coverage: UCSCSelfChainCoverage | None = None,
+) -> CachedUCSCSelfChainResource | None:
+    """Load one discovered self-chain from cache without provider access.
+
+    Coverage remains optional because the chain bytes cannot establish whether a
+    sequence with no surviving self-alignment was included in the provider run.
+    """
+
+    chain = load_cached_ucsc_resource(cache_root, resource.chain_url)
+    if chain is None:
+        return None
+    return CachedUCSCSelfChainResource(
+        resource=resource,
+        chain=chain,
+        coverage=coverage,
     )
 
 

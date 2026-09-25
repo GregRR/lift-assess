@@ -20,6 +20,7 @@ import pytest
 from liftassess import (
     CachedResource,
     CachedUCSCResourceBundle,
+    CachedUCSCSelfChainResource,
     EvidenceAvailabilityTier,
     ResourceChecksumAlgorithm,
     ResourceChecksumMismatchError,
@@ -34,6 +35,8 @@ from liftassess import (
     UCSCResourceBundle,
     UCSCResourceClass,
     UCSCResourceTermsAcknowledgementRequired,
+    UCSCSelfChainCoverage,
+    UCSCSelfChainResource,
     acquire_ucsc_resource,
     acquire_ucsc_resource_bundle,
     inspect_ucsc_bundle_transfer_plan,
@@ -41,6 +44,7 @@ from liftassess import (
     iter_chain_file,
     load_cached_ucsc_resource,
     load_cached_ucsc_resource_bundle,
+    load_cached_ucsc_self_chain_resource,
     plan_ucsc_bundle_acquisition,
     provenance_source_for_file,
     ucsc_resource_terms,
@@ -159,6 +163,120 @@ def test_segmental_duplication_context_terms_use_database_directory() -> None:
     assert terms.resource_class is UCSCResourceClass.CONTEXT
     assert terms.restricted_liftover_chain is False
     assert terms.directory_terms_url.endswith("/hg38/database/")
+
+
+def test_self_chain_terms_are_distinct_from_comparative_terms() -> None:
+    terms = ucsc_resource_terms(
+        "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/hg38.hg38.all.chain.gz"
+    )
+
+    assert terms.resource_class is UCSCResourceClass.SELF_CHAIN_CONTEXT
+    assert terms.restricted_liftover_chain is False
+    assert terms.directory_terms_url.endswith("/hg38/vsSelf/")
+
+    with pytest.raises(ValueError, match="self-chain resource URL or filename"):
+        ucsc_resource_terms(
+            "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/"
+            "hg19.hg19.all.chain.gz"
+        )
+
+
+def test_self_chain_acquisition_requires_terms_review_and_preserves_checksum(
+    tmp_path: Path,
+) -> None:
+    directory = "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/"
+    url = f"{directory}hg38.hg38.all.chain.gz"
+    checksum_url = f"{directory}md5sum.txt"
+    data = b"compressed self-chain fixture"
+
+    def forbidden(_: Request) -> _Response:
+        raise AssertionError("provider must not be contacted before terms review")
+
+    with pytest.raises(UCSCResourceTermsAcknowledgementRequired):
+        _acquire_ucsc_resource(
+            url,
+            tmp_path,
+            terms_acknowledged=False,
+            open_url=forbidden,
+            now=_fixed_now,
+        )
+
+    cached = _acquire_ucsc_resource(
+        url,
+        tmp_path,
+        terms_acknowledged=True,
+        open_url=_opener(
+            {
+                checksum_url: _md5_line(data, "hg38.hg38.all.chain.gz"),
+                url: data,
+            }
+        ),
+        now=_fixed_now,
+    )
+
+    assert cached.terms.resource_class is UCSCResourceClass.SELF_CHAIN_CONTEXT
+    assert cached.provider_checksum is not None
+    assert cached.provider_checksum.algorithm is ResourceChecksumAlgorithm.MD5
+    assert cached.provider_checksum.source_url == checksum_url
+
+    resource = UCSCSelfChainResource(
+        db="hg38",
+        chain_url=url,
+        readme_url=f"{directory}README.txt",
+    )
+    coverage = UCSCSelfChainCoverage(
+        readme_url=resource.readme_url,
+        sequence_names=frozenset({"chr1", "chr2", "chrX", "chrY", "chrM"}),
+    )
+    loaded = load_cached_ucsc_self_chain_resource(
+        tmp_path,
+        resource,
+        coverage=coverage,
+    )
+
+    assert loaded == CachedUCSCSelfChainResource(
+        resource=resource,
+        chain=CachedResource(
+            path=cached.path,
+            source_url=cached.source_url,
+            retrieved_at=cached.retrieved_at,
+            sha256=cached.sha256,
+            size_bytes=cached.size_bytes,
+            provider_checksum=cached.provider_checksum,
+            terms=cached.terms,
+            cache_hit=True,
+        ),
+        coverage=coverage,
+    )
+
+
+def test_cached_self_chain_rejects_coverage_from_another_readme(
+    tmp_path: Path,
+) -> None:
+    resource = UCSCSelfChainResource(
+        db="hg38",
+        chain_url=(
+            "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/"
+            "hg38.hg38.all.chain.gz"
+        ),
+        readme_url=(
+            "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/README.txt"
+        ),
+    )
+    chain = _cached_for_url(resource.chain_url, tmp_path, cache_hit=True)
+    coverage = UCSCSelfChainCoverage(
+        readme_url=(
+            "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/vsSelf/README.txt"
+        ),
+        sequence_names=frozenset({"chr1"}),
+    )
+
+    with pytest.raises(ValueError, match="does not match resource README"):
+        CachedUCSCSelfChainResource(
+            resource=resource,
+            chain=chain,
+            coverage=coverage,
+        )
 
 
 def test_assembly_metadata_download_does_not_require_terms_acknowledgement(
