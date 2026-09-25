@@ -939,6 +939,14 @@ Initial point-boundary slice completed 2026-09-24:
 - focused tests cover source-only, target-only, double-sided, same- and reverse-orientation,
   nonadjacent, terminal-edge, result-profile, JSON, and indexed-batch behavior.
 
+Multi-family contextual-evidence plumbing completed 2026-09-25:
+
+- resource-specific context results now travel through an explicit typed bundle while retaining
+  the existing family-specific models, aggregate availability state, and schema-v2 representation;
+- later profile rebuilds preserve already attached context, so attachment order no longer drops
+  Segmental Duplications context; and
+- the existing single-family call shape remains accepted during the pre-release transition.
+
 Release gate: `v0.3.0a1` ships only after the new context families exercised in the release have
 source-specific semantics, failure-boundary tests, provenance coverage, and representative real-data
 checks. A resource that cannot meet those requirements remains deferred rather than being collapsed

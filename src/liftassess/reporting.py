@@ -519,7 +519,7 @@ def _report_candidate_for_id(
 def _multiple_segmental_duplication_lines(
     report: UCSCAssessmentReport,
 ) -> list[str]:
-    context = report.segmental_duplication_context_result
+    context = report.external_context_results.ucsc_segmental_duplication
     if context is None:
         return []
     source_overlap = bool(context.source_overlaps)
@@ -619,7 +619,7 @@ def _multiple_mapping_guidance_lines(
             "these mappings."
         )
 
-    duplication = report.segmental_duplication_context_result
+    duplication = report.external_context_results.ucsc_segmental_duplication
     if duplication is not None and (
         duplication.source_overlaps or duplication.target_overlaps
     ):
@@ -978,7 +978,7 @@ def _single_mapping_guidance_lines(
             "gap boundaries before interpreting the coordinate in isolation."
         )
 
-    duplication = report.segmental_duplication_context_result
+    duplication = report.external_context_results.ucsc_segmental_duplication
     if duplication is not None and (
         duplication.source_overlaps or duplication.target_overlaps
     ):
@@ -1439,7 +1439,7 @@ def _single_comparative_lines(report: UCSCAssessmentReport) -> list[str]:
 
 
 def _single_segmental_duplication_lines(report: UCSCAssessmentReport) -> list[str]:
-    context = report.segmental_duplication_context_result
+    context = report.external_context_results.ucsc_segmental_duplication
     if context is None:
         return []
     source_overlap = bool(context.source_overlaps)
@@ -1529,7 +1529,7 @@ def _single_mapping_limitation_lines(report: UCSCAssessmentReport) -> list[str]:
             "represents the same variant, gene, transcript, or other feature."
         ),
     ]
-    context = report.segmental_duplication_context_result
+    context = report.external_context_results.ucsc_segmental_duplication
     if context is not None and (context.source_overlaps or context.target_overlaps):
         candidate_profiles = report.result_profile.candidate_profiles
         reverse_returns_elsewhere = bool(
@@ -2316,7 +2316,7 @@ def _target_role_metadata_json(report: UCSCAssessmentReport) -> dict[str, object
 
 
 def _segmental_duplication_detail_lines(report: UCSCAssessmentReport) -> list[str]:
-    result = report.segmental_duplication_context_result
+    result = report.external_context_results.ucsc_segmental_duplication
     if result is None:
         return ["  State: NOT_ASSESSED"]
 
@@ -2400,7 +2400,7 @@ def _target_segmental_duplication_detail(
 
 
 def _external_context_json(report: UCSCAssessmentReport) -> dict[str, object]:
-    result = report.segmental_duplication_context_result
+    result = report.external_context_results.ucsc_segmental_duplication
     resources: list[dict[str, object]] = []
     if report.source_segmental_duplication_resource is not None:
         resources.append(
@@ -3438,8 +3438,8 @@ def _report_provenance_sources(
         roots.extend(report.source_preflight.provenance_sources)
     if report.target_role_provenance is not None:
         roots.append(report.target_role_provenance)
-    if report.segmental_duplication_context_result is not None:
-        context = report.segmental_duplication_context_result
+    if report.external_context_results.ucsc_segmental_duplication is not None:
+        context = report.external_context_results.ucsc_segmental_duplication
         if context.source_provenance is not None:
             roots.append(context.source_provenance)
         if context.target_provenance is not None:

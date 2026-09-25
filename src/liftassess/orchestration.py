@@ -58,6 +58,7 @@ from .resource_files import (
 )
 from .result_profile import (
     ComparativeRelationshipState,
+    ExternalContextResults,
     ExternalContextState,
     InputValidityState,
     ResultProfile,
@@ -170,6 +171,14 @@ class UCSCAssessmentReport:
         None
     )
     filtered_chain_comparison_resource: UCSCAssessmentResource | None = None
+
+    @property
+    def external_context_results(self) -> ExternalContextResults:
+        """Return all resource-specific context results attached to this report."""
+
+        return ExternalContextResults(
+            ucsc_segmental_duplication=self.segmental_duplication_context_result
+        )
 
     def __post_init__(self) -> None:
         expected_roles = _resource_roles_for_tier(self.evidence_tier)
@@ -768,6 +777,7 @@ def attach_filtered_all_chain_comparison(
         query_context_result=report.query_context_result,
         filtered_all_chain_comparison=comparison,
         comparative_evidence_relationship=relationship,
+        external_context_results=report.external_context_results,
     )
     profile = _preserve_target_role_profile(profile, report.result_profile)
     return replace(
@@ -800,6 +810,7 @@ def attach_query_context_result(
         query_context_result=query_context_result,
         filtered_all_chain_comparison=report.filtered_all_chain_comparison,
         comparative_evidence_relationship=report.comparative_evidence_relationship,
+        external_context_results=report.external_context_results,
     )
     profile = _preserve_target_role_profile(profile, report.result_profile)
     return replace(
@@ -954,6 +965,7 @@ def attach_reverse_mapping_results(
         query_context_result=report.query_context_result,
         filtered_all_chain_comparison=report.filtered_all_chain_comparison,
         comparative_evidence_relationship=report.comparative_evidence_relationship,
+        external_context_results=report.external_context_results,
     )
     profile = _preserve_target_role_profile(profile, report.result_profile)
     return replace(
@@ -1052,7 +1064,11 @@ def attach_ucsc_segmental_duplication_context(
         source_unavailable=source_unavailable,
         target_unavailable=target_unavailable,
     )
-    external_context = build_external_context_profile(result)
+    context_results = replace(
+        report.external_context_results,
+        ucsc_segmental_duplication=result,
+    )
+    external_context = build_external_context_profile(context_results)
     profile = replace(
         report.result_profile,
         external_context=external_context,

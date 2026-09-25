@@ -380,7 +380,9 @@ Not addressed in earlier drafts of this design and worth getting right before an
   rows are never widened automatically, and unavailable indexed source bounds produce explicit
   per-record context `NOT_RUN` rather than a guessed window.
 - **Typed contextual evidence:** optional difficult-region/context resources are represented as
-  resource-specific, provenance-bearing observations. The first active pilot uses UCSC's
+  resource-specific, provenance-bearing observations. Resource-specific results travel through one
+  explicit typed bundle; each family retains its own model and fallback state rather than entering a
+  plugin registry or a generic warning collection. The first active pilot uses UCSC's
   assembly-scoped `genomicSuperDups` table. UCSC describes these rows as putative genomic
   duplications meeting the track's alignment/identity criteria; liftAssess therefore reports an
   overlap as that exact provider observation, not as proof that a mapping is wrong, not as a

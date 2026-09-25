@@ -690,7 +690,7 @@ def _attach_ucsc_segmental_duplication_context(
         source_resource=source_resource,
         target_resource=target_resource,
     )
-    context = enriched.segmental_duplication_context_result
+    context = enriched.external_context_results.ucsc_segmental_duplication
     assert context is not None
     if context.source_overlaps or context.target_overlaps:
         _status(

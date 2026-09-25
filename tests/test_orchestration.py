@@ -15,6 +15,7 @@ from liftassess import (
     EvidenceAvailabilityTier,
     EvidenceKind,
     EvidenceObservation,
+    ExternalContextState,
     FactualHeadline,
     FilteredAllChainCorrespondenceError,
     FilteredAllChainInventoryState,
@@ -33,6 +34,7 @@ from liftassess import (
     attach_point_query_context,
     attach_query_context_result,
     attach_reverse_mapping_results,
+    attach_ucsc_segmental_duplication_context,
     build_cached_chain_index,
     build_ucsc_assembly_sequence_catalog,
     preflight_source_interval,
@@ -414,6 +416,73 @@ def test_comparative_profile_survives_point_context_rebuild(tmp_path: Path) -> N
         enriched.result_profile.comparative_relationship.inventory_state
         is FilteredAllChainInventoryState.FILTERED_AND_ALL_CHAIN_AGREE
     )
+
+
+def test_external_context_survives_later_profile_rebuilds(tmp_path: Path) -> None:
+    source, target = _assemblies()
+    source_interval = GenomicInterval(source, "chr1", 105, 106)
+    alignment = ProvenanceSource("alignment", "shared UCSC alignment")
+    bundle = _comparative_bundle(tmp_path)
+    report = assess_ucsc_cached_bundle(
+        source_interval,
+        bundle,
+        target_assembly=target,
+        alignment_provenance=alignment,
+    )
+    contextual = attach_ucsc_segmental_duplication_context(
+        report,
+        source_catalog=None,
+        target_catalog=None,
+        source_unavailable=True,
+        target_unavailable=True,
+        source_resource=None,
+        target_resource=None,
+    )
+    expected_context = contextual.external_context_results
+
+    filtered_bundle = _liftover_bundle(tmp_path, _chain_text(chain_id=91))
+    filtered_chain = CachedUCSCChainResource(
+        source_db=filtered_bundle.source_db,
+        target_db=filtered_bundle.target_db,
+        evidence_tier=filtered_bundle.evidence_tier,
+        chain=filtered_bundle.chain,
+    )
+    filtered_index = build_cached_chain_index(
+        tmp_path / "filtered-context-preservation-index",
+        filtered_bundle.chain,
+    ).index
+    compared = attach_filtered_all_chain_comparison(
+        contextual,
+        filtered_chain=filtered_chain,
+        filtered_chain_index=filtered_index,
+    )
+    reversed_report = attach_reverse_mapping_results(
+        compared,
+        tuple(
+            reverse_mapping_unavailable(candidate) for candidate in compared.candidates
+        ),
+    )
+    forward_index = build_cached_chain_index(
+        tmp_path / "forward-context-preservation-index",
+        bundle.chain,
+    ).index
+    enriched = attach_point_query_context(
+        reversed_report,
+        chain_context=CachedUCSCChainResource(
+            source_db=bundle.source_db,
+            target_db=bundle.target_db,
+            evidence_tier=bundle.evidence_tier,
+            chain=bundle.chain,
+        ),
+        chain_index=forward_index,
+    )
+
+    for rebuilt in (compared, reversed_report, enriched):
+        assert rebuilt.external_context_results == expected_context
+        assert (
+            rebuilt.result_profile.scope.external_context
+            is ExternalContextState.UNAVAILABLE
+        )
 
 
 def test_filtered_all_chain_comparison_requires_prepared_filtered_index(

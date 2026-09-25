@@ -725,9 +725,7 @@ mappings = build_ucsc_candidates_from_files(
         label="local reciprocal-best chain",
         derived_from=(alignment,),
     ),
-    reciprocal_best_completeness=(
-        ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE
-    ),
+    reciprocal_best_completeness=(ReciprocalBestResourceCompleteness.COMPLETE_RESOURCE),
 )
 ```
 

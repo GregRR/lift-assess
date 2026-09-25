@@ -249,8 +249,15 @@ class TargetSequenceRoleProfile:
 
 
 @dataclass(frozen=True)
+class ExternalContextResults:
+    """Resource-specific context results kept separate from mapping evidence."""
+
+    ucsc_segmental_duplication: UCSCSegmentalDuplicationContextResult | None = None
+
+
+@dataclass(frozen=True)
 class ExternalContextProfile:
-    """Typed external-context results kept separate from mapping evidence."""
+    """Aggregate state plus typed resource-specific context results."""
 
     state: ExternalContextState
     ucsc_segmental_duplication: UCSCSegmentalDuplicationContextResult | None = None
@@ -313,6 +320,7 @@ def build_result_profile(
     ) = None,
     target_role_catalog: AssemblySequenceCatalog | None = None,
     target_role_unavailable: bool = False,
+    external_context_results: ExternalContextResults | None = None,
     segmental_duplication_context_result: (
         UCSCSegmentalDuplicationContextResult | None
     ) = None,
@@ -382,9 +390,18 @@ def build_result_profile(
         target_role_catalog=target_role_catalog,
         target_role_unavailable=target_role_unavailable,
     )
-    external_context = build_external_context_profile(
-        segmental_duplication_context_result
+    if (
+        external_context_results is not None
+        and segmental_duplication_context_result is not None
+    ):
+        raise ValueError(
+            "external-context results and the legacy segmental-duplication "
+            "argument are mutually exclusive"
+        )
+    context_results = external_context_results or ExternalContextResults(
+        ucsc_segmental_duplication=segmental_duplication_context_result
     )
+    external_context = build_external_context_profile(context_results)
     return ResultProfile(
         source_interval=source_interval,
         input_validity=input_validity,
@@ -415,8 +432,16 @@ def build_result_profile(
 
 
 def build_external_context_profile(
-    result: UCSCSegmentalDuplicationContextResult | None,
+    results: ExternalContextResults | UCSCSegmentalDuplicationContextResult | None,
 ) -> ExternalContextProfile:
+    """Build the aggregate profile while accepting the pre-M25 call shape."""
+
+    if isinstance(results, UCSCSegmentalDuplicationContextResult):
+        results = ExternalContextResults(ucsc_segmental_duplication=results)
+    elif results is None:
+        results = ExternalContextResults()
+
+    result = results.ucsc_segmental_duplication
     if result is None:
         return ExternalContextProfile(state=ExternalContextState.NOT_ASSESSED)
 

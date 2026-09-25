@@ -16,6 +16,8 @@ from liftassess import (
     EvidenceAvailabilityTier,
     EvidenceKind,
     EvidenceObservation,
+    ExternalContextResults,
+    ExternalContextState,
     FactualHeadline,
     FilteredAllChainComparisonResult,
     FilteredAllChainInventoryState,
@@ -38,8 +40,10 @@ from liftassess import (
     ReciprocalBestMembershipStatus,
     ReciprocalBestMembershipSummary,
     ReciprocalBestResourceCompleteness,
+    SegmentalDuplicationCheckState,
     SourceCoverageState,
     TargetRoleState,
+    UCSCSegmentalDuplicationContextResult,
     build_comparative_evidence_relationship,
     build_filtered_all_chain_comparison,
     build_result_profile,
@@ -1248,3 +1252,41 @@ def test_target_role_profile_preserves_provider_role_and_unit() -> None:
     assert target_role.context.assembly_unit == "Primary Assembly"
     assert catalog.role_provenance is not None
     assert target_role.provenance_source_id == catalog.role_provenance.source_id
+
+
+def test_result_profile_accepts_typed_external_context_results() -> None:
+    segmental_duplication = UCSCSegmentalDuplicationContextResult(
+        source_state=SegmentalDuplicationCheckState.UNAVAILABLE,
+        target_state=SegmentalDuplicationCheckState.UNAVAILABLE,
+    )
+    context_results = ExternalContextResults(
+        ucsc_segmental_duplication=segmental_duplication
+    )
+
+    profile = build_result_profile(
+        SOURCE,
+        (_candidate("c1"),),
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        external_context_results=context_results,
+    )
+
+    assert profile.external_context.ucsc_segmental_duplication is segmental_duplication
+    assert profile.scope.external_context is ExternalContextState.UNAVAILABLE
+
+
+def test_result_profile_rejects_mixed_external_context_call_shapes() -> None:
+    segmental_duplication = UCSCSegmentalDuplicationContextResult(
+        source_state=SegmentalDuplicationCheckState.UNAVAILABLE,
+        target_state=SegmentalDuplicationCheckState.UNAVAILABLE,
+    )
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        build_result_profile(
+            SOURCE,
+            (_candidate("c1"),),
+            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+            external_context_results=ExternalContextResults(
+                ucsc_segmental_duplication=segmental_duplication
+            ),
+            segmental_duplication_context_result=segmental_duplication,
+        )
