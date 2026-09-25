@@ -63,7 +63,7 @@ The current development code includes:
 - source/target UCSC Segmental Duplications context with exact provenance;
 - actual chain-only reverse liftOver context from an exact-class cached reverse chain, with explicit performed, unavailable, and not-run states and no implicit reverse acquisition or index build;
 - automatic indexed 101-bp flanking-interval context for 1-bp queries, with exact tested geometry, explicit query-scale findings, and `--context-bases` for a different odd-width window;
-- mapping-coverage and chain-gap evidence;
+- mapping-coverage and chain-gap evidence, including exact source- and target-side internal alignment-gap adjacency for mapped 1-bp queries;
 - a minimal streaming UCSC net reader with hierarchy preservation;
 - net evidence for aligned bases (`ali`), duplicated query bases (`qDup`), net classification, and hierarchy;
 - dependency-aware provenance linking chain- and net-derived observations;
@@ -86,6 +86,9 @@ The current development code includes:
 - explicit resource-set transfer planning and complete-or-error acquisition for discovered
   `COMPARATIVE` and `LIFTOVER-ONLY` resource sets, with a separate transfer-plan acknowledgement before
   any planned resource acquisition begins;
+- assembly-scoped discovery and cached-metadata loading for exact UCSC `vsSelf` chain resources,
+  with a distinct terms class and README-bound optional sequence-coverage metadata; self-chain
+  preparation, assessment observations, and reporting are not yet implemented;
 - terms-gated, body-free remote metadata inspection using HTTP HEAD with identity encoding requested,
   preserving provider-advertised `Content-Length`, `Accept-Ranges`, `Last-Modified`, `ETag`, and
   `Content-Encoding` without transferring resource bodies;
@@ -105,6 +108,7 @@ The project now implements the common-case CLI, concise summary, human-readable 
 
 - a future truth-bearing historical-resolution locus for the planned `canFam3.1`→`canFam6` sanity-check pedigree;
 - optional flanking-gene orthology/synteny evidence;
+- explicit self-chain preparation, assessment, and reporting;
 - defensible mapping-rank evidence with explicit locus-scoped semantics;
 - reverse context across batch loci;
 - reproducible case manifests and, where redistribution terms permit, portable resource packets.

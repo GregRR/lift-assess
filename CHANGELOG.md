@@ -10,11 +10,22 @@ The project is still alpha scientific software. Pre-release compatibility may ch
 
 - Report exact source- and target-side alignment-gap adjacency for mapped 1-bp queries, including
   forward-coordinate before/after relationships on reverse-orientation mappings.
+- Discover exact assembly-scoped UCSC `vsSelf` chain resources and load their cached metadata with a
+  distinct terms class, provider checksum, SHA-256 identity, and README-bound optional coverage.
+
+### Changed
+
+- Carry resource-specific contextual evidence through an explicit typed bundle while preserving
+  family-specific models, aggregate availability, and schema-v2 output.
 
 ### Validation
 
 - Added focused same- and reverse-orientation coverage for source-only, target-only, double-sided,
   nonadjacent, terminal-edge, human-reporting, JSON, and indexed-batch behavior.
+- Added focused self-chain discovery, exact-filename validation, terms classification, cache
+  identity, checksum, and README-bound coverage tests.
+- The current development gate contains 607 tests and passes pytest, Ruff lint, Ruff formatting,
+  strict mypy, and `git diff --check`.
 
 ## 0.2.0a1 - 2026-09-13
 

@@ -339,6 +339,12 @@ Automatic resource discovery:
 - distinguishes a genuine absence from a provider/network failure so a transient
   transport error cannot silently downgrade evidence availability.
 
+Separate assembly-scoped self-chain discovery inspects `{database}/vsSelf/` and returns a typed
+resource only when the exact `{database}.{database}.all.chain.gz` entry is observed. It records the
+directory README and exact provider-checksum entry when available; it does not classify self-chain
+context as `COMPARATIVE` or `LIFTOVER-ONLY`. This foundation does not yet prepare or assess the
+resource.
+
 Automatic UCSC discovery is a convenience layer, not a requirement of the mapping/evidence
 engine. Expert callers can supply local resources and provenance directly.
 
@@ -349,6 +355,8 @@ Before automatic UCSC acquisition, liftAssess:
 - classifies the provider terms applicable to each planned resource;
 - distinguishes dedicated `liftOver/*.over.chain.gz` resources from comparative
   resources because their terms can differ;
+- classifies assembly-scoped self-chain context separately and requires acknowledgement of the
+  exact `vsSelf/` directory terms before provider access;
 - requires explicit acknowledgement of the displayed UCSC terms before provider
   metadata inspection or acquisition;
 - performs body-free HTTP HEAD inspection after terms acknowledgement;
@@ -441,6 +449,8 @@ Representative current capabilities include:
 - standard-liftOver/all-chain comparison and deterministic comparative-relationship derivation;
 - reverse-liftOver and flanking-interval builders/attachment helpers;
 - UCSC Segmental Duplications discovery, acquisition, catalog, and context builders;
+- exact UCSC self-chain discovery and cached-metadata loading, including optional coverage bound
+  to the matching directory README;
 - result-profile derivation and end-to-end verified-cache assessment;
 - UCSC mapping-resource discovery, transfer planning, acquisition, and cache verification; and
 - checksum, SHA-256 identity, and file-provenance helpers.
@@ -461,6 +471,7 @@ representative groups for:
 - standard-liftOver/all-chain and comparative relationships;
 - reverse liftOver and point-query flanking-interval context;
 - UCSC Segmental Duplications context;
+- UCSC self-chain resource, coverage, terms-classification, discovery, and cached-metadata models;
 - resource discovery, planning, acquisition, cache, and identity/provenance; and
 - assessment-report, result-profile, and orchestration models/helpers.
 
@@ -481,6 +492,8 @@ The current repository includes automated coverage for, among other behaviors:
 - provenance dependency diamonds;
 - reciprocal-best subsetting and completeness;
 - resource discovery and asymmetric reciprocal-best layouts;
+- exact self-chain discovery, malformed/cross-assembly filename rejection, terms classification,
+  checksum/cache identity, and README-bound coverage;
 - cache integrity and corrupt-cache recovery;
 - resumable-transfer safety;
 - cache-first, offline, refresh, and acknowledgement CLI paths;
@@ -498,6 +511,7 @@ The following are **not currently implemented**, even when related concepts appe
 the design or model vocabulary:
 
 - mapping-rank evidence with defined locus-scoped semantics;
+- self-chain resource preparation, indexed assessment observations, and reporting;
 - flanking-gene orthology/synteny evidence;
 - freshly computed sequence identity from raw bases;
 - a new alignment run such as minimap2 or lastz;

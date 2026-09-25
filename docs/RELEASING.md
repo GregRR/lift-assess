@@ -7,8 +7,9 @@ validation requirements remain authoritative in [`DESIGN.md`](DESIGN.md) and
 ## Before preparing a release
 
 Do not prepare or tag a release while its roadmap validation gate is still open. For
-`v0.2.0a1`, Milestone 23 must first be complete with any blocking outside-user/domain
-feedback resolved.
+the currently planned `v0.3.0a1`, Milestone 25 must first satisfy its source-specific semantics,
+failure-boundary, provenance, representative real-data, documentation, and public-language gates.
+Apply the same rule to later releases using the then-current roadmap milestone and release gate.
 
 Begin from a clean `main` branch that is up to date with `origin/main`.
 

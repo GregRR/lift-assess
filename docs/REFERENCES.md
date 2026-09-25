@@ -224,6 +224,21 @@ listed unless they materially informed a current design or implementation decisi
     Available from:
     https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/README.txt
 
+43. UCSC Genome Browser Project. hg38 self-chain download directory and README/terms
+    [Internet]. Santa Cruz (CA): University of California, Santa Cruz;
+    [cited 2026 Sep 25]. Available from:
+    https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/
+
+44. UCSC Genome Browser Project. hg38 self-chain provider MD5 metadata [Internet].
+    Santa Cruz (CA): University of California, Santa Cruz; [cited 2026 Sep 25].
+    Available from:
+    https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/md5sum.txt
+
+45. UCSC Genome Browser Project. Self Chain track description, GRCh38/hg38 [Internet].
+    Santa Cruz (CA): University of California, Santa Cruz; [cited 2026 Sep 25].
+    Available from:
+    https://genome.ucsc.edu/cgi-bin/hgTrackUi?db=hg38&g=chainSelf
+
 ### Validation-data note
 
 The real `canFam3` to `canFam4` mechanical fixture consumes five exact UCSC comparative
@@ -239,22 +254,22 @@ The sources in this section are evidence that researchers encounter recurring li
 and interpretation problems. They are **not** treated as biological ground truth or as validation
 of a particular liftAssess result or interpretation.
 
-43. Biostars. Which locus should be considered the true ortholog after liftOver disagreement
+46. Biostars. Which locus should be considered the true ortholog after liftOver disagreement
     between chrUn and chr16 in canFam4 miRNA mapping? [Internet].
     [cited 2026 Aug 17]. Available from:
     https://www.biostars.org/p/9619818/
 
-44. Biostars. UCSC liftover [Internet]. 2021 Jul 15 [cited 2026 Aug 17].
+47. Biostars. UCSC liftover [Internet]. 2021 Jul 15 [cited 2026 Aug 17].
     Available from: https://www.biostars.org/p/9480565/
 
-45. Bioconductor Support. Bug in rtracklayer liftOver function [Internet].
+48. Bioconductor Support. Bug in rtracklayer liftOver function [Internet].
     [cited 2026 Aug 17]. Available from:
     https://support.bioconductor.org/p/9136646/
 
-46. Bioconductor Support. rtracklayer::lifOver one-to-many regions and not match UCSC
+49. Bioconductor Support. rtracklayer::lifOver one-to-many regions and not match UCSC
     [Internet]. [cited 2026 Aug 17]. Available from:
     https://support.bioconductor.org/p/99306/
 
-47. hbc/giab_remap_38. Crossmap liftover issues. Issue #1 [Internet]. GitHub;
+50. hbc/giab_remap_38. Crossmap liftover issues. Issue #1 [Internet]. GitHub;
     2016 Apr 20 [cited 2026 Aug 17]. Available from:
     https://github.com/hbc/giab_remap_38/issues/1

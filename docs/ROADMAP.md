@@ -22,7 +22,9 @@ Milestone 25 development is active. Its first completed slice reports exact sour
 alignment-gap adjacency for mapped 1-bp queries without changing the mapping headline or treating
 the observation as a mapping-quality judgment. Its context-result plumbing now carries multiple
 typed evidence families without replacing their family-specific models, and the UCSC self-chain
-source contract is verified before implementation begins.
+source contract and typed discovery/cache foundation are complete. The current development gate
+contains **607 tests** and passes pytest, Ruff lint, Ruff formatting, strict mypy, and
+`git diff --check`.
 
 The next release sequence is therefore:
 
@@ -423,7 +425,7 @@ The owner review on 2026-08-19 closes the main design-policy questions:
 
 ### 17. Factual result profile, new schema, and progressive renderer
 
-**Goal:** replace the target aggregate-aggregate-result interface without rewriting mapping generation.
+**Goal:** replace the target aggregate-result interface without rewriting mapping generation.
 
 Implement a dedicated derived result-profile/view-model layer over the existing scientific report
 and new composite-analysis results. The profile should represent input validity, mapping count,

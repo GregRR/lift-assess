@@ -327,12 +327,13 @@ availability are independent.
 
 Self-chain resources can be too large to download, index, or traverse implicitly during ordinary
 assessment. Provider discovery must observe the exact `vsSelf/` directory entry rather than infer
-availability from a plausible URL. An explicit preparation path may acquire the exact gzip bytes
-after surfacing terms and transfer metadata, preserve provider checksum metadata as an integrity
-check, compute the resource's SHA-256 provenance identity, and build the existing exact-resource
-chain index. Normal single-locus and batch assessment consume only a matching prepared index and
-never fall back to a whole-resource scan. The index remains a derived acceleration artifact, not
-independent evidence.
+availability from a plausible URL. The exact assembly-directory terms must be surfaced and
+explicitly acknowledged before provider access. An explicit preparation path may then acquire the
+exact gzip bytes only after a separate transfer plan is displayed and acknowledged, preserve
+provider checksum metadata as an integrity check, compute the resource's SHA-256 provenance
+identity, and build the existing exact-resource chain index. Normal single-locus and batch
+assessment consume only a matching prepared index and never fall back to a whole-resource scan.
+The index remains a derived acceleration artifact, not independent evidence.
 
 ## 5. Coordinate semantics
 

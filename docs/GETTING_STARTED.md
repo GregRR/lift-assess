@@ -270,6 +270,17 @@ assess-liftover hg19 hg38 chr1:120904787-120904787 --context-bases 1001
 Ordinary interval queries are not widened automatically, and liftAssess never recursively expands a
 point from 101 bp to 1 kb or 10 kb because the first context result looks unusual.
 
+### Alignment-gap boundary context
+
+For a mapped 1-bp query, liftAssess also reports when the source base or exact mapped target base is
+immediately before or after a positive-width internal gap between alignment blocks. Source- and
+target-side relationships are checked independently in forward assembly coordinates, including for
+reverse-orientation mappings. Terminal chain edges are not internal gaps.
+
+This is literal zero-distance adjacency, not a proximity score or threshold. It describes local
+chain geometry and does not by itself imply an allele change, explain an assembly-history mechanism,
+or show that the mapping is wrong.
+
 ### Target sequence role and genomic context
 
 When UCSC's assembly description provides an exact versioned NCBI assembly accession, liftAssess can attach provider-native target sequence role from the matching NCBI Datasets sequence report. If the exact binding cannot be established, the role remains unavailable; liftAssess does not guess from names such as `_alt`, `_random`, or `chrUn`.
