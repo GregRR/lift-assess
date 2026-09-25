@@ -9,6 +9,8 @@ from liftassess import (
     MappingOrientation,
     MappingSegment,
     NormalizedCandidate,
+    PointGapBoundary,
+    PointGapBoundaryPosition,
     ProvenanceIdentifier,
     ProvenanceIdentifierKind,
     ProvenanceSource,
@@ -80,6 +82,21 @@ def test_interval_rejects_negative_start_and_reversed_bounds(
 
     with pytest.raises(ValueError, match="greater than or equal"):
         GenomicInterval(source_assembly, "chr16", 11, 10)
+
+
+def test_point_gap_boundary_requires_paired_interval_and_position(
+    source_assembly: AssemblyIdentifier,
+) -> None:
+    gap = GenomicInterval(source_assembly, "chr16", 20, 30)
+
+    with pytest.raises(ValueError, match="present together"):
+        PointGapBoundary(source_gap_interval=gap)
+    with pytest.raises(ValueError, match="present together"):
+        PointGapBoundary(
+            source_position=PointGapBoundaryPosition.BEFORE_GAP,
+        )
+    with pytest.raises(ValueError, match="source or target gap"):
+        PointGapBoundary()
 
 
 def test_candidate_can_carry_multiple_distinct_observations_from_one_source(

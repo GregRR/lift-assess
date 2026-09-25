@@ -20,7 +20,10 @@ from liftassess.assembly_metadata_cache import (
 )
 from liftassess.batch import BatchInputRecord, BatchTargetRelationshipKind
 from liftassess.batch_execution import run_indexed_chain_batch
-from liftassess.batch_reporting import render_indexed_chain_batch_json
+from liftassess.batch_reporting import (
+    render_indexed_chain_batch_json,
+    render_indexed_chain_batch_summary,
+)
 from liftassess.chain_index import ChainIndex, build_chain_index
 from liftassess.models import (
     AssemblyIdentifier,
@@ -174,6 +177,40 @@ def test_indexed_chain_batch_preserves_chain_provenance_on_each_candidate(
         identifier.value for identifier in candidate.mapping_provenance.identifiers
     }
     assert chain_context.chain.sha256 in identifiers
+
+
+def test_indexed_batch_reports_point_gap_boundary_context(tmp_path: Path) -> None:
+    chain_context, index = _chain_context(
+        tmp_path,
+        chain_text="""\
+chain 100 chr1 1000 + 100 130 chrA 2000 - 500 535 1
+10 10 15
+10
+
+""",
+    )
+    result = run_indexed_chain_batch(
+        (_record("row-1", 109, 110),),
+        chain_context,
+        target_assembly=TARGET,
+        alignment_provenance=ALIGNMENT,
+        chain_index=index,
+    )
+
+    rendered = render_indexed_chain_batch_summary(result)
+    payload = json.loads(render_indexed_chain_batch_json(result))
+
+    assert "Alignment gap boundary:" in rendered
+    assert "source base immediately before chr1:110-120" in rendered
+    assert "target base immediately after chrA:1475-1490" in rendered
+    gap_evidence = next(
+        item
+        for item in payload["records"][0]["candidates"][0]["evidence"]
+        if item["kind"] == "CHAIN_GAPS"
+    )
+    boundary = gap_evidence["value"]["point_gap_boundaries"][0]
+    assert boundary["source_position"] == "BEFORE_GAP"
+    assert boundary["target_position"] == "AFTER_GAP"
 
 
 def test_indexed_chain_batch_refuses_missing_index(tmp_path: Path) -> None:

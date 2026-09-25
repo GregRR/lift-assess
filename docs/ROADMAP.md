@@ -4,7 +4,7 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 [`DESIGN.md`](DESIGN.md) remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, result-model semantics, current scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
 
-## Current status — 2026-09-13
+## Current status — 2026-09-24
 
 liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public alpha. `v0.2.0a1` was released on 2026-09-13 as the second public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
 
@@ -17,6 +17,10 @@ The assembly-metadata and segmental-duplication work required before Milestone 2
 Milestone 23 is complete. All five pre-registered cases were rechecked against the current default human renderer. H01 outside-user feedback exposed a genuine comprehension failure in the older default output and drove the first renderer slice; H04 drove the compact multiple-mapping/comparative slice. The final H03/H04/H05 outside spot-check found the complex outputs understandable and scientifically bounded, while identifying one H04 prominence gap and one bounded follow-up-navigation improvement. Both were corrected and the affected cases were rerun successfully. Because held-out cases influenced presentation, the five-case set is explicitly not described as untouched validation.
 
 Milestone 24 is complete. The `v0.2.0a1` release candidate passed the full release-readiness checklist, including the 585-test native quality gate, documentation and repository drift audits, wheel/source-distribution review, clean-environment installation and smoke tests, release-workflow review, and public-package verification. `v0.2.0a1` was published to PyPI and GitHub on 2026-09-13, and the normal public `pip install --pre liftassess` path was verified successfully against the published package.
+
+Milestone 25 development is active. Its first completed slice reports exact source- and target-side
+alignment-gap adjacency for mapped 1-bp queries without changing the mapping headline or treating
+the observation as a mapping-quality judgment.
 
 The next release sequence is therefore:
 
@@ -923,6 +927,17 @@ Implementation constraints:
   bytes are consumed; and
 - validate new context families with motivating difficult cases plus clean negative controls so an
   ordinary mapping does not acquire a warning merely because more context was requested.
+
+Initial point-boundary slice completed 2026-09-24:
+
+- mapped 1-bp queries now record exact adjacency to positive-width internal source- and target-side
+  chain gaps during the existing projection pass, including independent forward-coordinate
+  `BEFORE_GAP`/`AFTER_GAP` relationships for reverse-orientation mappings;
+- terminal chain edges remain outside the feature, and ordinary interval queries remain unaffected;
+- single-locus summaries/details, schema-v2 JSON, and indexed batch output expose the observation
+  without changing the factual mapping headline or treating adjacency as a mapping error; and
+- focused tests cover source-only, target-only, double-sided, same- and reverse-orientation,
+  nonadjacent, terminal-edge, result-profile, JSON, and indexed-batch behavior.
 
 Release gate: `v0.3.0a1` ships only after the new context families exercised in the release have
 source-specific semantics, failure-boundary tests, provenance coverage, and representative real-data

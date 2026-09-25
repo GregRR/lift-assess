@@ -24,6 +24,8 @@ from .models import (
     MappingOrientation,
     NetHierarchySummary,
     NormalizedCandidate,
+    PointGapBoundary,
+    PointGapBoundaryPosition,
     ProvenanceSource,
     ReciprocalBestMembershipSummary,
 )
@@ -306,6 +308,29 @@ def _multiple_mapping_overview_lines(report: UCSCAssessmentReport) -> list[str]:
                     f"            {candidate.orientation.value.lower()}",
                 )
             )
+            if candidate_profile.point_gap_boundaries:
+                lines.append("        Adjacent alignment gap(s):")
+                for boundary in candidate_profile.point_gap_boundaries:
+                    if boundary.source_gap_interval is not None:
+                        assert boundary.source_position is not None
+                        lines.append(
+                            "            source: immediately "
+                            f"{_point_gap_position_text(boundary.source_position)} "
+                            + _human_interval_text(
+                                report.source_db,
+                                boundary.source_gap_interval,
+                            )
+                        )
+                    if boundary.target_gap_interval is not None:
+                        assert boundary.target_position is not None
+                        lines.append(
+                            "            target: immediately "
+                            f"{_point_gap_position_text(boundary.target_position)} "
+                            + _human_interval_text(
+                                report.target_db,
+                                boundary.target_gap_interval,
+                            )
+                        )
     else:
         lines.append(f"    Use --details to view all {count} mappings.")
     return lines
@@ -601,6 +626,14 @@ def _multiple_mapping_guidance_lines(
         why.append(
             "Segmental-duplication overlap is relevant duplicated-sequence context, "
             "but it does not by itself identify the biologically corresponding mapping."
+        )
+
+    if any(candidate.point_gap_boundaries for candidate in profile.candidate_profiles):
+        why.append(
+            "At least one mapped coordinate lies directly next to an alignment "
+            "gap boundary. This local chain geometry can affect liftOver "
+            "behavior but does not identify a preferred mapping or establish a "
+            "mapping error."
         )
 
     next_steps.append(
@@ -937,6 +970,14 @@ def _single_mapping_guidance_lines(
         )
         browser_review = True
 
+    if profile.point_gap_boundaries:
+        local_why_present = True
+        browser_review = True
+        next_steps.append(
+            "Use --details to inspect the exact source- and target-side alignment "
+            "gap boundaries before interpreting the coordinate in isolation."
+        )
+
     duplication = report.segmental_duplication_context_result
     if duplication is not None and (
         duplication.source_overlaps or duplication.target_overlaps
@@ -1037,12 +1078,7 @@ def _single_mapping_finding_lines(
         "Mapping:",
         (
             f"    One liftOver chain maps {profile.covered_source_bases}/"
-            f"{source_bases} bp"
-            + (
-                "; no chain gap at the query."
-                if source_bases == 1 and not profile.source_gap_intervals
-                else "."
-            )
+            f"{source_bases} bp."
         ),
     ]
 
@@ -1080,6 +1116,10 @@ def _single_mapping_finding_lines(
             )
         )
 
+    boundary_lines = _single_point_gap_boundary_lines(report, profile)
+    if boundary_lines:
+        lines.extend(("", *boundary_lines))
+
     reverse_lines = _single_reverse_liftover_lines(report, profile)
     if reverse_lines:
         lines.extend(("", *reverse_lines))
@@ -1100,6 +1140,75 @@ def _single_mapping_finding_lines(
     if target_role_lines:
         lines.extend(("", *target_role_lines))
     return lines
+
+
+def _single_point_gap_boundary_lines(
+    report: UCSCAssessmentReport,
+    profile: CandidateResultProfile,
+) -> list[str]:
+    boundaries = profile.point_gap_boundaries
+    if not boundaries:
+        return []
+
+    lines = ["Alignment gap boundary:"]
+    for boundary in boundaries:
+        if boundary.source_gap_interval is not None:
+            assert boundary.source_position is not None
+            lines.extend(
+                (
+                    (
+                        "    The input coordinate is immediately "
+                        f"{_point_gap_position_text(boundary.source_position)} this "
+                        "source-side alignment gap:"
+                    ),
+                    (
+                        "        "
+                        + _human_interval_text(
+                            report.source_db,
+                            boundary.source_gap_interval,
+                        )
+                    ),
+                )
+            )
+        if boundary.target_gap_interval is not None:
+            assert boundary.target_position is not None
+            lines.extend(
+                (
+                    (
+                        "    The mapped coordinate is immediately "
+                        f"{_point_gap_position_text(boundary.target_position)} this "
+                        "target-side alignment gap:"
+                    ),
+                    (
+                        "        "
+                        + _human_interval_text(
+                            report.target_db,
+                            boundary.target_gap_interval,
+                        )
+                    ),
+                )
+            )
+    lines.extend(
+        _local_why_lines(
+            [
+                (
+                    "A coordinate directly next to an alignment gap boundary "
+                    "can show different liftOver behavior when surrounding bases are "
+                    "included. This chain geometry does not by itself establish an "
+                    "allele change, assembly-history mechanism, or mapping error."
+                )
+            ]
+        )
+    )
+    return lines
+
+
+def _point_gap_position_text(position: PointGapBoundaryPosition) -> str:
+    if position is PointGapBoundaryPosition.BEFORE_GAP:
+        return "before"
+    if position is PointGapBoundaryPosition.AFTER_GAP:
+        return "after"
+    raise AssertionError(f"unhandled point gap-boundary position: {position!r}")
 
 
 def _single_reverse_liftover_lines(
@@ -2629,6 +2738,17 @@ def _candidate_profile_json(profile: CandidateResultProfile) -> dict[str, object
             ],
             "largest_source_gap_bases": profile.largest_source_gap_bases,
             "largest_target_gap_bases": profile.largest_target_gap_bases,
+            "point_gap_boundary_context": {
+                "assessed": profile.point_gap_boundaries is not None,
+                "boundaries": (
+                    [
+                        _point_gap_boundary_json(boundary)
+                        for boundary in profile.point_gap_boundaries
+                    ]
+                    if profile.point_gap_boundaries is not None
+                    else []
+                ),
+            },
         },
         "orientation": profile.orientation.value,
         "reverse_mapping": _reverse_profile_json(profile.reverse_mapping),
@@ -2837,6 +2957,14 @@ def _evidence_value_json(value: EvidenceValue) -> dict[str, object]:
                 }
                 for gap in value.gaps
             ],
+            "point_gap_boundaries": (
+                [
+                    _point_gap_boundary_json(boundary)
+                    for boundary in value.point_gap_boundaries
+                ]
+                if value.point_gap_boundaries is not None
+                else None
+            ),
         }
 
     if isinstance(value, NetHierarchySummary):
@@ -2863,6 +2991,31 @@ def _evidence_value_json(value: EvidenceValue) -> dict[str, object]:
         return {"type": "SCALAR", "value": value}
 
     raise TypeError(f"unsupported evidence value for JSON reporting: {type(value)!r}")
+
+
+def _point_gap_boundary_json(boundary: PointGapBoundary) -> dict[str, object]:
+    return {
+        "source_gap_interval": (
+            _interval_json(boundary.source_gap_interval)
+            if boundary.source_gap_interval is not None
+            else None
+        ),
+        "source_position": (
+            boundary.source_position.value
+            if boundary.source_position is not None
+            else None
+        ),
+        "target_gap_interval": (
+            _interval_json(boundary.target_gap_interval)
+            if boundary.target_gap_interval is not None
+            else None
+        ),
+        "target_position": (
+            boundary.target_position.value
+            if boundary.target_position is not None
+            else None
+        ),
+    }
 
 
 def _assessment_resource_json(
@@ -2973,6 +3126,30 @@ def _candidate_detail_lines(
         )
     else:
         lines.append("  Target gap intervals: none")
+
+    if profile.point_gap_boundaries is None:
+        lines.append("  Point alignment-gap boundary context: not applicable")
+    elif not profile.point_gap_boundaries:
+        lines.append(
+            "  Point alignment-gap boundary context: no adjacent internal chain gap"
+        )
+    else:
+        lines.append("  Point alignment-gap boundary context:")
+        for boundary in profile.point_gap_boundaries:
+            if boundary.source_gap_interval is not None:
+                assert boundary.source_position is not None
+                lines.append(
+                    "    source: immediately "
+                    f"{_point_gap_position_text(boundary.source_position)} "
+                    f"{format_display_interval(boundary.source_gap_interval)}"
+                )
+            if boundary.target_gap_interval is not None:
+                assert boundary.target_position is not None
+                lines.append(
+                    "    target: immediately "
+                    f"{_point_gap_position_text(boundary.target_position)} "
+                    f"{format_display_interval(boundary.target_gap_interval)}"
+                )
 
     if include_reverse_mapping:
         reverse = profile.reverse_mapping
@@ -3190,6 +3367,28 @@ def _evidence_value_lines(observation: EvidenceObservation) -> list[str]:
                 f"source boundary={gap.source_boundary} (0-based boundary); "
                 f"source gap={source_gap}; target gap={target_gap}"
             )
+        if value.point_gap_boundaries is not None:
+            lines.append(
+                f"{len(value.point_gap_boundaries)} internal chain gap(s) directly "
+                "adjacent to the mapped point"
+            )
+            for boundary in value.point_gap_boundaries:
+                if boundary.source_gap_interval is not None:
+                    assert boundary.source_position is not None
+                    lines.append(
+                        "source point position="
+                        f"{_point_gap_position_text(boundary.source_position)}; "
+                        "source gap="
+                        f"{format_display_interval(boundary.source_gap_interval)}"
+                    )
+                if boundary.target_gap_interval is not None:
+                    assert boundary.target_position is not None
+                    lines.append(
+                        "target point position="
+                        f"{_point_gap_position_text(boundary.target_position)}; "
+                        "target gap="
+                        f"{format_display_interval(boundary.target_gap_interval)}"
+                    )
         return lines
 
     if isinstance(value, NetHierarchySummary):

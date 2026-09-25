@@ -28,6 +28,8 @@ from liftassess import (
     NetHierarchySummary,
     NormalizedCandidate,
     OrientationState,
+    PointGapBoundary,
+    PointGapBoundaryPosition,
     PointQueryContextResult,
     ProjectionCountState,
     ProvenanceSource,
@@ -130,7 +132,7 @@ def _candidate(
         f"{candidate_id}:gaps",
         EvidenceKind.CHAIN_GAPS,
         ChainGapSummary(
-            tuple(
+            gaps=tuple(
                 ChainGap(
                     source_boundary=source_spans[min(index + 1, len(source_spans) - 1)][
                         0
@@ -140,7 +142,8 @@ def _candidate(
                     ),
                 )
                 for index, (target_start, target_end) in enumerate(target_gaps)
-            )
+            ),
+            point_gap_boundaries=(() if source_interval.length == 1 else None),
         ),
         CHAIN,
     )
@@ -994,6 +997,59 @@ def test_profile_exposes_exact_source_chain_gap_geometry() -> None:
     assert candidate_profile.largest_source_gap_bases == 10
 
 
+def test_profile_exposes_exact_point_gap_boundary_geometry() -> None:
+    candidate = _candidate(
+        "point-boundary",
+        source_interval=POINT,
+        source_spans=((150, 151),),
+        target_spans=((1050, 1051),),
+    )
+    boundary = PointGapBoundary(
+        source_gap_interval=GenomicInterval(SOURCE_ASSEMBLY, "chr1", 151, 160),
+        source_position=PointGapBoundaryPosition.BEFORE_GAP,
+        target_gap_interval=GenomicInterval(TARGET_ASSEMBLY, "chrA", 1040, 1050),
+        target_position=PointGapBoundaryPosition.AFTER_GAP,
+    )
+    gaps = EvidenceObservation(
+        "point-boundary:gaps",
+        EvidenceKind.CHAIN_GAPS,
+        ChainGapSummary(point_gap_boundaries=(boundary,)),
+        CHAIN,
+    )
+    candidate = replace(candidate, evidence=(candidate.evidence[0], gaps))
+
+    profile = build_result_profile(
+        POINT,
+        (candidate,),
+        evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+    )
+
+    assert profile.candidate_profiles[0].point_gap_boundaries == (boundary,)
+
+
+def test_profile_rejects_point_candidate_without_boundary_assessment() -> None:
+    candidate = _candidate(
+        "point-without-boundary-context",
+        source_interval=POINT,
+        source_spans=((150, 151),),
+        target_spans=((1050, 1051),),
+    )
+    gaps = EvidenceObservation(
+        "point-without-boundary-context:gaps",
+        EvidenceKind.CHAIN_GAPS,
+        ChainGapSummary(),
+        CHAIN,
+    )
+    candidate = replace(candidate, evidence=(candidate.evidence[0], gaps))
+
+    with pytest.raises(ValueError, match="explicit gap-boundary context"):
+        build_result_profile(
+            POINT,
+            (candidate,),
+            evidence_tier=EvidenceAvailabilityTier.LIFTOVER_ONLY,
+        )
+
+
 def test_reverse_mapping_geometry_must_match_forward_candidate() -> None:
     candidate = _candidate("reverse-geometry")
     reverse = reverse_mapping_unavailable(candidate)
@@ -1086,6 +1142,7 @@ def test_point_context_mapped_agreement_requires_real_candidate() -> None:
         ),
     )
 
+    assert profile.candidate_profiles[0].point_gap_boundaries == ()
     context = profile.query_context
     assert context.findings == (QueryContextFinding.AGREES_WITH_POINT,)
     assert context.point_and_local_context_map_together

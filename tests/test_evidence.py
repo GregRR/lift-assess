@@ -13,6 +13,8 @@ from liftassess.models import (
     MappingOrientation,
     MappingSegment,
     NormalizedCandidate,
+    PointGapBoundary,
+    PointGapBoundaryPosition,
     ProvenanceSource,
 )
 from liftassess.projection import project_interval_through_chain
@@ -82,6 +84,15 @@ def _observation(
     return next(item for item in candidate.evidence if item.kind is kind)
 
 
+def _point_gap_boundaries(
+    candidate: NormalizedCandidate,
+) -> tuple[PointGapBoundary, ...]:
+    summary = _observation(candidate, EvidenceKind.CHAIN_GAPS).value
+    assert isinstance(summary, ChainGapSummary)
+    assert summary.point_gap_boundaries is not None
+    return summary.point_gap_boundaries
+
+
 def test_full_contiguous_mapping_records_full_coverage_and_no_gaps(
     source_assembly: AssemblyIdentifier,
     target_assembly: AssemblyIdentifier,
@@ -102,6 +113,153 @@ def test_full_contiguous_mapping_records_full_coverage_and_no_gaps(
     assert coverage.provenance is chain_provenance
     assert gaps.provenance is chain_provenance
     assert candidate.evidence[0].kind is EvidenceKind.CHAIN_SCORE
+
+
+def test_point_before_double_sided_gap_records_both_forward_positions(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+) -> None:
+    chain = _chain(
+        blocks=(
+            ChainBlock(size=10, target_gap=10, query_gap=15),
+            ChainBlock(size=10),
+        )
+    )
+    source = GenomicInterval(source_assembly, "chr1", 109, 110)
+    candidate = _project(source, chain, target_assembly, chain_provenance)
+
+    assert _point_gap_boundaries(candidate) == (
+        PointGapBoundary(
+            source_gap_interval=GenomicInterval(source_assembly, "chr1", 110, 120),
+            source_position=PointGapBoundaryPosition.BEFORE_GAP,
+            target_gap_interval=GenomicInterval(target_assembly, "chrA", 510, 525),
+            target_position=PointGapBoundaryPosition.BEFORE_GAP,
+        ),
+    )
+
+
+def test_point_after_double_sided_gap_records_both_forward_positions(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+) -> None:
+    chain = _chain(
+        blocks=(
+            ChainBlock(size=10, target_gap=10, query_gap=15),
+            ChainBlock(size=10),
+        )
+    )
+    source = GenomicInterval(source_assembly, "chr1", 120, 121)
+    candidate = _project(source, chain, target_assembly, chain_provenance)
+
+    assert _point_gap_boundaries(candidate) == (
+        PointGapBoundary(
+            source_gap_interval=GenomicInterval(source_assembly, "chr1", 110, 120),
+            source_position=PointGapBoundaryPosition.AFTER_GAP,
+            target_gap_interval=GenomicInterval(target_assembly, "chrA", 510, 525),
+            target_position=PointGapBoundaryPosition.AFTER_GAP,
+        ),
+    )
+
+
+def test_reverse_mapping_reports_source_and_target_positions_independently(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+) -> None:
+    chain = _chain(
+        query_strand=ChainStrand.MINUS,
+        blocks=(
+            ChainBlock(size=10, target_gap=10, query_gap=15),
+            ChainBlock(size=10),
+        ),
+    )
+    source = GenomicInterval(source_assembly, "chr1", 109, 110)
+    candidate = _project(source, chain, target_assembly, chain_provenance)
+
+    assert _point_gap_boundaries(candidate) == (
+        PointGapBoundary(
+            source_gap_interval=GenomicInterval(source_assembly, "chr1", 110, 120),
+            source_position=PointGapBoundaryPosition.BEFORE_GAP,
+            target_gap_interval=GenomicInterval(target_assembly, "chrA", 1475, 1490),
+            target_position=PointGapBoundaryPosition.AFTER_GAP,
+        ),
+    )
+
+
+def test_point_next_to_target_only_gap_records_only_target_side(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+) -> None:
+    chain = _chain(
+        blocks=(
+            ChainBlock(size=10, target_gap=0, query_gap=15),
+            ChainBlock(size=10),
+        )
+    )
+    source = GenomicInterval(source_assembly, "chr1", 109, 110)
+    candidate = _project(source, chain, target_assembly, chain_provenance)
+
+    assert _point_gap_boundaries(candidate) == (
+        PointGapBoundary(
+            target_gap_interval=GenomicInterval(target_assembly, "chrA", 510, 525),
+            target_position=PointGapBoundaryPosition.BEFORE_GAP,
+        ),
+    )
+
+
+def test_point_next_to_source_only_gap_records_only_source_side(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+) -> None:
+    chain = _chain(
+        blocks=(
+            ChainBlock(size=10, target_gap=10, query_gap=0),
+            ChainBlock(size=10),
+        )
+    )
+    source = GenomicInterval(source_assembly, "chr1", 109, 110)
+    candidate = _project(source, chain, target_assembly, chain_provenance)
+
+    assert _point_gap_boundaries(candidate) == (
+        PointGapBoundary(
+            source_gap_interval=GenomicInterval(source_assembly, "chr1", 110, 120),
+            source_position=PointGapBoundaryPosition.BEFORE_GAP,
+        ),
+    )
+
+
+def test_nonadjacent_point_records_completed_empty_boundary_context(
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+) -> None:
+    chain = _chain(
+        blocks=(
+            ChainBlock(size=10, target_gap=10, query_gap=15),
+            ChainBlock(size=10),
+        )
+    )
+    source = GenomicInterval(source_assembly, "chr1", 105, 106)
+    candidate = _project(source, chain, target_assembly, chain_provenance)
+
+    assert _point_gap_boundaries(candidate) == ()
+
+
+@pytest.mark.parametrize("start", [100, 119])
+def test_terminal_chain_edges_are_not_point_gap_boundaries(
+    start: int,
+    source_assembly: AssemblyIdentifier,
+    target_assembly: AssemblyIdentifier,
+    chain_provenance: ProvenanceSource,
+) -> None:
+    source = GenomicInterval(source_assembly, "chr1", start, start + 1)
+    candidate = _project(source, _chain(), target_assembly, chain_provenance)
+
+    assert _point_gap_boundaries(candidate) == ()
 
 
 def test_source_side_gap_makes_coverage_partial_and_records_exact_overlap(

@@ -1,9 +1,10 @@
 """Mechanical evidence extraction for chain-backed candidates.
 
 Some chain evidence must be extracted while the raw ``ChainRecord`` is still
-available. In particular, a requested locus may begin or end inside a chain gap;
-that distinction cannot always be reconstructed from normalized aligned segments
-alone. This module records those source-specific observations on the normalized
+available. In particular, a requested locus may begin or end inside a chain gap,
+and a mapped point may lie directly beside a source- or target-side gap. Those
+relationships cannot always be reconstructed from normalized aligned segments
+alone. This module records the source-specific observations on the normalized
 candidate without assigning a verdict or interpreting biological meaning.
 """
 
@@ -19,6 +20,8 @@ from .models import (
     MappingCoverageStatus,
     MappingCoverageSummary,
     NormalizedCandidate,
+    PointGapBoundary,
+    PointGapBoundaryPosition,
 )
 
 
@@ -31,9 +34,10 @@ def _annotate_chain_mapping_structure(
 
     Coverage answers only whether bases in the requested *source locus* are
     represented by exact mapping segments. Chain-gap evidence separately records
-    source-side, destination-side, or double-sided block gaps through that locus.
-    Both observations retain the candidate's mapping provenance and therefore do
-    not become independent evidence merely because they are distinct facts.
+    source-side, target-side, or double-sided block gaps through that locus
+    and exact gap adjacency for mapped 1-bp queries. Both observations retain the
+    candidate's mapping provenance and therefore do not become independent
+    evidence merely because they are distinct facts.
     """
 
     _validate_inputs(source_interval, chain, candidate)
@@ -58,11 +62,19 @@ def _annotate_chain_mapping_structure(
         ),
         provenance=candidate.mapping_provenance,
     )
+    chain_gaps, point_gap_boundaries = _chain_gap_context(
+        source_interval,
+        chain,
+        candidate,
+    )
     gaps = EvidenceObservation(
         observation_id=f"{candidate.candidate_id}:chain-gaps",
         kind=EvidenceKind.CHAIN_GAPS,
         value=ChainGapSummary(
-            gaps=_chain_gaps_through_locus(source_interval, chain, candidate)
+            gaps=chain_gaps,
+            point_gap_boundaries=(
+                point_gap_boundaries if source_interval.length == 1 else None
+            ),
         ),
         provenance=candidate.mapping_provenance,
     )
@@ -139,12 +151,13 @@ def _uncovered_source_intervals(
     return tuple(uncovered)
 
 
-def _chain_gaps_through_locus(
+def _chain_gap_context(
     source_interval: GenomicInterval,
     chain: ChainRecord,
     candidate: NormalizedCandidate,
-) -> tuple[ChainGap, ...]:
+) -> tuple[tuple[ChainGap, ...], tuple[PointGapBoundary, ...]]:
     gaps: list[ChainGap] = []
+    point_boundaries: list[PointGapBoundary] = []
     source_cursor = chain.target_start
     query_cursor = chain.query_start
 
@@ -168,14 +181,36 @@ def _chain_gaps_through_locus(
             and target_gap_bases > 0
             and source_interval.start < source_gap_start < source_interval.end
         )
-
-        if source_overlap is not None or query_only_gap_through_locus:
-            target_gap = _target_gap_interval(
+        point_at_internal_boundary = source_interval.length == 1 and (
+            source_interval.end == source_gap_start
+            or source_interval.start == source_gap_end
+        )
+        needs_gap_intervals = (
+            source_overlap is not None
+            or query_only_gap_through_locus
+            or point_at_internal_boundary
+        )
+        source_gap = (
+            _source_gap_interval(
+                source_interval,
+                source_gap_start,
+                source_gap_end,
+            )
+            if point_at_internal_boundary
+            else None
+        )
+        target_gap = (
+            _target_gap_interval(
                 chain,
                 candidate,
                 block_query_end,
                 target_gap_bases,
             )
+            if needs_gap_intervals
+            else None
+        )
+
+        if source_overlap is not None or query_only_gap_through_locus:
             gaps.append(
                 ChainGap(
                     source_boundary=source_gap_start,
@@ -184,10 +219,74 @@ def _chain_gaps_through_locus(
                 )
             )
 
+        if point_at_internal_boundary:
+            point_boundary = _point_gap_boundary(
+                source_interval,
+                candidate,
+                source_gap,
+                target_gap,
+            )
+            if point_boundary is not None:
+                point_boundaries.append(point_boundary)
+
         source_cursor = source_gap_end
         query_cursor = block_query_end + target_gap_bases
 
-    return tuple(gaps)
+    return tuple(gaps), tuple(point_boundaries)
+
+
+def _source_gap_interval(
+    source_interval: GenomicInterval,
+    gap_start: int,
+    gap_end: int,
+) -> GenomicInterval | None:
+    if gap_start == gap_end:
+        return None
+    return GenomicInterval(
+        assembly=source_interval.assembly,
+        sequence_name=source_interval.sequence_name,
+        start=gap_start,
+        end=gap_end,
+    )
+
+
+def _point_gap_boundary(
+    source_interval: GenomicInterval,
+    candidate: NormalizedCandidate,
+    source_gap: GenomicInterval | None,
+    target_gap: GenomicInterval | None,
+) -> PointGapBoundary | None:
+    if source_interval.length != 1:
+        raise ValueError("point gap-boundary context requires a 1-bp source interval")
+    if len(candidate.segments) != 1:
+        raise ValueError("a mapped 1-bp query must contain exactly one mapping segment")
+
+    source_position = _point_position_for_gap(source_interval, source_gap)
+    target_position = _point_position_for_gap(
+        candidate.segments[0].target_interval,
+        target_gap,
+    )
+    if source_position is None and target_position is None:
+        return None
+    return PointGapBoundary(
+        source_gap_interval=(source_gap if source_position is not None else None),
+        source_position=source_position,
+        target_gap_interval=(target_gap if target_position is not None else None),
+        target_position=target_position,
+    )
+
+
+def _point_position_for_gap(
+    point: GenomicInterval,
+    gap: GenomicInterval | None,
+) -> PointGapBoundaryPosition | None:
+    if gap is None:
+        return None
+    if point.end == gap.start:
+        return PointGapBoundaryPosition.BEFORE_GAP
+    if point.start == gap.end:
+        return PointGapBoundaryPosition.AFTER_GAP
+    return None
 
 
 def _gap_source_overlap(

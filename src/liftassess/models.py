@@ -110,6 +110,13 @@ class ReciprocalBestMembershipStatus(str, Enum):
     NONE = "NONE"
 
 
+class PointGapBoundaryPosition(str, Enum):
+    """Point position relative to an adjacent gap in forward coordinates."""
+
+    BEFORE_GAP = "BEFORE_GAP"
+    AFTER_GAP = "AFTER_GAP"
+
+
 class ReciprocalBestResourceCompleteness(str, Enum):
     """Explicit basis for treating a reciprocal-best scan as exhaustive.
 
@@ -263,10 +270,55 @@ class ChainGap:
 
 
 @dataclass(frozen=True)
+class PointGapBoundary:
+    """One internal chain gap directly adjacent to a mapped 1-bp query.
+
+    Positions are stated in forward assembly coordinates independently for the
+    source and target assemblies. On a reverse-orientation chain, a point before
+    a source-side gap can therefore be after the corresponding target-side gap.
+    A ``None`` side means that the internal chain boundary has no positive-width
+    gap on that assembly side.
+    """
+
+    source_gap_interval: GenomicInterval | None = None
+    source_position: PointGapBoundaryPosition | None = None
+    target_gap_interval: GenomicInterval | None = None
+    target_position: PointGapBoundaryPosition | None = None
+
+    def __post_init__(self) -> None:
+        if (self.source_gap_interval is None) != (self.source_position is None):
+            raise ValueError(
+                "point source-gap interval and position must be present together"
+            )
+        if (self.target_gap_interval is None) != (self.target_position is None):
+            raise ValueError(
+                "point target-gap interval and position must be present together"
+            )
+        if self.source_gap_interval is None and self.target_gap_interval is None:
+            raise ValueError("point gap boundary must contain a source or target gap")
+        if (
+            self.source_gap_interval is not None
+            and self.source_gap_interval.length <= 0
+        ):
+            raise ValueError("adjacent source gap must span at least one base")
+        if (
+            self.target_gap_interval is not None
+            and self.target_gap_interval.length <= 0
+        ):
+            raise ValueError("adjacent target gap must span at least one base")
+
+
+@dataclass(frozen=True)
 class ChainGapSummary:
-    """Exact chain block gaps observed through one requested source locus."""
+    """Exact chain gaps through a locus and, for 1-bp queries, beside it.
+
+    ``point_gap_boundaries`` is ``None`` when point-boundary context is not
+    applicable. An empty tuple means that a mapped 1-bp query was assessed and
+    was not directly adjacent to an internal source- or target-side chain gap.
+    """
 
     gaps: tuple[ChainGap, ...] = ()
+    point_gap_boundaries: tuple[PointGapBoundary, ...] | None = None
 
 
 @dataclass(frozen=True)

@@ -6,6 +6,16 @@ The project is still alpha scientific software. Pre-release compatibility may ch
 
 ## Unreleased
 
+### Added
+
+- Report exact source- and target-side alignment-gap adjacency for mapped 1-bp queries, including
+  forward-coordinate before/after relationships on reverse-orientation mappings.
+
+### Validation
+
+- Added focused same- and reverse-orientation coverage for source-only, target-only, double-sided,
+  nonadjacent, terminal-edge, human-reporting, JSON, and indexed-batch behavior.
+
 ## 0.2.0a1 - 2026-09-13
 
 ### Changed

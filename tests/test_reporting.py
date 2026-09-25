@@ -30,6 +30,8 @@ from liftassess import (
     MappingSegment,
     NetHierarchySummary,
     NormalizedCandidate,
+    PointGapBoundary,
+    PointGapBoundaryPosition,
     PointQueryContextResult,
     ProvenanceIdentifier,
     ProvenanceIdentifierKind,
@@ -259,6 +261,7 @@ def _report(
     candidates: tuple[NormalizedCandidate, ...],
     *,
     tier: EvidenceAvailabilityTier = EvidenceAvailabilityTier.LIFTOVER_ONLY,
+    source_interval: GenomicInterval = SOURCE,
 ) -> UCSCAssessmentReport:
     resources: tuple[UCSCAssessmentResource, ...]
     if tier is EvidenceAvailabilityTier.LIFTOVER_ONLY:
@@ -307,13 +310,13 @@ def _report(
         resource.role.value for resource in resources if resource.consumed_by_engine
     )
     profile = build_result_profile(
-        SOURCE,
+        source_interval,
         candidates,
         evidence_tier=tier,
         consumed_resource_roles=consumed_roles,
     )
     return UCSCAssessmentReport(
-        source_interval=SOURCE,
+        source_interval=source_interval,
         target_assembly=TARGET_ASSEMBLY,
         candidates=candidates,
         evidence_tier=tier,
@@ -323,6 +326,44 @@ def _report(
         alignment_provenance=ALIGNMENT,
         resources=resources,
     )
+
+
+def _point_boundary_report() -> UCSCAssessmentReport:
+    source = GenomicInterval(SOURCE_ASSEMBLY, "chr1", 109, 110)
+    target = GenomicInterval(TARGET_ASSEMBLY, "chrA", 1490, 1491)
+    candidate_id = chain_candidate_id(CHAIN.source_id, 77)
+    boundary = PointGapBoundary(
+        source_gap_interval=GenomicInterval(SOURCE_ASSEMBLY, "chr1", 110, 120),
+        source_position=PointGapBoundaryPosition.BEFORE_GAP,
+        target_gap_interval=GenomicInterval(TARGET_ASSEMBLY, "chrA", 1475, 1490),
+        target_position=PointGapBoundaryPosition.AFTER_GAP,
+    )
+    candidate = NormalizedCandidate(
+        candidate_id=candidate_id,
+        target_interval=target,
+        orientation=MappingOrientation.REVERSE,
+        mapping_provenance=CHAIN,
+        segments=(MappingSegment(source, target),),
+        evidence=(
+            EvidenceObservation(
+                f"{candidate_id}:coverage",
+                EvidenceKind.MAPPING_COVERAGE,
+                MappingCoverageSummary(
+                    MappingCoverageStatus.FULL,
+                    1,
+                    1,
+                ),
+                CHAIN,
+            ),
+            EvidenceObservation(
+                f"{candidate_id}:gaps",
+                EvidenceKind.CHAIN_GAPS,
+                ChainGapSummary(point_gap_boundaries=(boundary,)),
+                CHAIN,
+            ),
+        ),
+    )
+    return _report((candidate,), source_interval=source)
 
 
 def _with_depth1_top_net(candidate: NormalizedCandidate) -> NormalizedCandidate:
@@ -479,6 +520,67 @@ def test_reverse_orientation_summary_explains_strand_actionability() -> None:
     assert "Account for strand" in summary
 
 
+def test_point_gap_boundary_is_visible_in_summary_and_details() -> None:
+    report = _point_boundary_report()
+
+    summary = render_assessment_summary(report)
+    details = render_assessment_details(report)
+
+    assert "Alignment gap boundary:" in summary
+    assert "input coordinate is immediately before" in summary
+    assert "mapped coordinate is immediately after" in summary
+    assert "does not by itself establish an allele change" in " ".join(summary.split())
+    assert "Point alignment-gap boundary context:" in details
+    assert "source: immediately before chr1:111-120" in details
+    assert "target: immediately after chrA:1476-1490" in details
+    assert "1 internal chain gap(s) directly adjacent" in details
+
+
+def test_point_gap_boundary_is_structured_in_json_evidence_and_profile() -> None:
+    payload = json.loads(reporting.render_assessment_json(_point_boundary_report()))
+
+    candidate = payload["candidates"][0]
+    gap_evidence = next(
+        item for item in candidate["evidence"] if item["kind"] == "CHAIN_GAPS"
+    )
+    expected_boundary = {
+        "source_gap_interval": {
+            "assembly": {
+                "name": "sourceAsm",
+                "provider": "test",
+                "accession": None,
+                "aliases": [],
+            },
+            "sequence_name": "chr1",
+            "start": 110,
+            "end": 120,
+            "coordinate_system": "0-based-half-open",
+        },
+        "source_position": "BEFORE_GAP",
+        "target_gap_interval": {
+            "assembly": {
+                "name": "targetAsm",
+                "provider": "test",
+                "accession": None,
+                "aliases": [],
+            },
+            "sequence_name": "chrA",
+            "start": 1475,
+            "end": 1490,
+            "coordinate_system": "0-based-half-open",
+        },
+        "target_position": "AFTER_GAP",
+    }
+    assert gap_evidence["value"]["point_gap_boundaries"] == [expected_boundary]
+    boundary_context = payload["result_profile"]["candidate_profiles"][0]["geometry"][
+        "point_gap_boundary_context"
+    ]
+    assert boundary_context == {
+        "assessed": True,
+        "boundaries": [expected_boundary],
+    }
+
+
 def test_interchromosomal_summary_surfaces_reverse_liftover_elsewhere() -> None:
     source_assembly = AssemblyIdentifier("hg38", "UCSC")
     target_assembly = AssemblyIdentifier("hg19", "UCSC")
@@ -506,7 +608,7 @@ def test_interchromosomal_summary_surfaces_reverse_liftover_elsewhere() -> None:
             EvidenceObservation(
                 f"{candidate_id}:gaps",
                 EvidenceKind.CHAIN_GAPS,
-                ChainGapSummary(()),
+                ChainGapSummary((), ()),
                 CHAIN,
             ),
         ),
@@ -585,7 +687,7 @@ def test_interchromosomal_summary_surfaces_reverse_liftover_elsewhere() -> None:
             EvidenceObservation(
                 f"{reverse_candidate_id}:gaps",
                 EvidenceKind.CHAIN_GAPS,
-                ChainGapSummary(()),
+                ChainGapSummary((), ()),
                 reverse_provenance,
             ),
         ),

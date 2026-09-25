@@ -38,6 +38,8 @@ from .models import (
     MappingCoverageSummary,
     MappingOrientation,
     NormalizedCandidate,
+    PointGapBoundary,
+    PointGapBoundaryPosition,
     ReciprocalBestMembershipSummary,
 )
 from .query_context import (
@@ -188,6 +190,7 @@ class CandidateResultProfile:
     target_bounding_span: GenomicInterval
     source_gap_intervals: tuple[GenomicInterval, ...]
     target_gap_intervals: tuple[GenomicInterval, ...]
+    point_gap_boundaries: tuple[PointGapBoundary, ...] | None
     largest_uncovered_source_span_bases: int
     largest_source_gap_bases: int
     largest_target_gap_bases: int
@@ -945,6 +948,7 @@ def _candidate_result_profile(
         for gap in gaps.gaps
         if gap.target_gap_interval is not None
     )
+    _validate_point_gap_boundaries(source_interval, candidate, gaps)
 
     reciprocal_observation = _single_observation(
         candidate,
@@ -1002,6 +1006,7 @@ def _candidate_result_profile(
         target_bounding_span=candidate.target_interval,
         source_gap_intervals=source_gap_intervals,
         target_gap_intervals=target_gap_intervals,
+        point_gap_boundaries=gaps.point_gap_boundaries,
         largest_uncovered_source_span_bases=max(
             (interval.length for interval in coverage.uncovered_source_intervals),
             default=0,
@@ -1017,6 +1022,62 @@ def _candidate_result_profile(
         orientation=candidate.orientation,
         reverse_mapping=reverse_mapping,
     )
+
+
+def _validate_point_gap_boundaries(
+    source_interval: GenomicInterval,
+    candidate: NormalizedCandidate,
+    gaps: ChainGapSummary,
+) -> None:
+    boundaries = gaps.point_gap_boundaries
+    if source_interval.length != 1:
+        if boundaries is not None:
+            raise ValueError(
+                "non-point candidates cannot carry point gap-boundary context"
+            )
+        return
+    if boundaries is None:
+        raise ValueError("point candidates require explicit gap-boundary context")
+    if len(candidate.segments) != 1:
+        raise ValueError("a mapped point candidate must contain exactly one segment")
+
+    target_point = candidate.segments[0].target_interval
+    for boundary in boundaries:
+        if boundary.source_gap_interval is not None:
+            _validate_point_position(
+                source_interval,
+                boundary.source_gap_interval,
+                boundary.source_position,
+                side="source",
+            )
+        if boundary.target_gap_interval is not None:
+            _validate_point_position(
+                target_point,
+                boundary.target_gap_interval,
+                boundary.target_position,
+                side="target",
+            )
+
+
+def _validate_point_position(
+    point: GenomicInterval,
+    gap: GenomicInterval,
+    position: PointGapBoundaryPosition | None,
+    *,
+    side: str,
+) -> None:
+    if point.assembly != gap.assembly or point.sequence_name != gap.sequence_name:
+        raise ValueError(f"point {side}-gap boundary must use one assembly sequence")
+    if position is PointGapBoundaryPosition.BEFORE_GAP:
+        adjacent = point.end == gap.start
+    elif position is PointGapBoundaryPosition.AFTER_GAP:
+        adjacent = point.start == gap.end
+    else:
+        raise ValueError(f"point {side}-gap boundary requires a position")
+    if not adjacent:
+        raise ValueError(
+            f"point {side}-gap boundary position must describe exact adjacency"
+        )
 
 
 def _aggregate_candidate_coverage(

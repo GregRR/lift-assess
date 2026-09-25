@@ -258,7 +258,27 @@ query bound recorded in the authenticated chain-index catalog remains only a bac
 indexed-query fallback for lower-level callers that have not supplied validation facts; it is not
 promoted to authoritative assembly metadata or used for general source-name validation.
 
-### 4.6 Common-use evidence boundaries
+### 4.6 Point alignment-gap boundary context
+
+For each mapped 1-bp query, liftAssess reports whether the source base or its exact mapped target
+base is directly adjacent to a positive-width internal chain gap. Adjacency is literal and has no
+distance threshold: the 1-bp interval must end exactly where the gap begins (`BEFORE_GAP`) or begin
+exactly where the gap ends (`AFTER_GAP`) in that assembly's forward coordinates. Terminal chain
+edges are not internal gaps and are outside this feature.
+
+Source- and target-side relationships are recorded independently. An internal chain boundary may
+have a source-side gap, a target-side gap, or both. On a reverse-orientation mapping, the source base
+may be before its gap while the mapped target base is after the corresponding target-side gap, or
+vice versa; the report must preserve those forward-coordinate relationships rather than reusing the
+source-side label on the target assembly. Ordinary interval queries do not receive point-boundary
+context.
+
+The observation is extracted during the existing raw-chain projection pass, retains the same chain
+provenance as mapping coverage and chain-gap evidence, and does not constitute independent support.
+It does not alter the factual mapping headline, comparative relationship, or bounded interpretation.
+Adjacency alone does not establish an allele change, assembly-history mechanism, or mapping error.
+
+### 4.7 Common-use evidence boundaries
 
 The result model preserves six common-use lenses that help prevent overclaiming:
 
@@ -311,7 +331,8 @@ Not addressed in earlier drafts of this design and worth getting right before an
 **In scope — target mapping/evidence capabilities:**
 
 - **Mapping structure:** source-locus coverage, exact mapped segments, uncovered source intervals,
-  source/target chain gaps, target bounding spans, orientation, and mapping multiplicity.
+  source/target chain gaps, point adjacency to internal alignment gaps, target bounding spans,
+  orientation, and mapping multiplicity.
   `FULL`/complete coverage means every requested source base is represented by an aligned mapping
   segment; partial coverage means one or more requested source bases are not aligned. Preserve exact
   geometry rather than reducing it to a quality-like number.
@@ -778,7 +799,7 @@ Detailed output exposes the complete result profile and supporting evidence, inc
 
 - exact mapped segments and target bounding spans;
 - source coverage and uncovered source intervals;
-- source/target chain gaps;
+- source/target chain gaps and point adjacency to internal alignment gaps;
 - orientation and target sequence-role context;
 - every relevant evidence observation;
 - standard liftOver/all-chain and comparative relationships when available;

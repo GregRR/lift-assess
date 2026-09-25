@@ -10,10 +10,12 @@ from .batch import (
 )
 from .batch_execution import IndexedChainBatchResult
 from .models import (
+    ChainGapSummary,
     EvidenceAvailabilityTier,
     EvidenceKind,
     GenomicInterval,
     NormalizedCandidate,
+    PointGapBoundaryPosition,
     ReciprocalBestMembershipSummary,
 )
 from .query_context import PointQueryContextResult, QueryContextState
@@ -138,6 +140,7 @@ def render_indexed_chain_batch_summary(result: IndexedChainBatchResult) -> str:
                         + f"; orientation={candidate.orientation.value}"
                         + _candidate_comparative_suffix(candidate)
                     )
+                    lines.extend(_candidate_point_gap_boundary_preview(candidate))
                 omitted = len(assessment.candidates) - _DEFAULT_INLINE_PROJECTION_LIMIT
                 if omitted > 0:
                     lines.append(f"            ... {omitted} more mapping(s)")
@@ -621,6 +624,49 @@ def _candidate_comparative_suffix(candidate: NormalizedCandidate) -> str:
     if reciprocal:
         parts.append("reciprocal-best=" + reciprocal[-1].status.value)
     return "; " + "; ".join(parts)
+
+
+def _candidate_point_gap_boundary_preview(
+    candidate: NormalizedCandidate,
+) -> list[str]:
+    summaries: list[ChainGapSummary] = []
+    for observation in candidate.evidence:
+        value = observation.value
+        if observation.kind is EvidenceKind.CHAIN_GAPS and isinstance(
+            value, ChainGapSummary
+        ):
+            summaries.append(value)
+    if len(summaries) != 1:
+        return []
+    boundaries = summaries[0].point_gap_boundaries
+    if not boundaries:
+        return []
+
+    lines = ["                Alignment gap boundary:"]
+    for boundary in boundaries:
+        if boundary.source_gap_interval is not None:
+            assert boundary.source_position is not None
+            lines.append(
+                "                    source base immediately "
+                f"{_point_gap_position_text(boundary.source_position)} "
+                + _format_half_open_interval(boundary.source_gap_interval)
+            )
+        if boundary.target_gap_interval is not None:
+            assert boundary.target_position is not None
+            lines.append(
+                "                    target base immediately "
+                f"{_point_gap_position_text(boundary.target_position)} "
+                + _format_half_open_interval(boundary.target_gap_interval)
+            )
+    return lines
+
+
+def _point_gap_position_text(position: PointGapBoundaryPosition) -> str:
+    if position is PointGapBoundaryPosition.BEFORE_GAP:
+        return "before"
+    if position is PointGapBoundaryPosition.AFTER_GAP:
+        return "after"
+    raise AssertionError(f"unhandled point gap-boundary position: {position!r}")
 
 
 def _batch_comparative_resources_json(

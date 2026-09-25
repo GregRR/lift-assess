@@ -60,7 +60,8 @@ The built-in UCSC engine implements:
   aligned segments so split mappings are not presented as continuous alignment;
 - source-locus mapping coverage as complete or partial;
 - exact uncovered source intervals for partial mappings;
-- chain-gap geometry through the requested locus;
+- chain-gap geometry through the requested locus and exact internal-gap adjacency for mapped
+  1-bp queries;
 - raw UCSC chain score as contextual evidence; and
 - stable mapping IDs tied to the source chain record that produced each mapping;
 - optional exact-resource chain indexing using 65,536-bp source-coordinate memberships and
@@ -85,6 +86,8 @@ liftAssess can assess BED3-or-later or simple interval-table record sets through
 - applies the automatic 101-bp flanking-interval check to one-base rows from either batch input form using the same prepared index, with `--context-bases` for a different odd-width point window and no widening of ordinary interval rows;
 - keeps submitted-row and flanking-interval relationships as separate scales, including explicit flanking-interval target collisions and overlapping-but-offset mappings;
 - exposes compact human and schema-v2 JSON batch reports with exact tested flanking intervals and per-record context run/not-run state;
+- reports source- and target-side alignment-gap adjacency for mapped one-base rows in human and
+  schema-v2 JSON output;
 - for a complete cached `COMPARATIVE` resource set, attaches ordinary-net and reciprocal-best-chain observations to every submitted-row mapping with one shared pass over each resource, without rescanning the indexed all-chain; and
 - requires a usable prepared chain index, with no provider access, automatic index build, refresh, or whole-chain fallback.
 
@@ -145,6 +148,17 @@ evidence at the point itself, but those resources are not re-run for the 101-bp 
 The check therefore does not imply flanking-interval-scale comparative support. If no usable matching
 forward index is available, or the index cannot provide a safe source bound, the check is reported as
 not run; no extra whole-chain fallback is started.
+
+## Point alignment-gap boundary context
+
+For each mapped 1-bp query, liftAssess records whether the source base or exact mapped target base is
+immediately before or after a positive-width internal chain gap in forward assembly coordinates.
+Source and target relationships are independent, so reverse-orientation mappings can report opposite
+positions on the two assemblies. Source-only, target-only, and double-sided gaps remain distinct.
+
+This observation is extracted during the existing chain projection pass and carries the same chain
+provenance as the mapping. It has no proximity threshold, excludes terminal chain edges, and does not
+change the mapping headline or imply an allele change, assembly-history mechanism, or mapping error.
 
 The 101-bp width is a product default, not a confidence threshold or biological universal. For a
 1-bp query, `--context-bases N` requests a different odd-width window explicitly. Ordinary interval
@@ -238,7 +252,7 @@ A dedicated derived `ResultProfile` sits between scientific mapping/evidence dat
 - mapping count;
 - source coverage with exact numerator/denominator;
 - mapped-segment count and uncovered source intervals;
-- target bounding span and target gaps;
+- target bounding span, target gaps, and point adjacency to internal alignment gaps;
 - orientation;
 - maximum source coverage for one mapping when multiple mappings exist;
 - point-query flanking-interval state, exact tested window, and factual point/flanking relationships;
@@ -278,7 +292,8 @@ For single-locus assessment, `--details` emits the complete currently available 
 - every result-profile field and explicit scope boundary;
 - authoritative source-validation metadata and provenance;
 - mapping IDs and UCSC chain IDs where applicable;
-- exact mapped segments, uncovered source intervals, target gaps, and orientation;
+- exact mapped segments, uncovered source intervals, target gaps, point alignment-gap boundaries,
+  and orientation;
 - target sequence role when available;
 - genomic-context observations and provenance;
 - every evidence observation;
@@ -461,7 +476,7 @@ boundary is **not** a plugin registry or engine auto-discovery system.
 The current repository includes automated coverage for, among other behaviors:
 
 - forward and reverse mappings;
-- split mappings and gaps;
+- split mappings, gaps, and point adjacency to internal alignment gaps;
 - repeated net chain IDs;
 - provenance dependency diamonds;
 - reciprocal-best subsetting and completeness;
