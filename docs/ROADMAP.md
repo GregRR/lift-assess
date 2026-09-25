@@ -4,7 +4,7 @@ This roadmap tracks implementation status and sequencing for **liftAssess**. It 
 
 [`DESIGN.md`](DESIGN.md) remains authoritative for the project's problem definition, scientific invariants, coordinate semantics, result-model semantics, current scope, architecture, licensing constraints, and validation requirements. This file answers a different set of questions: **what has been built, what is being reviewed now, what comes next, and what is deliberately deferred?**
 
-## Current status — 2026-09-24
+## Current status — 2026-09-25
 
 liftAssess `v0.1.0a1` was released on 2026-08-17 as the project's first public alpha. `v0.2.0a1` was released on 2026-09-13 as the second public alpha. The project remains active scientific software under development and should not be treated as a mature or stable analysis platform.
 
@@ -20,7 +20,9 @@ Milestone 24 is complete. The `v0.2.0a1` release candidate passed the full relea
 
 Milestone 25 development is active. Its first completed slice reports exact source- and target-side
 alignment-gap adjacency for mapped 1-bp queries without changing the mapping headline or treating
-the observation as a mapping-quality judgment.
+the observation as a mapping-quality judgment. Its context-result plumbing now carries multiple
+typed evidence families without replacing their family-specific models, and the UCSC self-chain
+source contract is verified before implementation begins.
 
 The next release sequence is therefore:
 
@@ -946,6 +948,28 @@ Multi-family contextual-evidence plumbing completed 2026-09-25:
 - later profile rebuilds preserve already attached context, so attachment order no longer drops
   Segmental Duplications context; and
 - the existing single-family call shape remains accepted during the pre-release transition.
+
+UCSC self-chain source contract verified 2026-09-25:
+
+- the authoritative resource is the observed assembly-scoped
+  `vsSelf/{database}.{database}.all.chain.gz` publication, not the larger split
+  `database/chainSelf` and `chainSelfLink` table dumps;
+- the existing exact-resource chain parser/index can preserve block geometry and SHA-256
+  provenance, but acquisition and index construction must remain explicit because these resources
+  can be very large (the current hg38 gzip is approximately 1.3 GB);
+- assessment follows the track's target-anchored aligned-block semantics and preserves provider
+  score rather than importing the Genome Browser's default display threshold as a scientific
+  filter;
+- provider-declared sequence coverage is required before a zero-overlap lookup can become a
+  negative observation; out-of-scope or unknown sequences remain `UNAVAILABLE`; and
+- the exact `vsSelf/` README governs terms independently of dedicated liftOver chains and
+  cross-assembly comparative resources. Source- and target-assembly self-chain context will remain
+  optional, independent, descriptive, and prepared-index-only.
+
+The first self-chain implementation slice will add typed discovery and resource/cache metadata for
+one assembly-side resource, including observed-file verification, README-bound terms/coverage, and
+exact checksum metadata. It will not yet add result observations or reporting; that keeps provider
+identity and availability semantics reviewable before scientific output depends on them.
 
 Release gate: `v0.3.0a1` ships only after the new context families exercised in the release have
 source-specific semantics, failure-boundary tests, provenance coverage, and representative real-data

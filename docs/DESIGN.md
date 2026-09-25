@@ -293,6 +293,47 @@ These are model/scope concepts, not six mandatory terminal lines. Detailed/JSON 
 clear `NOT TESTED`, `NOT CHECKED`, or `NOT ASSESSED` boundaries whenever a domain was not evaluated.
 Default human output uses progressive disclosure (§9).
 
+### 4.8 UCSC self-chain context
+
+UCSC self-chain context uses the assembly-scoped Golden Path resource
+`{database}/vsSelf/{database}.{database}.all.chain.gz`. It is a standard chain file whose target
+and query sides belong to the same UCSC assembly. It is distinct from a directional
+`liftOver/*.over.chain.gz` mapping resource and from a cross-assembly `vsTarget/` comparative
+resource; it does not establish a new mapping-evidence availability tier.
+
+For a queried locus, liftAssess follows the UCSC track's target-anchored semantics: it reports
+self-chain records whose exact aligned target blocks overlap the locus and preserves the
+corresponding query-side partner interval, chain ID, orientation, provider score, and exact
+resource provenance. Bounding-chain overlap alone is insufficient. Source-assembly context is
+evaluated against the submitted source interval; target-assembly context is evaluated separately
+against each mapping's exact mapped target segments, never against a target bounding span across
+unaligned bases.
+
+The provider's filtering and score remain facts about the published resource. In particular, the
+Genome Browser's default self-chain display threshold is not a liftAssess quality threshold, vote,
+or confidence rule. liftAssess does not recompute sequence identity from chain geometry. A reported
+overlap means that UCSC's published self-alignment contains the aligned blocks; it may describe
+duplicated or paralogous sequence context, but it does not prove that a liftOver mapping is wrong,
+identify a biological predecessor, or establish orthology.
+
+Resource coverage must be explicit before absence is interpreted. Each assembly's directory README
+defines its declared scope, while the observed inventory establishes resource availability. For
+example, UCSC's hg38 `vsSelf` README states that the self-alignment covers primary chromosomes
+1–22, X, Y, and M. A represented sequence with a complete indexed lookup and zero overlaps may be
+reported as no self-chain overlap.
+An unrepresented sequence, unknown coverage scope, absent resource, or missing/unusable prepared
+index is `UNAVAILABLE`, not evidence that no same-assembly match exists. Source and target assembly
+availability are independent.
+
+Self-chain resources can be too large to download, index, or traverse implicitly during ordinary
+assessment. Provider discovery must observe the exact `vsSelf/` directory entry rather than infer
+availability from a plausible URL. An explicit preparation path may acquire the exact gzip bytes
+after surfacing terms and transfer metadata, preserve provider checksum metadata as an integrity
+check, compute the resource's SHA-256 provenance identity, and build the existing exact-resource
+chain index. Normal single-locus and batch assessment consume only a matching prepared index and
+never fall back to a whole-resource scan. The index remains a derived acceleration artifact, not
+independent evidence.
+
 ## 5. Coordinate semantics
 
 Not addressed in earlier drafts of this design and worth getting right before any code exists.
@@ -595,6 +636,12 @@ Progressive-disclosure human renderer
   4. Always tell the user which tier is in play, in plain language, before showing results.
   5. Always accept user-supplied chain/net resources directly — UCSC is a convenient default
      provider, not a hard dependency.
+- **Self-chain resource discovery is assembly-scoped and independent of mapping-resource
+  discovery.** For each assembly side requested, inspect `{database}/vsSelf/` and accept only the
+  observed exact `{database}.{database}.all.chain.gz` entry plus its directory README and exact
+  checksum entry when published. Preserve the README's declared sequence coverage. Do not classify
+  a self-chain as `COMPARATIVE` or `LIFTOVER-ONLY`, and do not infer that an unobserved resource
+  exists. Runtime assessment is prepared-index-only; preparation remains an explicit operation.
 - **Resource acquisition/cache**: discovery and retrieval remain separate operations. Mapping-evidence
   acquisition requires explicit acknowledgement of the applicable UCSC/general and directory-specific
   terms before network access, while explicitly classified UCSC `database/` table dumps used for
@@ -712,6 +759,11 @@ Progressive-disclosure human renderer
   states that all files in that directory are freely available for public use. Future comparative
   assembly pairs must still retain and respect their own provider README/terms rather than
   generalizing from this one directory.
+- Self-chain resources under `source/vsSelf/` are another distinct resource class. For hg38, the
+  directory README states that all files are freely available for public use. That statement, the
+  resource's assembly/sequence scope, and any provider checksum metadata must be retained from the
+  exact directory used; liftAssess must not generalize hg38's terms or coverage to another
+  assembly. The file's chain format does not make it a restricted dedicated liftOver chain.
 - UCSC's liftOver **program/source** is separately licensed from most kent command-line utilities;
   UCSC lists the `src/hg/liftOver` source directory under its non-commercial UC license and offers
   commercial licensing for liftOver. liftAssess therefore does not depend on or redistribute the
@@ -742,12 +794,15 @@ Progressive-disclosure human renderer
   their licensing remains the user's/provider's responsibility and must not be represented as
   covered by liftAssess's GPL license.
 
-Primary UCSC terms/checksum behavior checked through 2026-08-13:
+Primary UCSC terms/checksum behavior checked through 2026-09-25:
 - Genome Browser licensing: https://genome.ucsc.edu/license/
 - canFam3 liftOver README/terms: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/liftOver/
 - canFam3/vsCanFam4 comparative README: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/
 - canFam3/vsCanFam4 provider MD5 metadata: https://hgdownload.soe.ucsc.edu/goldenPath/canFam3/vsCanFam4/md5sum.txt
 - canFam4/vsCanFam3 reciprocal-best MD5 metadata: https://hgdownload.soe.ucsc.edu/goldenPath/canFam4/vsCanFam3/reciprocalBest/md5sum.txt
+- hg38 self-chain README/resource inventory: https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/
+- hg38 self-chain provider MD5 metadata: https://hgdownload.soe.ucsc.edu/goldenPath/hg38/vsSelf/md5sum.txt
+- hg38 self-chain track description: https://genome.ucsc.edu/cgi-bin/hgTrackUi?db=hg38&g=chainSelf
 - kent source license: https://github.com/ucscGenomeBrowser/kent/blob/master/LICENSE
 
 ## 9. Output format
